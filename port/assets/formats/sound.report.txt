@@ -1,0 +1,11 @@
+Command:
+python3 port/assets/tools/fmt_sound.py --check ~/wii-play/extracted/files
+
+Output:
+RSAR: files parsed=11 errors=0 versions={257x11} sounds=1124 banks=79 groups=13 players=91 files=273 embedded={RBNKx79, RSEQx190, RWSDx8} embeddedVersions={('RBNK', 257)x79, ('RSEQ', 256)x190, ('RWSD', 258)x8} rseqLabels=2500 instruments=767 rbnkWaves=1612 rwsdWaveSounds=23 rwsdWaves=22 rwarWaves=0
+RSTM: files parsed=14 errors=0 versions={256x14} codecs={1x4, 2x10} channels={2x14} sampleRates={32000x8, 44100x6}
+
+Known gaps:
+- The disc contains no standalone or embedded RWAR; its RSAR group wave regions are raw DSP-ADPCM bytes, so RWAR coverage is implemented and bounds-checked but contributes no live files or wave counts to this disc scan.
+- Sequence bytecode, raw wave payloads, symbol strings, and label strings are intentionally treated as opaque structural data.
+- External RSAR groups/paths are recognized, but no external sound files are present on this disc.

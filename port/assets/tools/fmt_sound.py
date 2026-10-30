@@ -74,8 +74,8 @@ def _file_header(data: bytes) -> dict[str, Any]:
         raise FormatError("expected big-endian byte-order mark 0xFEFF")
     if file_size < header_size:
         raise FormatError(f"fileSize {file_size} is smaller than headerSize {header_size}")
-    if header_size != 0x40:
-        raise FormatError(f"expected headerSize 0x40, got 0x{header_size:x}")
+    if header_size not in (0x20, 0x40):
+        raise FormatError(f"expected headerSize 0x20 or 0x40, got 0x{header_size:x}")
     if not 1 <= data_blocks <= 4:
         raise FormatError(f"unexpected dataBlocks count {data_blocks}")
     return {
@@ -103,9 +103,10 @@ def _data_ref(
     what: str,
     expected_types: set[int] | None = None,
     allow_address: bool = False,
+    allow_null: bool = False,
 ) -> dict[str, Any]:
     ref_type, data_type, reserved, value = _unpack(data, offset, "BBHI", what)
-    if ref_type == 0 and allow_address:
+    if ref_type == 0 and (allow_address or allow_null):
         pass
     elif ref_type != 1:
         raise FormatError(f"{what}: expected REFTYPE_OFFSET, got {ref_type}")
@@ -114,6 +115,17 @@ def _data_ref(
     if expected_types is not None and data_type not in expected_types:
         raise FormatError(f"{what}: unexpected dataType {data_type}")
     return {"refType": ref_type, "dataType": data_type, "reserved": reserved, "value": value}
+
+
+def _nullable_ref_target(
+    ref: dict[str, Any],
+    base: int,
+    end: int,
+    what: str,
+) -> int | None:
+    if ref["refType"] == 0:
+        return None
+    return _ref_target(ref, base, end, what)
 
 
 def _ref_target(ref: dict[str, Any], base: int, end: int, what: str) -> int:
@@ -133,7 +145,7 @@ def _table_count(data: bytes, offset: int, end: int, element_size: int, what: st
 
 def _parse_rseq(data: bytes) -> dict[str, Any]:
     header = _file_header(data)
-    if header["signature"] != "RSEQ" or header["dataBlocks"] != 1 or header["version"] > 0x0100:
+    if header["signature"] != "RSEQ" or header["dataBlocks"] not in (1, 2) or header["version"] > 0x0100:
         raise FormatError("not a supported RSEQ v1.0 file")
     data_offset, data_size, label_offset, label_size = _unpack(
         data, 0x10, "IIII", "RSEQ Header"
@@ -145,8 +157,26 @@ def _parse_rseq(data: bytes) -> dict[str, Any]:
     if size < 12 or data_offset + size < data_offset + 8 + base_offset:
         raise FormatError("RSEQ DataBlock.baseOffset is out of bounds")
     label_kind = None
+    label_block = None
     if label_size:
-        label_kind, _label_size = _block_header(data, label_offset)
+        label_kind, label_size_field = _block_header(data, label_offset, "LABL")
+        _need(data, label_offset, label_size_field, "RSEQ LABL block")
+        label_count = _table_count(data, label_offset + 8, label_offset + label_size_field, 4, "RSEQ label table")
+        label_offsets = [
+            _u32(data, label_offset + 12 + label * 4, f"RSEQ label {label} offset")
+            for label in range(label_count)
+        ]
+        for label, label_offset_value in enumerate(label_offsets):
+            string_target = label_offset + 8 + label_offset_value
+            if label_offset_value == 0 or string_target > label_offset + label_size_field - 1:
+                raise FormatError(f"RSEQ label {label} string offset is out of bounds")
+            terminator = data.find(b"\0", string_target, label_offset + label_size_field)
+            if terminator < 0:
+                raise FormatError(f"RSEQ label {label} string is not NUL-terminated")
+        label_block = {
+            "blockHeader": {"kind": label_kind, "size": label_size_field},
+            "count": label_count,
+        }
     return {
         "format": "RSEQ",
         "fileHeader": header,
@@ -157,23 +187,89 @@ def _parse_rseq(data: bytes) -> dict[str, Any]:
             "labelBlockSize": label_size,
         },
         "dataBlock": {"blockHeader": {"kind": kind, "size": size}, "baseOffset": base_offset},
-        "labelBlock": None if not label_size else {"kind": label_kind},
+        "labelBlock": label_block,
     }
 
 
 def _parse_rwar(data: bytes) -> dict[str, Any]:
     header = _file_header(data)
-    if header["signature"] != "RWAR" or header["dataBlocks"] != 1 or header["version"] > 0x0100:
+    if header["signature"] != "RWAR" or header["dataBlocks"] != 2 or header["version"] > 0x0100:
         raise FormatError("not a supported RWAR v1.0 file")
-    data_offset, data_size = _unpack(data, 0x10, "II", "RWAR Header")
+    table_offset, table_size, data_offset, data_size = _unpack(data, 0x10, "IIII", "RWAR Header")
+    _need(data, table_offset, table_size, "RWAR table block")
     _need(data, data_offset, data_size, "RWAR data block")
-    kind, size = _block_header(data, data_offset, "DATA")
+    kind, size = _block_header(data, table_offset, "TABL")
+    data_kind, data_block_size = _block_header(data, data_offset, "DATA")
+    if size < 12:
+        raise FormatError("RWAR TABL block is smaller than its wave table")
+    wave_count = _table_count(data, table_offset + 8, table_offset + size, 4, "RWAR wave table")
+    waves = []
+    for i in range(wave_count):
+        wave_offset = _u32(data, table_offset + 12 + i * 4, f"RWAR wave {i} offset")
+        wave_target = data_offset + wave_offset
+        if wave_offset < 8 or wave_target > data_offset + data_block_size:
+            raise FormatError(f"RWAR wave {i} offset is outside the DATA block")
+        waves.append(_wave_info(data, wave_target, data_offset + data_block_size, f"RWAR wave {i}"))
     return {
         "format": "RWAR",
         "fileHeader": header,
-        "header": {"dataBlockOffset": data_offset, "dataBlockSize": data_size},
-        "dataBlock": {"blockHeader": {"kind": kind, "size": size}},
+        "header": {
+            "tablBlockOffset": table_offset,
+            "tablBlockSize": table_size,
+            "dataBlockOffset": data_offset,
+            "dataBlockSize": data_size,
+        },
+        "tablBlock": {
+            "blockHeader": {"kind": kind, "size": size},
+            "waveCount": wave_count,
+            "waves": waves,
+        },
+        "dataBlock": {"blockHeader": {"kind": data_kind, "size": data_block_size}},
     }
+
+
+def _bank_instrument_node(
+    data: bytes,
+    ref: dict[str, Any],
+    base: int,
+    end: int,
+    what: str,
+) -> dict[str, Any]:
+    data_type = ref["dataType"]
+    node: dict[str, Any] = {"dataType": data_type, "offset": ref["value"]}
+    target = _nullable_ref_target(ref, base, end, what)
+    if target is None:
+        return node
+    if data_type == 0:
+        return node
+    if data_type == 1:
+        _need(data, target, 0x14, f"{what} InstParam")
+        node["InstParam"] = {
+            "waveIndex": _unpack(data, target, "i", f"{what} InstParam.waveIndex")[0],
+            "attack": _u8(data, target + 4, f"{what} InstParam.attack"),
+            "decay": _u8(data, target + 5, f"{what} InstParam.decay"),
+            "sustain": _u8(data, target + 6, f"{what} InstParam.sustain"),
+            "release": _u8(data, target + 7, f"{what} InstParam.release"),
+            "originalKey": _u8(data, target + 0xC, f"{what} InstParam.originalKey"),
+            "volume": _u8(data, target + 0xD, f"{what} InstParam.volume"),
+            "pan": _u8(data, target + 0xE, f"{what} InstParam.pan"),
+            "tune": _unpack(data, target + 0x10, "f", f"{what} InstParam.tune")[0],
+        }
+        return node
+    if data_type == 2:
+        _need(data, target, 1, f"{what} RangeTable")
+        table_size = _u8(data, target, f"{what} RangeTable.tableSize")
+        start = (table_size + 2 + 3) & ~3
+        keys_end = target + 1 + table_size
+        _need(data, target, start, f"{what} RangeTable")
+        node["RangeTable"] = {"tableSize": table_size, "keysEnd": keys_end, "subrefsOffset": start}
+        return node
+    _need(data, target, 4, f"{what} IndexTable")
+    minimum, maximum, reserved = _unpack(data, target, "BBH", f"{what} IndexTable")
+    if reserved != 0:
+        raise FormatError(f"{what} IndexTable.reserved field is nonzero")
+    node["IndexTable"] = {"min": minimum, "max": maximum, "subrefsOffset": 4}
+    return node
 
 
 def _wave_info(data: bytes, offset: int, block_end: int, what: str) -> dict[str, Any]:
@@ -196,8 +292,9 @@ def _wave_info(data: bytes, offset: int, block_end: int, what: str) -> dict[str,
     if channel_table_offset < 0x1C or table_target > block_end:
         raise FormatError(f"{what}: channelInfoTableOffset is out of bounds")
     table_end = min(block_end, table_target + channels * 4)
-    _table_count(data, table_target, table_end, 4, what + " channel offsets")
-    channel_offsets = [_u32(data, table_target + 4 + i * 4, f"{what} channel offset") for i in range(channels)]
+    if table_target + channels * 4 > table_end:
+        raise FormatError(f"{what}: channel offset table is out of bounds")
+    channel_offsets = [_u32(data, table_target + i * 4, f"{what} channel offset") for i in range(channels)]
     channels_info = []
     for channel, channel_offset in enumerate(channel_offsets):
         channel_what = f"{what} channel {channel}"
@@ -207,6 +304,8 @@ def _wave_info(data: bytes, offset: int, block_end: int, what: str) -> dict[str,
         values = _unpack(data, channel_target, "7I", channel_what)
         if values[6] != 0:
             raise FormatError(f"{channel_what}: reserved field is nonzero")
+        if values[1] and (offset + values[1] < offset + 0x1C or offset + values[1] + 0x30 > block_end):
+            raise FormatError(f"{channel_what}: adpcmOffset is out of bounds")
         channels_info.append(
             {
                 "channelDataOffset": values[0],
@@ -245,10 +344,18 @@ def _parse_rbnk(data: bytes) -> dict[str, Any]:
     data_end = data_offset + data_block_size
     wave_end = wave_offset + wave_block_size
     data_count = _table_count(data, data_offset + 8, data_end, 8, "RBNK instrument table")
-    instruments = [
-        _data_ref(data, data_offset + 12 + i * 8, f"RBNK instrument {i}", set(range(4)))
-        for i in range(data_count)
-    ]
+    instruments = []
+    instrument_nodes = []
+    for i in range(data_count):
+        ref = _data_ref(
+            data,
+            data_offset + 12 + i * 8,
+            f"RBNK instrument {i}",
+            set(range(4)),
+            allow_null=True,
+        )
+        instruments.append(ref)
+        instrument_nodes.append(_bank_instrument_node(data, ref, data_offset + 8, data_end, f"RBNK instrument {i}"))
     wave_count = _table_count(data, wave_offset + 8, wave_end, 8, "RBNK wave table")
     waves = []
     for i in range(wave_count):
@@ -264,7 +371,12 @@ def _parse_rbnk(data: bytes) -> dict[str, Any]:
             "waveBlockOffset": wave_offset,
             "waveBlockSize": wave_size,
         },
-        "dataBlock": {"blockHeader": {"kind": data_kind, "size": data_block_size}, "count": data_count, "items": instruments},
+        "dataBlock": {
+            "blockHeader": {"kind": data_kind, "size": data_block_size},
+            "count": data_count,
+            "items": instruments,
+            "nodes": instrument_nodes,
+        },
         "waveBlock": {"blockHeader": {"kind": wave_kind, "size": wave_block_size}, "count": wave_count, "items": waves},
     }
 
@@ -305,12 +417,16 @@ def _parse_rwsd(data: bytes) -> dict[str, Any]:
             "fxSendB": _u8(data, info_target + 7, f"RWSD wsd {i} fxSendB"),
             "fxSendC": _u8(data, info_target + 8, f"RWSD wsd {i} fxSendC"),
             "mainSend": _u8(data, info_target + 9, f"RWSD wsd {i} mainSend"),
-            "graphEnvTableRef": _data_ref(data, info_target + 12, f"RWSD wsd {i} graph env", {0}),
-            "randomizerTableRef": _data_ref(data, info_target + 20, f"RWSD wsd {i} randomizer", {0}),
+            "graphEnvTableRef": _data_ref(
+                data, info_target + 12, f"RWSD wsd {i} graph env", {0}, allow_null=True
+            ),
+            "randomizerTableRef": _data_ref(
+                data, info_target + 20, f"RWSD wsd {i} randomizer", {0}, allow_null=True
+            ),
             "reserved": _u32(data, info_target + 28, f"RWSD wsd {i} reserved"),
         }
-        _ref_target(info["graphEnvTableRef"], data_offset + 8, data_end, f"RWSD wsd {i} graph env")
-        _ref_target(info["randomizerTableRef"], data_offset + 8, data_end, f"RWSD wsd {i} randomizer")
+        _nullable_ref_target(info["graphEnvTableRef"], data_offset + 8, data_end, f"RWSD wsd {i} graph env")
+        _nullable_ref_target(info["randomizerTableRef"], data_offset + 8, data_end, f"RWSD wsd {i} randomizer")
         notes = []
         for note in range(note_count):
             note_item_ref = _data_ref(data, note_target + 4 + note * 8, f"RWSD note {i}:{note}", {0})
@@ -461,11 +577,20 @@ def _parse_rsar(data: bytes) -> dict[str, Any]:
         sound_info_ref = _data_ref(data, target + 0x18, f"sound {i} sound info", set(range(4)))
         user_params = _unpack(data, target + 0x20, "II", f"sound {i} user params")
         pan_mode, pan_curve = _unpack(data, target + 0x28, "BB", f"sound {i} pan")
+        # soundInfoRef (SoundInfoOffset, snd_SoundArchiveFile.h) points at the type-specific
+        # SeqSoundInfo / StrmSoundInfo / WaveSoundInfo; follow it rather than assume it follows
+        # the common info.
         type_info = {}
         if sound_info_ref["dataType"] == 1:
-            type_info = {"dataOffset": _u32(data, target + 0x30, f"seq sound {i}.dataOffset")}
+            info = _ref_target(sound_info_ref, info_base, info_end, f"seq sound {i} info")
+            _need(data, info, 0xE, f"SeqSoundInfo {i}")
+            data_offset, bank_id, alloc_track = _unpack(data, info, "III", f"SeqSoundInfo {i}")
+            type_info = {"dataOffset": data_offset, "bankId": bank_id, "allocTrack": alloc_track}
         elif sound_info_ref["dataType"] == 3:
-            type_info = {"subNo": _unpack(data, target + 0x30, "i", f"wave sound {i}.subNo")[0]}
+            info = _ref_target(sound_info_ref, info_base, info_end, f"wave sound {i} info")
+            _need(data, info, 0xA, f"WaveSoundInfo {i}")
+            sub_no, alloc_track = _unpack(data, info, "iI", f"WaveSoundInfo {i}")
+            type_info = {"subNo": sub_no, "allocTrack": alloc_track}
         sounds.append(
             {
                 "stringId": string_id,
@@ -523,7 +648,7 @@ def _parse_rsar(data: bytes) -> dict[str, Any]:
                 continue
             position_target = _ref_target(position_ref, info_base, info_end, f"file position {i}:{position}")
             group_id, index = _unpack(data, position_target, "II", f"FilePos {i}:{position}")
-            if group_id >= group_count or index >= file_count:
+            if group_id >= group_count:
                 positions.append({"groupId": group_id, "index": index, "valid": False})
             else:
                 positions.append({"groupId": group_id, "index": index, "valid": True})
@@ -538,6 +663,7 @@ def _parse_rsar(data: bytes) -> dict[str, Any]:
             }
         )
 
+    file_image_offset = 0
     groups = []
     for i in range(group_count):
         item_ref = _data_ref(data, table_targets[4] + 4 + i * 8, f"group {i}", {0})
@@ -558,7 +684,7 @@ def _parse_rsar(data: bytes) -> dict[str, Any]:
             )
             if item_file_id >= file_count:
                 raise FormatError(f"GroupItemInfo {i}:{item} references invalid file")
-            embedded_offset = offsets[0] + item_offset
+            embedded_offset = file_image_offset + offsets[0] + item_offset
             _need(data, embedded_offset, item_size, f"group item {i}:{item} embedded file")
             if item_offset + item_size > offsets[1]:
                 raise FormatError(f"group item {i}:{item} exceeds its group file region")
@@ -574,8 +700,18 @@ def _parse_rsar(data: bytes) -> dict[str, Any]:
                 }
             )
         if ext_ref["refType"] == 1:
-            _need(data, offsets[0], offsets[1], f"group {i} file region")
-            _need(data, offsets[2], offsets[3], f"group {i} wave region")
+            _need(
+                data,
+                file_image_offset + offsets[0],
+                offsets[1],
+                f"group {i} file region",
+            )
+            _need(
+                data,
+                file_image_offset + offsets[2],
+                offsets[3],
+                f"group {i} wave region",
+            )
         groups.append(
             {
                 "stringId": string_id,
@@ -589,6 +725,13 @@ def _parse_rsar(data: bytes) -> dict[str, Any]:
                 "items": items,
             }
         )
+
+    for file_info in files:
+        for position in file_info["positions"]:
+            if position is not None and position["groupId"] < group_count:
+                position["valid"] = position["index"] < len(
+                    groups[position["groupId"]]["items"]
+                )
 
     player_info_target = _ref_target(info_refs[5], info_base, info_end, "INFO playerInfo")
     archive_player_info = dict(
@@ -622,15 +765,54 @@ def _parse_rsar(data: bytes) -> dict[str, Any]:
     }
 
     embedded = []
-    for group_index, group in enumerate(groups):
-        if group["extFilePathRef"]["refType"] != 1:
-            continue
-        for item_index, item in enumerate(group["items"]):
-            embedded_offset = group["offset"] + item["offset"]
-            _need(data, embedded_offset, item["size"], f"embedded file {group_index}:{item_index}")
+    seen_positions: set[tuple[int, int]] = set()
+    for file_index, file_info in enumerate(files):
+        for position_index, position in enumerate(file_info["positions"]):
+            what = f"embedded file {file_index}:{position_index}"
+            if position is None or not position["valid"]:
+                raise FormatError(f"{what}: invalid FilePos")
+            position_key = (position["groupId"], position["index"])
+            if position_key in seen_positions:
+                continue
+            seen_positions.add(position_key)
+            group = groups[position["groupId"]]
+            if position["index"] >= len(group["items"]):
+                raise FormatError(f"{what}: FilePos index exceeds group item table")
+            if group["extFilePathRef"]["refType"] != 0:
+                continue
+            item = group["items"][position["index"]]
+            if item["fileId"] != file_index:
+                raise FormatError(f"{what}: group item fileId disagrees with file table")
+            if item["size"] != file_info["fileSize"]:
+                raise FormatError(f"{what}: group item size disagrees with FileInfo.fileSize")
+            if item["waveDataSize"] != file_info["waveDataSize"]:
+                raise FormatError(f"{what}: group item wave size disagrees with FileInfo.waveDataSize")
+            embedded_offset = file_image_offset + group["offset"] + item["offset"]
+            _need(data, embedded_offset, item["size"], what)
             blob = data[embedded_offset:embedded_offset + item["size"]]
+            parsed = None
             if blob[:4] in (b"RSEQ", b"RBNK", b"RWSD", b"RWAR"):
-                embedded.append((group_index, item_index, blob))
+                parsed = parse(blob)
+            wave_data = None
+            if item["waveDataSize"] and blob[:4] == b"RWAR":
+                wave_offset = (
+                    file_image_offset
+                    + group["waveDataOffset"]
+                    + item["waveDataOffset"]
+                )
+                _need(data, wave_offset, item["waveDataSize"], f"{what} wave data")
+                wave_blob = data[wave_offset:wave_offset + item["waveDataSize"]]
+                if wave_blob[:4] == b"RWAR":
+                    wave_data = parse(wave_blob)
+            embedded.append(
+                {
+                    "fileId": file_index,
+                    "groupId": position["groupId"],
+                    "index": position["index"],
+                    "parsed": parsed,
+                    "waveData": wave_data,
+                }
+            )
 
     return {
         "format": "RSAR",
@@ -646,7 +828,7 @@ def _parse_rsar(data: bytes) -> dict[str, Any]:
         "symbolBlock": symbol_data,
         "infoBlock": info_data,
         "fileBlock": {"blockHeader": {"kind": file_kind, "size": file_block_size}},
-        "embedded": [parse(blob) for _group, _item, blob in embedded],
+        "embedded": embedded,
     }
 
 
@@ -821,6 +1003,14 @@ def check(root: str) -> tuple[int, int, int, dict[str, dict[str, Any]]]:
             "players": 0,
             "files": 0,
             "embedded": collections.Counter(),
+            "embeddedVersions": collections.Counter(),
+            "instruments": 0,
+            "rseqBlocks": collections.Counter(),
+            "rwsdWaveSounds": 0,
+            "rwsdWaves": 0,
+            "rbnkWaves": 0,
+            "rwarWaves": 0,
+            "rseqLabels": 0,
         },
         "RSTM": {
             "versions": collections.Counter(),
@@ -845,7 +1035,30 @@ def check(root: str) -> tuple[int, int, int, dict[str, dict[str, Any]]]:
                 facts["RSAR"]["players"] += len(info["players"])
                 facts["RSAR"]["files"] += len(info["files"])
                 for embedded in parsed["embedded"]:
-                    facts["RSAR"]["embedded"][embedded["format"]] += 1
+                    embedded_parsed = embedded["parsed"]
+                    if embedded_parsed is not None:
+                        facts["RSAR"]["embedded"][embedded_parsed["format"]] += 1
+                        facts["RSAR"]["embeddedVersions"][
+                            (embedded_parsed["format"], embedded_parsed["fileHeader"]["version"])
+                        ] += 1
+                        if embedded_parsed["format"] == "RSEQ":
+                            label_block = embedded_parsed["labelBlock"]
+                            facts["RSAR"]["rseqBlocks"][label_block["blockHeader"]["kind"]] += 1
+                            facts["RSAR"]["rseqLabels"] += label_block["count"]
+                        elif embedded_parsed["format"] == "RBNK":
+                            facts["RSAR"]["instruments"] += embedded_parsed["dataBlock"]["count"]
+                            facts["RSAR"]["rbnkWaves"] += embedded_parsed["waveBlock"]["count"]
+                        elif embedded_parsed["format"] == "RWSD":
+                            facts["RSAR"]["rwsdWaveSounds"] += embedded_parsed["dataBlock"]["wsdCount"]
+                            facts["RSAR"]["rwsdWaves"] += embedded_parsed["waveBlock"]["waveCount"]
+                        else:
+                            facts["RSAR"]["rwarWaves"] += embedded_parsed["tablBlock"]["waveCount"]
+                    if embedded["waveData"] is not None:
+                        facts["RSAR"]["embedded"][embedded["waveData"]["format"]] += 1
+                        facts["RSAR"]["embeddedVersions"][
+                            (embedded["waveData"]["format"], embedded["waveData"]["fileHeader"]["version"])
+                        ] += 1
+                        facts["RSAR"]["rwarWaves"] += embedded["waveData"]["tablBlock"]["waveCount"]
             else:
                 info = parsed["headBlock"]["strmDataInfo"]
                 facts["RSTM"]["channels"][info["numChannels"]] += 1
@@ -876,7 +1089,11 @@ def main(argv: list[str] | None = None) -> int:
         f"versions={{{_counter_text(rsar['versions'])}}} "
         f"sounds={rsar['sounds']} banks={rsar['banks']} groups={rsar['groups']} "
         f"players={rsar['players']} files={rsar['files']} "
-        f"embedded={{{_counter_text(rsar['embedded'])}}}"
+        f"embedded={{{_counter_text(rsar['embedded'])}}} "
+        f"embeddedVersions={{{_counter_text(rsar['embeddedVersions'])}}} "
+        f"rseqLabels={rsar['rseqLabels']} instruments={rsar['instruments']} "
+        f"rbnkWaves={rsar['rbnkWaves']} rwsdWaveSounds={rsar['rwsdWaveSounds']} "
+        f"rwsdWaves={rsar['rwsdWaves']} rwarWaves={rsar['rwarWaves']}"
     )
     print(
         f"RSTM: files parsed={rstm_count} errors={rstm_errors} "
