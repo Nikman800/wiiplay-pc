@@ -1,0 +1,14 @@
+Command run:
+python3 port/assets/tools/fmt_brres_model.py --check ~/wii-play/extracted/files
+
+Exact output:
+BRRES: files=132 errors=0 subfiles=CHR0=147, CLR0=27, MDL0=177, PAT0=10, PLT0=5, SCN0=16, SRT0=22, TEX0=564 subfile_bytes={'CHR0': 428397, 'MDL0': 6032224, 'TEX0': 18756128, 'CLR0': 25024, 'SRT0': 5128, 'SCN0': 18612, 'PAT0': 2052, 'PLT0': 608}
+MDL0: files=177 errors=0 versions=('MDL0', 9)=177 sections=toResByteCodeDic=403, toResMatDic=400, toResNodeDic=1539, toResShpDic=1340, toResTevDic=400, toResTexNameToTexPlttInfoDic=507, toResVtxClrDic=198, toResVtxNrmDic=446, toResVtxPosDic=631, toResVtxTexCoordDic=444 section_entries=6308
+TEX0: files=564 errors=0 versions=('TEX0', 1)=564 widths=1024=6, 128=91, 16=10, 256=79, 32=109, 320=1, 512=42, 64=180, 8=46 heights=1024=1, 128=110, 16=8, 240=1, 256=59, 32=107, 512=51, 64=188, 8=39 mipmaps=1=512, 3=21, 4=8, 5=7, 6=5, 7=11 formats=0x0:10, 0x1:116, 0x2:19, 0x3:95, 0x4:103, 0x5:75, 0x6:4, 0xe:142
+PLT0: files=5 errors=0 versions=('PLT0', 1)=5 formats=0 entries=16=4, 80=1
+
+Known gaps:
+- The BRRES parser validates container, root and resource dictionaries, MDL0 headers and section dictionaries, and TEX0/PLT0 headers and their declared payload offsets.
+- It intentionally does not decode texture pixels, palette entries, vertex arrays, display lists, or non-model subfile bodies; the brief scopes the parser to headers, dictionaries, MDL0 section lists, and TEX0 format/dimensions/mip count.
+- Standalone disc files are selected only when the leading magic is bres; MDL0, TEX0, and PLT0 are embedded BRRES subfiles and are therefore reached through the container.
+- Structure-only validation does not prove every runtime consumer can traverse all payload data; loader implementation should still use bounded BE accessors.
