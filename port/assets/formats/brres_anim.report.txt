@@ -1,0 +1,28 @@
+Command run:
+python3 port/assets/tools/fmt_brres_anim.py --check ~/wii-play/extracted/files
+
+Exit status: 0 (no lines on stderr)
+
+Exact output:
+BRRES: files=132 errors=0 withAnimations=72
+CHR0: blocks=147 errors=0 versions=v4=147 totalFrames=29375 nodes=2604 animatedTracks=3184
+CLR0: blocks=27 errors=0 versions=v3=27 totalFrames=1628 materials=48 colorTracks=53
+SRT0: blocks=22 errors=0 versions=v4=22 totalFrames=35899 materials=26 texMatrices=31
+PAT0: blocks=10 errors=0 versions=v3=10 totalFrames=158 materials=11 textures=56 palettes=0
+SCN0: blocks=16 errors=0 versions=v4=16 totalFrames=16 lightSets=54 ambLights=54 lights=48 fogs=0 cameras=19
+
+Cross-check: fmt_brres_model.py --check finds the same 132 BRRES files (72 of them hold animations),
+with CHR0=147, CLR0=27, SRT0=22, PAT0=10, SCN0=16; every one of those blocks parses here.
+
+Record counts: CHR0 nodes / animatedTracks (components stored as keyframes or per-frame
+values, not inline constants); CLR0 materials / colorTracks (animated color registers);
+SRT0 materials / texMatrices (animated texture matrices); PAT0 materials / textures and palettes
+named in the block's name arrays; SCN0 records per array.
+
+Known gaps:
+- Values are bounds-checked, not interpolated: keyframe/FVS/CV value ranges, slopes, and the
+  quantised FVS32/FVS48 encodings are not range-checked.
+- Fog records are validated from the header layout only (Wii Play dead-strips the fog reader);
+  no SCN0 on the disc contains fogs.
+- PAT0 texture/palette names are not resolved against TEX0/PLT0 in the same BRRES (Bind() does
+  that at runtime); no PAT0 on the disc uses palettes.
