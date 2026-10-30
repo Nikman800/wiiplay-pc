@@ -149,10 +149,11 @@ void PrintWaveParam(const char* pArc, const char* pTag, u32 fileId, int a, int b
         std::printf(" [%ld %u %u %u %u", off, rP.volumeFrontLeft, rP.volumeFrontRight,
                     rP.volumeRearLeft, rP.volumeRearRight);
         if (rData.sampleFormat == WaveFile::FORMAT_ADPCM) {
-            // The ADPCM block is copied whole and stays big-endian (DSP payload).
-            const u8* pA = reinterpret_cast<const u8*>(&rP.adpcmInfo);
-            std::printf(" c0=%d gain=%u ps=%u", static_cast<s16>(port_load_be16(pA)),
-                        port_load_be16(pA + 0x20), port_load_be16(pA + 0x22));
+            // ReadWaveParam copies the file's (big-endian) ADPCM block into
+            // the runtime ChannelParam in host order (HOST_BUILD.md §21).
+            const AdpcmParam& rA = rP.adpcmInfo.param;
+            std::printf(" c0=%d gain=%u ps=%u", static_cast<s16>(rA.coef[0]), rA.gain,
+                        rA.pred_scale);
         }
         std::printf("]");
     }

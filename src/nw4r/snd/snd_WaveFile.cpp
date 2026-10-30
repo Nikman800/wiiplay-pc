@@ -42,7 +42,18 @@ bool WaveFileReader::ReadWaveParam(WaveData* pWaveData,
             const AdpcmInfo* pAdpcmInfo = static_cast<const AdpcmInfo*>(
                 ut::AddOffsetToPtr(mWaveInfo, pChannelInfo->adpcmOffset));
 
+#if PORT_BE_WRAPPED
+            // PC port: the file's AdpcmInfo is big-endian (all u16); the voice
+            // (and the DSP) take the runtime copy in host order.
+            const be_u16* pSrc = reinterpret_cast<const be_u16*>(pAdpcmInfo);
+            u16* pDst = reinterpret_cast<u16*>(&rParam.adpcmInfo);
+
+            for (u32 j = 0; j < sizeof(AdpcmInfo) / sizeof(u16); j++) {
+                pDst[j] = pSrc[j];
+            }
+#else
             rParam.adpcmInfo = *pAdpcmInfo;
+#endif
         }
 
         rParam.dataAddr = const_cast<void*>(

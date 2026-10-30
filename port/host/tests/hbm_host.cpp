@@ -1,7 +1,7 @@
 /**
  * SDK stand-ins for hbm_harness (port/docs/HOST_BUILD.md §16). Not decompiled
  * code; only what homebuttonMiniLib's HBMCreate path and RemoteSpk reference.
- * The AX / thread / interrupt stand-ins come from src/host_snd.cpp.
+ * The AX / thread / interrupt stand-ins come from src/host_snd.cpp and src/host_snd_stubs.cpp.
  *
  * There are no controllers or Wii Remote speaker on the host: every remote's
  * speaker reports itself enabled and ready, WPADSendStreamData drops the data,

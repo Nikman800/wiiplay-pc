@@ -36,6 +36,10 @@ check, init and bind, no drawing yet).
   `SoundHeap` and parses every loaded RSEQ, RBNK and RWSD through the real readers (no
   playback). Everything matches an independent reading of the bytes and, where it parses,
   `port/assets/tools/fmt_sound.py` (§13).
+- The sound runtime plays: sequences and wave sounds from the disc's archives run through the
+  real `nw4r::snd` players, threads and AXFX effects on a software model of the AX DSP, and
+  every voice's decoded samples, sample-rate conversion, envelope and mix are bit-exact against
+  an independent model (§21).
 
 `POINTERS.md` steps 0 to 7 are implemented: M0 (emulated Wii addresses for all host heap memory),
 `RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, ResFont (§5 to §7 below), TPL
@@ -500,6 +504,7 @@ check in §2 confirms all of them.
 | `include/nw4r/ut/ut_algorithm.h`, `src/nw4r/math/math_types.cpp`, `math_arithmetic.cpp`, `src/nw4r/g3d/platform/g3d_cpu.cpp`, `g3d_fog.cpp`, `g3d_calcview.cpp`, `g3d_calcworld.cpp`, `g3d_calcvtx.cpp`, `src/revolution/MTX/vec.c`, `quat.c`, `mtx.c`, `mtxvec.c`, `src/Pack/RPParty/RPTnkScene/RPTnkBlock.cpp`, `RPHkyScene/RPHkyPaddle.cpp` | §18: every remaining paired-single / asm block is opened with `ASM_PS(name)` (files that do not get the fallback from a header define `ASM_PS(name)` as `ASM` themselves); the CodeWarrior `asm` functions (`MTX34InvTranspose`, `GetModelLocalAxisY2/3`, `PSMTXIdentity`, `PSMTXCopy`, `PSMTXConcat`, `PSMTXConcatArray`, `PSMTXMultVec`, `PSVECAdd`, `PSVECDotProduct`, `PSVECCrossProduct`) get a host body under `#if defined(PORT_HOST)`. |
 | `src/Pack/RPGraphics/RPGrpModelRfl.cpp`, `src/Pack/RPSystem/RPSysPauseMgr.cpp`, `src/Pack/RPParty/RPCowScene/RPCowKakasiGroup.cpp` | §18: the `asm volatile { }` scheduling blocks have their C under `#if defined(PORT_HOST)`; `RPCowKakasiGroup::OnActivate`'s asm body is `#if !defined(PORT_HOST)` and its C++ equivalent (formerly `#if 0`) is the host form. |
 | `include/nw4r/g3d/res/g3d_resmdl.h`, `src/nw4r/g3d/g3d_workmem.cpp` | §20: `ResMdlInfo::GetNodeIDFromMtxID` reads the matrix-to-node table as `be_s32`; the work-memory accessors take `&sTemp.x[0]` (GCC rejects `static_cast` from a base-class array to a derived pointer). Type tokens / the same address. |
+| `src/nw4r/snd/snd_WaveFile.cpp`, `snd_AxManager.cpp`, `src/revolution/AX/AXVPB.c` | §21: `ReadWaveParam` copies the file's `AdpcmInfo` into the runtime `ChannelParam` through `be_u16` under `#if PORT_BE_WRAPPED` (the Wii line is the original struct copy); `AxManager::Init` puts the DSP's zero buffer on the M0 arena under `#if defined(PORT_HOST)`; `AXSetVoiceAddr`'s `gain` / `pred_scale` word is `GAIN_WORD(0x0800)` / `GAIN_WORD(0x0100)` (Wii: `0x08000000` / `0x01000000`, the same constants). |
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
 
@@ -833,9 +838,9 @@ macro stays undefined: `ReadBigEndian` is then the identity on a value the wrapp
 converted, and nothing is swapped twice. `Util::DataRef` and `Util::Table` are `be_*` too; their
 one runtime user (`SoundArchivePlayer::GroupTable`) only goes through the wrapper.
 `SoundArchive::FilePos` is `be_u32` because `ReadFilePos` copies it whole out of the file.
-Payloads stay as they are: the `AdpcmInfo` block that `WaveFileReader` copies into
-`ChannelParam` stays big-endian (DSP data for the Phase 7 mixer), and so do the samples and the
-sequence (MML) bytes. `StrmFile.h` (BRSTM, never read on the disc path, ASSETS.md §2.6) is not
+Payloads stay as they are: the samples and the sequence (MML) bytes. The `AdpcmInfo` block
+that `WaveFileReader` copies into `ChannelParam` was left big-endian here; since §21 the copy
+converts it to host order (the runtime computes with it: `CalcOffsetAdpcmParam`, `SetAdpcm`). `StrmFile.h` (BRSTM, never read on the disc path, ASSETS.md §2.6) is not
 converted: its own members are still plain; only the `DataRef`/`Table` it uses are `be_*`.
 
 ### Pointer-size sites (POINTERS.md §5.2)
@@ -1945,3 +1950,179 @@ branches dropped) produced 16286 and 84 errors.
   `template<>` on the `RPGrpModelAnmG3D` member specialisations and rejects specialisations
   after the first use, both of which CodeWarrior accepts).
 - `ScnRfl` (Mii models) is compiled (§16) but not built or calculated.
+
+## 21. The nw4r::snd runtime on a software AX mixer: sounds played and rendered
+
+The sound runtime runs on the host and makes sound: `SoundSystem`, `SoundArchivePlayer`,
+`SeqPlayer` / `MmlParser` / `SeqTrack`, `WsdPlayer`, `Channel`, `Voice`, `AxVoice`, the sound and
+task threads and the AXFX effects, all decompiled code, play on a software model of the AX DSP
+(`src/host_ax.cpp`). `audio_harness` sets the system up the way the game does, opens an
+archive, starts sounds and renders the mixed 32 kHz stereo output. `test_audio.py` decodes every
+voice's wave from the archive bytes (`dspadpcm.py`) and models the DSP: the decoded samples,
+the sample-rate conversion, the envelope and the mix are bit-exact against it. 64- and 32-bit
+output is identical. The matching build is unchanged: `check_matching.py` compiles the 974
+units that depend on a touched file, all identical (2026-10-30).
+
+### Changes to the decomp sources
+
+Three, each the same object on the Wii:
+
+| File | Change | Why |
+|---|---|---|
+| `src/nw4r/snd/snd_WaveFile.cpp` | `ReadWaveParam` copies the file's `AdpcmInfo` (24 `u16`) into the runtime `ChannelParam` through `be_u16` under `#if PORT_BE_WRAPPED` | The runtime computes with it (`CalcOffsetAdpcmParam` decodes from an offset; `SetAdpcm` hands the coefficients, predictor / scale and history to the DSP). §13 had left the copy big-endian. |
+| `src/nw4r/snd/snd_AxManager.cpp` | `Init` takes the 256-byte zero buffer from the M0 arena under `#if defined(PORT_HOST)` | Voices that end, or start past their loop end, are pointed at it by DSP address (`GetDspAddressBySample`, `IsPlayFinished`); a static array in the host's data has no emulated address. |
+| `src/revolution/AX/AXVPB.c` | `AXSetVoiceAddr` writes `GAIN_WORD(0x0800)` / `GAIN_WORD(0x0100)` instead of `0x08000000` / `0x01000000` | One `u32` store fills `gain` and `pred_scale`; on a little-endian host the halves swap, and PCM16 / PCM8 voices played silence (gain 0). On the Wii the macro gives the same constants. |
+
+`check_matching.py`'s list of touched files has `AXVPB.c` (the other two were already there).
+
+### The AX layer: decomp CPU code, host DSP
+
+The CPU half of AX is the decomp's, linked unmodified: `AX.c` (`AXInit`), `AXAlloc.c` (voice
+stacks, priorities, voice stealing), `AXVPB.c` (`AXSetVoice*`, `__AXSyncPBs`: each voice's
+parameter block is copied into the PB array the DSP reads, field by field as the sync flags say,
+and the DSP's results are copied back; the DSP cycle budget that drops voices), `AXAux.c` (the
+three-buffer aux rings and callbacks), `AXSPB.c` (depop) and `AXProf.c`. `src/host_ax.cpp`
+replaces what talks to the hardware:
+
+- `AXOut.c`: `__AXOutInit` registers the frame as the AI DMA callback; `PortAXRunFrame` calls
+  the callback chain as the AI interrupt would (so nw4r's reset hook, `AxManager::PrepareReset`,
+  chains in as on the Wii). The frame is `__AXOutNewFrame` with the DSP run in place:
+  `__AXSyncPBs(24400)`, `__AXPrintStudio`, the DSP, `__AXServiceCallbackStack`,
+  `__AXProcessAux`, the user frame callback, then the next frame's command-list values.
+- `AXCL.c`: the mode and the master / aux return volumes. The DSP command list itself is not
+  built (its addresses would be host pointers); the values it would carry are captured where
+  `__AXNextFrame` runs, and `__AXGetCommandListCycles` returns the same cycle count.
+- AI: `AIInit`, the DMA callback registration; `OS_BUS_CLOCK_SPEED` (`src/host_os_clock.c`,
+  243 MHz) for the cycle budget and the OS time macros.
+
+The DSP, after Dolphin's AXWii HLE (`AXVoice.h`, `DSPAccelerator.cpp`), reimplemented:
+
+| Stage | Behaviour |
+|---|---|
+| Accelerator | DSP-ADPCM (nibble addresses; a frame's predictor / scale byte is read at each 16-nibble boundary; `scale * nibble + ((0x400 + c1 * yn1 + c2 * yn2) >> 11)`, saturated to s16), PCM16 (word addresses) and PCM8 (byte addresses) through `gain >> 11` / `gain >> 0`; the history stays in the PB. After the sample at the end address the address returns to the loop address: a looping voice takes the loop predictor / scale and, unless it is a stream voice, the loop history; a one-shot voice stops (`state` STOP, which `__AXSyncPBs` copies back) and reads zeros for the rest of the frame. |
+| SRC | `srcSelect` 0: 4-tap polyphase. The 16.16 position advances by the ratio before each output sample, input samples are read as its integer part crosses, the phase is `frac >> 9` (128 phases), the taps run oldest sample first, the sum `>> 15` is saturated. `srcSelect` 1: linear; 2: none (one input per output). nw4r uses only the polyphase filter (`SRC_4TAP_AUTO`: 8 kHz table above a ratio of 4/3, 12 kHz above 1, 16 kHz otherwise). |
+| SRC tables | The DSP reads them from its coefficient ROM. The 12 kHz table is in the decomp: `AXFXSrcCoef.c` (AXFX's chorus uses it on the CPU) as floats that are exactly the ROM's s16 values / 32768; `host_ax.cpp` builds the table from it. The 8 and 16 kHz tables are not in the decomp: `src/host_ax_coefs.h` is generated by `tools/gen_ax_coefs.py` the way Dolphin's free DSP ROM generates its table (a windowed sinc, Hamming window, cutoff 0.5 and 1.0 over 512 points split into 128 phases). They are approximations: the same construction for the 12 kHz table (Kaiser window, cutoff 0.75) is within 19/32768 of the real one. |
+| Envelope, filters | `x = sat16((x * ve.currentVolume) >> 15)`, the volume moving by `currentDelta` each sample; the one-pole LPF and the Wii biquad when on. |
+| Mix | Per bus bit of `mixerCtrl` (main L/R/S, aux A/B/C L/R/S): `s = sat16((x * v) >> 15)` added to the bus, `v` moving by its delta when the bus's ramp bit is set; the last `s` is the bus's depop value. |
+| Frame | The buses start from the depop fade of voices stopped this frame (`__AXPrintStudio`); last frame's surround bus is added to L and R; each aux bus with a callback is written for the CPU (AXFX, through `__AXProcessAux`) and the bus processed earlier in the ring comes back into L/R/S times its return volume; the output is `(main * masterVolume) >> 15` clamped to +-32767, stereo s16. |
+
+Not emulated: the compressor (a full-scale limiter; its table is not in the decomp, and Dolphin's
+HLE skips it too), DPL2 / surround encoding (the output is stereo; `SCGetSoundMode` says
+stereo), the Wii Remote speaker outputs (`AXRmt*` report no samples), the ITD phase shift.
+PCM8 is implemented but no wave on the disc uses it.
+
+### Threads
+
+`src/host_thread.cpp` runs OS threads as coroutines (`ucontext`) on one host thread, so runs are
+reproducible: a switch happens only where the Wii would reschedule (a thread blocks on a message
+queue, `OSSleepThread`, a mutex or `OSJoinThread`, or a thread of higher priority becomes
+ready). `PortOSEnterInterrupt` / `PortOSLeaveInterrupt` (around the AX frame) defer the switch to
+the end of the "interrupt"; `PortOSIdle` is the main thread waiting for the next retrace: every
+ready thread runs until all of them block. The sound thread (woken by the AX frame callback
+through its message queue) runs the frame's sequence ticks, channel and voice updates, then
+blocks again. Threads get 1 MB host stacks (the decomp's stacks are sized for the PowerPC); the
+main thread is priority 16. Mutexes are recursive. Its `OSMutex` / `OSMessageQueue` /
+`OSGetCurrentThread` replace the single-threaded ones in `src/host_sdk.cpp`, which are now weak.
+
+### What is linked, and what is stubbed
+
+`AUDIO_SRCS` in the Makefile: all of `src/nw4r/snd`, the `ut` file streams, `src/egg/audio`
+(the EGG audio managers), the AX units above, all of `src/revolution/AXFX`, the MEM frame heap
+(`snd::FrameHeap`); on `-m32` with `ANIM_FP` (SSE), as in §17. Host files:
+
+| File | What |
+|---|---|
+| `src/host_ax.cpp` | **New.** The DSP, the `AXOut` / `AXCL` / AI replacements, `PortAXRunFrame`, a voice tap (`PortAXSetVoiceTap`: each running voice's PB before and after the frame, its decoded input, SRC output and final output) and a test switch that turns SRC off (`PortAXSetSrcOverride`). |
+| `src/host_ax_coefs.h`, `tools/gen_ax_coefs.py` | **New.** The generated 8 / 16 kHz SRC tables (`--check` verifies the header). |
+| `src/host_thread.cpp` | **New.** The threads. |
+| `src/host_os_clock.c` | **New.** `OS_BUS_CLOCK_SPEED` (every unit that includes `OSHardware.h` gets a weak zero definition on the host; this strong one is in a file that does not). |
+| `src/host_snd.cpp`, `src/host_snd_stubs.cpp` | `host_snd.cpp` keeps the interrupts, `OSGetTick` (a call counter), DVD cancel, NAND and CNT; its AX / AI / thread stubs moved to `host_snd_stubs.cpp`, which the loader harnesses (`snd_harness`, `hbm_harness`) still link. |
+| `src/host_sdk.cpp` | The mutex, message-queue and current-thread functions are weak. |
+| `tests/audio_host.cpp` | **New.** SC (stereo), alarms that never fire (only the remote speaker uses them), no remote speaker (WPAD / WENC), `OSGetTime`, the OS heap (AXFX's default hooks; nw4r installs its own first; aborts), `AudioSound3DActor`'s statics, and `EGG::Allocator` / `ExpHeap::create`: the host has no EGG heaps (`host_sdk.cpp` routes them to the arena), so `ExpHeap::create` returns NULL and the `Allocator` entries abort if reached. |
+
+### The harness
+
+`tests/audio_harness.cpp` follows the game's set-up (`RPSysSystem::createEffectWork`,
+`RPSndAudioMgr::initialize` for the Party Pack; `RPSndAudioMgr` needs the RP scene layer, so
+`HarnessAudioMgr`, an `EGG::ExpAudioMgr`, repeats its lines):
+
+- `ExpAudioMgr::initialize` with `soundHeapSize` 0: `AIInit`, `AXInit`,
+  `SoundSystem::InitSoundSystem` with the default thread priorities and static work (which starts
+  the sound and task threads), the 3D managers; then the 0xB00000 sound heap on the M0 arena (what
+  `createSoundHeap` would allocate from the MEM1 root heap) and `initializeFx` with the Party Pack
+  aux heap sizes (no heaps on the host, see above);
+- `--fx`: `RPSndAudioMgr::setDefaultFx` for the Party Pack (`configureTitle` calls it, so the
+  game runs with it from the title screen): reverb (`FxReverbHi`) on aux A, chorus on B, delay
+  on C with its parameters, created with `AudioFx::createFx*`'s own lines on the arena;
+- `ExpAudioMgr::openArchive(path, heap, SARC_STORAGE_DVD)` (`openArchiveRP`'s default storage),
+  every group loaded with `ArcPlayer::loadGroup`;
+- the clock: AX frames of 96 samples back to back; before the first AX frame that starts at or
+  after `floor(k * 32000 / 60)` samples, game frame k: the sounds due at k are started
+  (`SoundArchivePlayer::StartSound`, as `RPSndAudioMgr::startSound`), `ExpAudioMgr::calc`
+  (`SoundArchivePlayer::Update`), then `PortOSIdle`.
+
+```
+audio_harness --disc DIR --list ARCHIVE
+audio_harness --disc DIR [--frames N] [--wav PATH] [--tap PATH] [--fx] [--src-none] ARCHIVE SOUND[@F] ...
+```
+
+It prints a line per started sound (`S`), the file whose waves it plays with that file's wave
+data address (`I`), each voice that starts a note (`N`: AX frame, voice, format, start / loop /
+end address relative to the file's wave data, ratio, table, envelope volume, mixer control,
+L/R volume), voices that stop (`E`), the running-voice count (`C`) and the render (`R`: RMS,
+peaks, FNV-1a of the samples). The WAV goes where `--wav` says (renders are user data: outside
+the repository).
+
+### What the test models, and what it only regression-checks
+
+`test_audio.py` (`make audio`, part of `make test`) runs 11 scenarios, 25 s:
+
+| Check | Model | Coverage |
+|---|---|---|
+| Voice identity | each run of a voice (from an `N` to the next `N` / end) starts at sample 0 of a wave of the sound's RWSD or its bank's RBNK (`fmt_sound.py` offsets), in that wave's format | 333 runs, all identified |
+| Decode | the accelerator output equals `dspadpcm.py`'s decode of that wave channel, the loop section repeated for looping waves, then zeros in the frame where a one-shot wave ends (and the voice is stopped there) | 333 runs, 15.3 M samples bit for bit: DSP-ADPCM and PCM16, one-shot and looping (`cow-wave-loop` crosses its loop) |
+| SRC | the polyphase filter over the expected samples with each frame's ratio and table (`gen_ax_coefs.tables`: the decomp's 12 kHz table and the generated ones), from the PB's history and fraction | 333 runs bit for bit; ratios 1.0, 0.9, 1.378 and the sequences' pitches; all three tables |
+| Envelope | `sat16((x * v) >> 15)`, `v` stepping by the delta; the LPF when on | 333 runs bit for bit |
+| No SRC | with `--src-none` the SRC output is the decode itself, so the voice output is the decode times its envelope | `bil-wave-native` |
+| Mix | the rendered L/R from the tapped voices' mix volumes, deltas and ramp bits through the master volume | 4000 frames of the single-wave renders without effects, bit for bit |
+| Regression | the `N` / `E` / `C` lines (which voices start and stop when) and the samples' hash per scenario, against `tests/audio_expected.txt` (`--update` rewrites it) | 11 scenarios: 6 wave-sound, 5 sequence (up to 77 voices), 4 with the effects |
+| Determinism | each scenario twice (output and taps identical); the other build's harness (`--compare`; `make test` passes the 32-bit one if built, `make M32=1 test` the 64-bit one): identical lines (only the `I` lines' heap addresses differ) and identical samples | all scenarios |
+
+For a single wave sound at its native rate (`RP_BIL_SE_TURN_DECIDE`, 32 kHz, ratio 1.0, centre
+pan) the accelerator output equals `dspadpcm.py` exactly. The voice output is not the decode
+itself even then: nw4r always selects the polyphase filter, which at ratio 1.0 is still a
+4-tap low-pass (16 kHz table) with two samples of delay, and the envelope scales by at most
+32767/32768. With the SRC switched off the output is exactly `sat16((decode * v) >> 15)`.
+
+A mutation check while writing the test (ADPCM rounding constant 0x3FF instead of 0x400; the
+filter taps reversed) produced 645 and 342 errors.
+
+Renders (`--wav-dir`, 64 / 32 identical):
+
+| Scenario | Length | Notes | Voices (max) | RMS | Peak L / R |
+|---|---|---|---|---|---|
+| `bil-wave-native` (`RP_BIL_SE_TURN_DECIDE`) | 0.66 s | 1 | 1 | 1704 | 19667 / 19667 |
+| `bom-wave-pan` (`RP_BOM_SE_GENTEN_1`, panned) | 0.42 s | 1 | 1 | 1943 | 29175 / 8023 |
+| `cow-wave-loop` (sound 148, 44.1 kHz stereo, looping) | 9.9 s | 2 | 2 | 1309 | 12767 / 12403 |
+| `common-seqs` (party menu BGM and four SEs) | 6.0 s | 117 | 33 | 1266 | 13898 / 14295 |
+| `duc-seqs-fx` (Shooting Range BGM, combo, fanfare; effects) | 9.0 s | 185 | 77 | 2296 | 21799 / 21119 |
+| `common-bgm-fx` (`RP_COMMON_BGM_PARTY_MENU`, effects) | 18 s | 314 | 31 | 1051 | 7484 / 7177 |
+
+### Streams
+
+No archive has a stream sound: `audio_harness --list` over the 10 disc-level archives gives
+1079 SEQ and 23 WAVE sounds (the two `*_STRM` labels in `rp_Hky_sound.brsar` are wave sounds),
+and ASSETS.md (§1.5, §2.6) finds no STRM sound or external file entry in any BRSAR, the HOME
+Menu's included: the 14 `.brstm` files on the disc are unreferenced, so the game never starts a
+`StrmPlayer`. `StrmPlayer` links; its file structs (`StrmFile.h`) are still not converted (§13).
+
+### Still open
+
+- An audio device: `PortAXRunFrame` produces the samples; the PC platform layer has to call it
+  every 3 ms of output (and drive `PortOSIdle` from its frame loop).
+- The 8 / 16 kHz SRC tables are approximations until the real ROM values are known (the 12 kHz
+  one is exact).
+- The compressor, DPL2 output, the remote speaker and the ITD shift (see above).
+- EGG heaps on the host: `AudioFx` gets no heap, so the effects are created by the harness;
+  `RPSndAudioMgr` itself is not linked (it needs the RP scene layer).
+- `OSGetTick` / `OSGetTime` count calls; nothing in the sound path depends on their rate yet.

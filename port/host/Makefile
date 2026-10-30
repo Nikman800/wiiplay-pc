@@ -279,7 +279,7 @@ test: effects efcurves
 # links what the harness reaches), the ut file streams DvdSoundArchive uses,
 # EGG::ArcPlayer (the game's archive open / group load calls) and the SDK MEM
 # frame heap behind snd::FrameHeap. AX, AI, DSP and the sound thread are host
-# stubs (src/host_snd.cpp); there is no playback.
+# stubs (src/host_snd.cpp, src/host_snd_stubs.cpp); there is no playback.
 SND_SRCS := $(sort $(wildcard $(REPO)/src/nw4r/snd/*.cpp))
 SND_SRCS := $(patsubst $(REPO)/%,%,$(SND_SRCS)) \
     src/nw4r/ut/ut_IOStream.cpp src/nw4r/ut/ut_FileStream.cpp \
@@ -288,7 +288,7 @@ SND_SRCS := $(patsubst $(REPO)/%,%,$(SND_SRCS)) \
     src/nw4r/ut/ut_NandFileStream.cpp \
     src/revolution/MEM/mem_frameHeap.c src/revolution/MEM/mem_heapCommon.c \
     src/revolution/MEM/mem_list.c
-SND_HOST_SRCS := src/host_snd.cpp
+SND_HOST_SRCS := src/host_snd.cpp src/host_snd_stubs.cpp
 SND_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(SND_SRCS)) \
     $(patsubst %,$(OUT)/host/%.o,$(SND_HOST_SRCS))
 SND_LIB := $(OUT)/libwiiplay_snd.a
@@ -510,3 +510,38 @@ scene: $(OUT)/mdl_harness
 	python3 $(HOST)/tests/test_scene.py --harness $(OUT)/mdl_harness --disc $(DISC) \
 	    --compare $(MDL_OTHER)
 test: scene
+
+# --- nw4r::snd runtime and the AX mixer (Phase 7; docs/HOST_BUILD.md §21) -----
+# The sound runtime (SoundSystem, SoundArchivePlayer, SeqPlayer, WsdPlayer, the
+# sound and task threads) plays on the host AX DSP (src/host_ax.cpp: the
+# decomp's AX CPU code with a software mixer behind it), with cooperative
+# threads (src/host_thread.cpp), the decomp's AXFX effects and EGG's audio
+# managers. audio_harness renders sounds from the disc (tests/test_audio.py).
+AUDIO_SRCS := $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/nw4r/snd/*.cpp))) \
+    src/nw4r/ut/ut_IOStream.cpp src/nw4r/ut/ut_FileStream.cpp \
+    src/nw4r/ut/ut_DvdFileStream.cpp src/nw4r/ut/ut_DvdLockedFileStream.cpp \
+    src/nw4r/ut/ut_NandFileStream.cpp src/egg/core/eggCntFile.cpp \
+    $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/egg/audio/*.cpp))) \
+    $(addprefix src/revolution/AX/,AX.c AXAlloc.c AXVPB.c AXAux.c AXSPB.c AXProf.c) \
+    $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/revolution/AXFX/*.c))) \
+    src/revolution/MEM/mem_frameHeap.c src/revolution/MEM/mem_heapCommon.c \
+    src/revolution/MEM/mem_list.c
+AUDIO_HOST_SRCS := src/host_snd.cpp src/host_ax.cpp src/host_thread.cpp src/host_os_clock.c
+AUDIO_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(AUDIO_SRCS)) \
+    $(patsubst %,$(OUT)/host/%.o,$(AUDIO_HOST_SRCS)) $(OUT)/tests/audio_host.cpp.o
+# On -m32, single-precision SSE arithmetic as in §17 (x87 would round the
+# runtime's float volume / pitch / pan computations differently).
+$(AUDIO_OBJS): CXXFLAGS += $(ANIM_FP)
+$(AUDIO_OBJS): CFLAGS += $(ANIM_FP)
+
+$(OUT)/audio_harness: $(HOST)/tests/audio_harness.cpp $(HOST)/tests/disc_walk.h $(AUDIO_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(AUDIO_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: audio
+all: $(OUT)/audio_harness
+# --compare: the other build's harness, if it has been built, must print the same.
+AUDIO_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/audio_harness
+audio: $(OUT)/audio_harness
+	python3 $(HOST)/tests/test_audio.py --harness $(OUT)/audio_harness --disc $(DISC) \
+	    --compare $(AUDIO_OTHER)
+test: audio

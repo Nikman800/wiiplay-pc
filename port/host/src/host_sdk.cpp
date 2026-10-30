@@ -6,7 +6,10 @@
  * run on a PC. They are not the Phase 7 platform layer; that will replace
  * this file.
  *
- *   OS     mutexes and message queues (single-threaded), OSReport/OSPanic
+ *   OS     mutexes and message queues (single-threaded), OSReport/OSPanic;
+ *          the mutex, message-queue and current-thread functions are weak:
+ *          src/host_thread.cpp (the cooperative threads of the audio
+ *          runtime, HOST_BUILD.md §21) replaces them where it is linked
  *   DVD    paths resolve against a host directory (the extracted disc's
  *          files/ folder); entry numbers index a table of opened paths
  *   EGG    Heap::alloc/free and the global/heap operator new/delete
@@ -69,29 +72,29 @@ void OSPanic(const char* file, int line, const char* msg, ...) {
     std::abort();
 }
 
-void OSInitMutex(OSMutex* mutex) {
+__attribute__((weak)) void OSInitMutex(OSMutex* mutex) {
     std::memset(mutex, 0, sizeof(*mutex));
 }
-void OSLockMutex(OSMutex* mutex) {
+__attribute__((weak)) void OSLockMutex(OSMutex* mutex) {
     (void)mutex;
 }
-void OSUnlockMutex(OSMutex* mutex) {
+__attribute__((weak)) void OSUnlockMutex(OSMutex* mutex) {
     (void)mutex;
 }
 
 static OSThread sMainThread;
-OSThread* OSGetCurrentThread(void) {
+__attribute__((weak)) OSThread* OSGetCurrentThread(void) {
     return &sMainThread;
 }
 
-void OSInitMessageQueue(OSMessageQueue* queue, OSMessage* buffer,
+__attribute__((weak)) void OSInitMessageQueue(OSMessageQueue* queue, OSMessage* buffer,
                         s32 capacity) {
     std::memset(queue, 0, sizeof(*queue));
     queue->buffer = buffer;
     queue->capacity = capacity;
 }
 
-BOOL OSSendMessage(OSMessageQueue* queue, OSMessage mesg, u32 flags) {
+__attribute__((weak)) BOOL OSSendMessage(OSMessageQueue* queue, OSMessage mesg, u32 flags) {
     (void)flags;
     if (queue->size >= queue->capacity) {
         return FALSE;
@@ -101,7 +104,7 @@ BOOL OSSendMessage(OSMessageQueue* queue, OSMessage mesg, u32 flags) {
     return TRUE;
 }
 
-BOOL OSReceiveMessage(OSMessageQueue* queue, OSMessage* mesg, u32 flags) {
+__attribute__((weak)) BOOL OSReceiveMessage(OSMessageQueue* queue, OSMessage* mesg, u32 flags) {
     if (queue->size == 0) {
         // Single-threaded host: a blocking receive on an empty queue would
         // never return.

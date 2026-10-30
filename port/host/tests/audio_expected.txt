@@ -1,0 +1,14 @@
+# test_audio.py regression record: scenario, note count, max voices,
+# sha1 of the N/E/C lines (16 hex), FNV-1a of the rendered samples.
+# Rewrite with --update after an intended change.
+bil-wave-native notes=1 maxvoices=1 events=4ab08548de680395 out=d0c75d05a6527193
+bil-wave-pitch notes=1 maxvoices=1 events=7881e339fc1ba546 out=9f01b8607ad8da6b
+bom-wave-pan notes=1 maxvoices=1 events=ab1f022056f48951 out=4fd4bed2c5a4bcbb
+bil-wave-nosrc notes=1 maxvoices=1 events=4ab08548de680395 out=35be57d46e1813bb
+cow-wave-loop notes=2 maxvoices=2 events=da9c65f9bf17c79d out=7667466a8459bf73
+bil-waves notes=6 maxvoices=3 events=9288101e7f712e3d out=8a2f353c920b0d33
+common-seqs notes=117 maxvoices=33 events=8ffeca43181bc0aa out=69abd3da88019460
+duc-seqs-fx notes=185 maxvoices=77 events=2e60ee117093f75a out=2023fc0308ce0ef4
+common-sleep-fx notes=19 maxvoices=5 events=4c8b1dbc4c270ba2 out=e4f392f1f1df85f2
+common-bgm-fx notes=314 maxvoices=31 events=2c438fa66bed7f4e out=bb5cb917bd352f1a
+common-wave-bgm-fx notes=2 maxvoices=2 events=87dbfe210f460254 out=531d66e2e7dde476

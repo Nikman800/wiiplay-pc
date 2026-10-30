@@ -29,6 +29,16 @@ DECOMP_FORCELITERAL(AXVPB_c, 2.0f);
                                                                                \
     } while (0)
 
+/**
+ * AXSetVoiceAddr fills gain and pred_scale (two u16s) with one u32 store. PC
+ * port: the host is little-endian, so the gain goes in the low half there.
+ */
+#if defined(PORT_HOST)
+#define GAIN_WORD(gain) ((u32)(gain))
+#else
+#define GAIN_WORD(gain) ((u32)(gain) << 16)
+#endif
+
 #define ADDRHI(x) (((uintptr_t)x) >> 16 & 0xFFFF)
 #define ADDRLO(x) (((uintptr_t)x) & 0xFFFF)
 
@@ -477,7 +487,7 @@ void AXSetVoiceAddr(AXVPB* vpb, AXPBADDR* addr) {
         *dst++ = 0;
         *dst++ = 0;
         *dst++ = 0;
-        *dst++ = 0x08000000;
+        *dst++ = GAIN_WORD(0x0800);
         *dst = 0;
         break;
     case AX_SAMPLE_FORMAT_PCM_S8:
@@ -490,7 +500,7 @@ void AXSetVoiceAddr(AXVPB* vpb, AXPBADDR* addr) {
         *dst++ = 0;
         *dst++ = 0;
         *dst++ = 0;
-        *dst++ = 0x01000000;
+        *dst++ = GAIN_WORD(0x0100);
         *dst = 0;
         break;
     case AX_SAMPLE_FORMAT_DSP_ADPCM:

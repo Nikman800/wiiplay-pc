@@ -6,6 +6,10 @@
 
 #include <cstring>
 
+#if defined(PORT_HOST)
+#include <port/arena.h>
+#endif
+
 namespace nw4r {
 namespace snd {
 namespace detail {
@@ -45,9 +49,18 @@ void AxManager::Init() {
         return;
     }
 
+#if defined(PORT_HOST)
+    // PC port: the DSP reads the zero buffer by its physical address, so it
+    // must be in emulated memory (M0), not in the host's static data.
+    static u8* spHostZeroBuffer =
+        static_cast<u8*>(PortArenaAlloc(sizeof(sZeroBuffer), 32));
+    std::memset(spHostZeroBuffer, 0, sizeof(sZeroBuffer));
+    mZeroBufferAddress = spHostZeroBuffer;
+#else
     std::memset(sZeroBuffer, 0, sizeof(sZeroBuffer));
     DCFlushRange(sZeroBuffer, sizeof(sZeroBuffer));
     mZeroBufferAddress = sZeroBuffer;
+#endif
 
     ut::AutoInterruptLock lock;
 

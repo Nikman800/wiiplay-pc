@@ -233,6 +233,9 @@ TOUCHED = [
     "include/nw4r/ef/ef_memorymanagertmp.h",
     # Phase 7 g3d scene runtime (HOST_BUILD.md §20)
     "src/nw4r/g3d/g3d_workmem.cpp",
+    # Phase 7 sound runtime and AX mixer (HOST_BUILD.md §21); snd_AxManager.cpp and
+    # snd_WaveFile.cpp are already listed above.
+    "src/revolution/AX/AXVPB.c",
 ]
 
 
