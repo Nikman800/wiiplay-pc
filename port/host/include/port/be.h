@@ -256,6 +256,9 @@ typedef port::be24 be_u24;
 #define BE_GET(field) (port::be_get(field))
 #define BE_SET(field, value) ((field) = (value))
 #define BE_STORED(T, v) (port::be_stored(port::be<T>(v)))
+// Host heap sizes: EGG::ExpHeap (104 bytes on 64-bit) plus its MEM header (120) no longer fit
+// the game's 0x100-byte assert heap (HOST_BUILD.md §22).
+#define PORT_HOST_SIZE(wii, host) (host)
 
 #define PORT_BE_CHECK(T, P)                                                    \
     static_assert(sizeof(T) == sizeof(P) && alignof(T) == alignof(P) &&        \

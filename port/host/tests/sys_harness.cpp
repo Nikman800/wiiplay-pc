@@ -793,7 +793,8 @@ int main(int argc, char** argv) {
     // The assert heap (0x100 bytes) holds the EGG::ExpHeap object and the MEM
     // expanded-heap header; with 64-bit pointers they do not fit (§22), and
     // create returns NULL there.
-    rp->*Get(SysAssertHeap()) = EGG::ExpHeap::create(0x100, EGG::BaseSystem::getRootHeapMem2());
+    rp->*Get(SysAssertHeap()) =
+        EGG::ExpHeap::create(PORT_HOST_SIZE(0x100, 0x400), EGG::BaseSystem::getRootHeapMem2());
     if (rp->*Get(SysAssertHeap()) != NULL) {
         (rp->*Get(SysAssertHeap()))->disableAllocation();
     }

@@ -113,7 +113,7 @@ void RPSysSystem::initialize() {
 void RPSysSystem::create() { spInstance = new (sConfigData.mSystemHeap) RPSysSystem; }
 void RPSysSystem::setup() {
     mpResourceHeap = EGG::FrmHeap::create(0x1800000, sConfigData.getRootHeapMem2(), 0);
-    mpAssertHeap = EGG::ExpHeap::create(0x100, sConfigData.getRootHeapMem2(), 0);
+    mpAssertHeap = EGG::ExpHeap::create(PORT_HOST_SIZE(0x100, 0x400), sConfigData.getRootHeapMem2(), 0);
     mpAssertHeap->disableAllocation();
     mpReserveHeap = EGG::ExpHeap::create(0x80000, sConfigData.getRootHeapMem1(), 0);
     createFromSystemHeap();

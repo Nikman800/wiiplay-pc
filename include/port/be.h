@@ -35,4 +35,7 @@
 // Byte i (0 = most significant) of a size-byte integer seen through a union.
 #define BE_BYTE(i, size) i
 
+// A heap size that must grow on the host, where EGG/MEM heap headers hold 64-bit pointers.
+#define PORT_HOST_SIZE(wii, host) (wii)
+
 #endif

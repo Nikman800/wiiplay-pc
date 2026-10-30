@@ -2254,9 +2254,10 @@ from MEM2, the 0x80000 reserve heap from MEM1).
 The heaps' bookkeeping is host-sized: `EGG::ExpHeap` is 104 bytes and `MEMiHeapHead` 120 on
 64-bit (about half on `-m32`), and every MEM block header has two pointers. Two consequences:
 
-- `RPSysSystem::setup`'s assert heap (`ExpHeap::create(0x100, ...)`) does not fit on 64-bit and
-  `create` returns NULL; `setup` would call `disableAllocation` on it. It fits on `-m32`.
-  The real boot needs a decision here (a host size for that one heap, or skipping it).
+- `RPSysSystem::setup`'s assert heap (`ExpHeap::create(0x100, ...)`) did not fit on 64-bit
+  (`create` returned NULL and `setup` would call `disableAllocation` on it). Decision
+  (2026-10-30): the call reads `PORT_HOST_SIZE(0x100, 0x400)`, which is 0x100 on the Wii (the
+  object is unchanged) and 0x400 on every host build (`include/port/be.h`).
 - Heaps the game sizes tightly lose more to headers than on the Wii. Nothing on the paths tested
   here runs out, but the scenes' heap budgets are untested.
 
@@ -2389,7 +2390,7 @@ errors.
 
 - The rest of `RPSysSystem::initialize` / `setup` (GraphicsFifo, video, XFB, display, the
   exception handler, the scene manager): with the GX / VI layer.
-- The assert heap on 64-bit (above); heap budgets with 64-bit headers in real scenes.
+- Heap budgets with 64-bit headers in real scenes.
 - `RPSysSceneMgr` / `RPSysScene` (the harness stands in for the two calls the save code makes).
 - The older loader harnesses keep their arena allocators; `audio_harness` runs on this layer's
   EGG heaps since the Phase 7 integration (§21).

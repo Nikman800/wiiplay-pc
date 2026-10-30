@@ -120,12 +120,11 @@ def check_heap(lines, bits):
             h = dict(zip(f[2::2], f[3::2]))
             heaps[f[1]] = {k: int(v, 16) if k != "kind" else int(v) for k, v in h.items()}
         elif f[0] == "H":
-            if bits == 32:
-                err("the assert heap fits in 0x100 bytes on -m32: %s" % line)
+            err("the assert heap was not created: %s" % line)
     want = {"root1": (1, None, "MEM1"), "root2": (1, None, "MEM2"), "system": (1, 0x600000, "root1"),
-            "resource": (2, 0x1800000, "root2"), "reserve": (1, 0x80000, "root1")}
-    if bits == 32:
-        want["assert"] = (1, 0x100, "root2")
+            "resource": (2, 0x1800000, "root2"), "reserve": (1, 0x80000, "root1"),
+            # PORT_HOST_SIZE(0x100, 0x400): the Wii's 0x100 bytes do not hold 64-bit heap headers.
+            "assert": (1, 0x400, "root2")}
     for name, (kind, size, parent) in want.items():
         h = heaps.get(name)
         if h is None:
