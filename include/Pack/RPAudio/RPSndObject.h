@@ -40,7 +40,7 @@ public:
     }
 
     virtual void stopSound(u32 id, int frames) = 0;            // at 0xC
-    virtual void stopSound(unsigned int id, int frames) = 0;   // at 0x10
+    virtual void stopSound(ui32 id, int frames) = 0;   // at 0x10
     virtual void stopSound(const char* pName, int frames) = 0; // at 0x14
     virtual void stopAllSound(int frames) = 0;                 // at 0x18
 
@@ -137,6 +137,10 @@ public:
         }
         return NULL;
     }
+
+protected:
+    // The assertion names the member without this->; the base is dependent.
+    using TRPSndAudioHandles<N1 + N2>::mHandleCount;
 };
 
 /******************************************************************************
@@ -147,6 +151,10 @@ public:
 
 template <int N>
 class TRPSndAudio3DActor : public EGG::AudioSoundActorBaseWithCamera<N> {
+protected:
+    // The assertion names the member without this->; the base is dependent.
+    using EGG::AudioSoundActorBaseWithCamera<N>::smCommon3DManager;
+
 public:
     TRPSndAudio3DActor(nw4r::snd::SoundArchivePlayer& rPlayer) {
 #ifdef RP_FSH_PLAYER_SOUND_PLAYER_TEMP
@@ -248,13 +256,13 @@ public:
     virtual nw4r::snd::SoundHandle*
     startSoundWithRemotePlayer(u32 id, u32 remoteFlag, s32 player); // at 0x50
     virtual nw4r::snd::SoundHandle*
-    startSoundWithRemotePlayer(unsigned int id, u32 remoteFlag, s32 player); // at 0x54
+    startSoundWithRemotePlayer(ui32 id, u32 remoteFlag, s32 player); // at 0x54
     virtual nw4r::snd::SoundHandle*
     startSoundWithRemotePlayer(const char* pLabel, u32 remoteFlag, s32 player); // at 0x58
 
     // Wii Play: the second argument is the 3D actor (player) index
     virtual nw4r::snd::SoundHandle* startSound(u32 id, u32 handle = 0); // at 0x5C
-    virtual nw4r::snd::SoundHandle* startSound(unsigned int id,
+    virtual nw4r::snd::SoundHandle* startSound(ui32 id,
                                                u32 handle = 0); // at 0x60
     virtual nw4r::snd::SoundHandle* startSound(u32 id, int idx,
                                                u32 handle); // at 0x64 into mSoundHandles[idx]
@@ -266,12 +274,12 @@ public:
     virtual nw4r::snd::SoundHandle*
     holdSoundWithRemotePlayer(u32 id, u32 remoteFlag, s32 player); // at 0x70
     virtual nw4r::snd::SoundHandle*
-    holdSoundWithRemotePlayer(unsigned int id, u32 remoteFlag, s32 player); // at 0x74
+    holdSoundWithRemotePlayer(ui32 id, u32 remoteFlag, s32 player); // at 0x74
     virtual nw4r::snd::SoundHandle*
     holdSoundWithRemotePlayer(const char* pLabel, u32 remoteFlag, s32 player); // at 0x78
 
     virtual nw4r::snd::SoundHandle* holdSound(u32 id, u32 handle = 0);          // at 0x7C
-    virtual nw4r::snd::SoundHandle* holdSound(unsigned int id, u32 handle = 0); // at 0x80
+    virtual nw4r::snd::SoundHandle* holdSound(ui32 id, u32 handle = 0); // at 0x80
     virtual nw4r::snd::SoundHandle* holdSound(u32 id, int idx, u32 handle);     // at 0x84
     virtual nw4r::snd::SoundHandle* holdSound(const char* pLabel,
                                               u32 handle = 0); // at 0x88
@@ -279,7 +287,7 @@ public:
                                               u32 handle); // at 0x8C
 
     virtual nw4r::snd::SoundHandle* prepareSound(u32 id, u32 handle = 0); // at 0x90
-    virtual nw4r::snd::SoundHandle* prepareSound(unsigned int id,
+    virtual nw4r::snd::SoundHandle* prepareSound(ui32 id,
                                                  u32 handle = 0);           // at 0x94
     virtual nw4r::snd::SoundHandle* prepareSound(u32 id, int idx, u32 handle); // at 0x98
     virtual nw4r::snd::SoundHandle* prepareSound(const char* pLabel,
@@ -288,7 +296,7 @@ public:
                                                  u32 handle); // at 0xA0
 
     virtual void stopSound(u32 id, int frames);            // at 0xA4
-    virtual void stopSound(unsigned int id, int frames);   // at 0xA8
+    virtual void stopSound(ui32 id, int frames);   // at 0xA8
     virtual void stopSound(const char* pName, int frames); // at 0xAC
     virtual void stopAllSound(int frames);                 // at 0xB0
 
@@ -313,7 +321,7 @@ public:
     virtual u32 getSoundId(u32 id, int offset); // at 0xD0 id + offset
     virtual const char* getSoundLabel(const char* pLabel,
                                       int offset); // at 0xD4 label of (id of pLabel) + offset
-    virtual u32 getSoundId(unsigned int id, int offset); // at 0xD8 calls the u32 overload
+    virtual u32 getSoundId(ui32 id, int offset); // at 0xD8 calls the u32 overload
 
 public:
     // Wii Play: the indexed overloads' handle lookup, inlined; their assertion strings are
@@ -332,6 +340,9 @@ protected:
     // Wii Play: at 0x6C / 0x7C / 0x8C for N = 0 / 4 / 8
     bool BOOL_0x7C;
     u32 mRemoteFlag; // RemoteFlag mask passed to RPSndSpeakerMgr::setRemoteSend
+
+    // The assertion names the member without this->; the base is dependent.
+    using TRPSndObjectBase<N>::mHandleCount;
 };
 
 // Wii Play: inlined into the derived sound actors' destructors (RPHkyPaddleTrail). The player is
@@ -549,7 +560,7 @@ nw4r::snd::SoundHandle* TRPSndObject<N>::holdSound(u32 id, u32 handle) {
 }
 
 template <int N>
-nw4r::snd::SoundHandle* TRPSndObject<N>::holdSound(unsigned int id, u32 handle) {
+nw4r::snd::SoundHandle* TRPSndObject<N>::holdSound(ui32 id, u32 handle) {
     nw4r::snd::SoundHandle* pHandle =
         FindFishSoundHandle(this->mSoundHandles, this->mHandleCount, id);
     if (pHandle == NULL) {
@@ -603,7 +614,7 @@ nw4r::snd::SoundHandle* TRPSndObject<N>::holdSoundWithRemotePlayer(u32 id, u32 r
 }
 
 template <int N>
-nw4r::snd::SoundHandle* TRPSndObject<N>::holdSoundWithRemotePlayer(unsigned int id, u32 remoteFlag, s32 player) {
+nw4r::snd::SoundHandle* TRPSndObject<N>::holdSoundWithRemotePlayer(ui32 id, u32 remoteFlag, s32 player) {
     nw4r::snd::SoundHandle* pHandle =
         FindFishSoundHandle(this->mSoundHandles, this->mHandleCount, id);
     if (pHandle == NULL) {
@@ -688,7 +699,7 @@ nw4r::snd::SoundHandle* TRPSndObject<N>::startSound(u32 id, u32 handle) {
 }
 
 template <int N>
-nw4r::snd::SoundHandle* TRPSndObject<N>::startSound(unsigned int id, u32 handle) {
+nw4r::snd::SoundHandle* TRPSndObject<N>::startSound(ui32 id, u32 handle) {
     if (this->mIsSilenced) {
         return NULL;
     }
@@ -760,7 +771,7 @@ nw4r::snd::SoundHandle* TRPSndObject<N>::startSoundWithRemotePlayer(u32 id, u32 
 }
 
 template <int N>
-nw4r::snd::SoundHandle* TRPSndObject<N>::startSoundWithRemotePlayer(unsigned int id, u32 remoteFlag, s32 player) {
+nw4r::snd::SoundHandle* TRPSndObject<N>::startSoundWithRemotePlayer(ui32 id, u32 remoteFlag, s32 player) {
     if (this->mIsSilenced) {
         return NULL;
     }
@@ -864,7 +875,7 @@ nw4r::snd::SoundHandle* TRPSndObject<N>::prepareSound(u32 id, u32 handle) {
 }
 
 template <int N>
-nw4r::snd::SoundHandle* TRPSndObject<N>::prepareSound(unsigned int id, u32 handle) {
+nw4r::snd::SoundHandle* TRPSndObject<N>::prepareSound(ui32 id, u32 handle) {
     if (this->mIsSilenced) {
         return NULL;
     }
@@ -1041,7 +1052,7 @@ u32 TRPSndObject<N>::getSoundId(u32 id, int offset) {
 }
 
 template <int N>
-u32 TRPSndObject<N>::getSoundId(unsigned int id, int offset) {
+u32 TRPSndObject<N>::getSoundId(ui32 id, int offset) {
     return getSoundId(static_cast<u32>(id), offset);
 }
 
@@ -1073,7 +1084,7 @@ void TRPSndObject<N>::stopSound(u32 id, int frames) {
 }
 
 template <int N>
-void TRPSndObject<N>::stopSound(unsigned int id, int frames) {
+void TRPSndObject<N>::stopSound(ui32 id, int frames) {
     for (int i = 0; i < this->mHandleCount; i++) {
         if (this->mSoundHandles[i].IsAttachedSound() && this->mSoundHandles[i].GetId() == id) {
             this->mSoundHandles[i].Stop(frames);

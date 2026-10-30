@@ -89,9 +89,16 @@ inline int ComparePtr(const void* pPtr1, const void* pPtr2) {
  * Rounding
  *
  ******************************************************************************/
+#if defined(PORT_HOST)
+// PC port: widen the mask to T, so a pointer-sized value (uintptr_t) keeps its upper half
+template <typename T> inline T RoundUp(T t, unsigned int alignment) {
+    return (alignment + t - 1) & ~static_cast<T>(alignment - 1);
+}
+#else
 template <typename T> inline T RoundUp(T t, unsigned int alignment) {
     return (alignment + t - 1) & ~(alignment - 1);
 }
+#endif
 
 #if defined(PORT_HOST)
 // PC port: round the full pointer-sized address (the mask is widened first)

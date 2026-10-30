@@ -26,7 +26,15 @@ typedef enum {
 } RFLCoordinateType;
 
 typedef struct RFLCharModel {
+#if defined(PORT_HOST)
+    // The members of RFLiCharModel, which holds pointers (larger on a 64-bit
+    // host; RFL_Model.c checks the size).
+    Mtx dummy0[2];
+    u32 dummy1[2];
+    void* dummy2[1 + RFLExp_Max];
+#else
     u8 dummy[0x88];
+#endif
 } RFLCharModel;
 
 typedef struct RFLDrawSetting {

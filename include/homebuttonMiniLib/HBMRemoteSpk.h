@@ -7,6 +7,8 @@
 #include <revolution/WENC.h>
 #include <revolution/WPAD.h>
 
+#include <port/be.h>
+
 namespace homebutton {
 
 class RemoteSpk {
@@ -14,7 +16,7 @@ private:
     struct ChanInfo {
         OSAlarm alarm;     // at 0x0
         WENCInfo wencinfo; // at 0x30
-        const s16* in_pcm; // at 0x50
+        const be_s16* in_pcm; // at 0x50 (SpeakerSe.arc PCM, big-endian)
         int length;        // at 0x54
         int seId;          // at 0x58
         bool first;        // at 0x5C
@@ -43,7 +45,7 @@ public:
     bool isPlaying(s32 chan) const;
     bool isPlayingId(s32 chan, int seId) const;
 
-    void GetPCMFromSeID(int id, s16*& rpPcm, int& rLength);
+    void GetPCMFromSeID(int id, be_s16*& rpPcm, int& rLength);
     void ClearPcm();
     void Start();
     void Stop();

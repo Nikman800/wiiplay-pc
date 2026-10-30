@@ -942,7 +942,8 @@ them, all 750 units that depend on a touched file are byte-identical (2026-10-30
   - `RPBomQuestionParam::Load` runs (`BuildLevelTable`), and every record word is read through
     `RPBomQuestionParamFile`.
   - `RPWlyLevelTable` and `RPPnpLevelTable` are copied as their constructors do and read through
-    the real record structs. Their units include RPAudio headers, see below.
+    the real record structs. Their units include RPAudio headers, see below. (Now their real
+    constructors run, §15.)
 - **Results.** Every value matches as a 32-bit pattern (64- and 32-bit):
 
   ```
@@ -952,7 +953,8 @@ them, all 750 units that depend on a touched file are byte-identical (2026-10-30
 
 ### Host pieces
 
-- **`tests/shadow/Pack/RPSystem/RPSysResourceManager.h`.** The loader units call
+- **`tests/shadow/Pack/RPSystem/RPSysResourceManager.h`** (removed in §15; the real header
+  builds now). The loader units call
   `LoadGameCommonArchive` / `GetFileFromArchive`. The real header pulls in RPAudio headers
   that do not build on the host, so the step 8 Pack units are compiled with this stand-in
   first on the include path. It has the same two declarations, and each harness defines them
@@ -1012,7 +1014,7 @@ the member is at 0x28 (fixed).
 
 ### Not covered yet
 
-- **Duc parameters (6 files) and `TnkGameParam` (1).** Their structs are declared in units and
+- **Duc parameters (6 files) and `TnkGameParam` (1).** Done in §15. Their structs are declared in units and
   headers that include the RPAudio headers. Those do not build on the host yet: the
   `unsigned int` / `u32` virtual overload pairs in `RPSndObject.h` / `RPSndAudioMgr.h` are the
   same type on the host, there are dependent-base names in templates, and `RPSysFile::PATH_MAX`
@@ -1026,3 +1028,327 @@ the member is at 0x28 (fixed).
   - `RPPathPoint::pos` (no points on the disc).
   - `RPCollisionModel` (compiled, not linked: it needs `RPBBox` and the RP matrix helpers).
   - Light-object state that only drawing uses (`Calc` results).
+
+## 15. RPAudio headers on the host; Duc, Tnk, Wly and Pnp loaders
+
+The RPAudio headers now build on the host, so the real `RPSysResourceManager.h` does too, and
+the test-only stand-in `tests/shadow/` is gone. Every harness compiles against the real header.
+The Shooting Range parameter files, `TnkGameParam` and the Wly / Pnp level tables load through
+the game's code. All 786 units that depend on a touched file are byte-identical (2026-10-30).
+
+### Header fixes
+
+None of these changes the Wii build.
+
+- **`ui32`** (`include/Pack/types_pack.h`).
+  - On the Wii, `u32` is `unsigned long` and the RPAudio sound actors have virtual overload pairs
+    that take a sound ID as `u32` or as `unsigned int`. On the host both are `unsigned int`, so
+    the pairs collided.
+  - The `unsigned int` member of each pair is now spelled `ui32`. That is `unsigned int` on the
+    Wii and `unsigned long` on the host, so the pairs and their vtable slots stay.
+  - Where: `RPSndAudioActorBase`, `TRPSndObject` and `RPSndObject2D` (start / hold / prepare /
+    stop / `getSoundId`), `RPSndAudioMgr::startSound`, and their definitions in
+    `RPSndAudioMgr.cpp` and `RPWlySound_2.cpp`.
+  - On the host, a call with a `u32` or `unsigned int` argument picks the `u32` overload. Each
+    pair has the same body.
+  - Overloads that are not such pairs are unchanged, for example `loadGroup(unsigned int)` /
+    `loadGroup(int)` and `startBgm(unsigned int)`.
+  - The typedef is not in `include/types.h` because of the precompiled header (see below).
+- **Dependent bases.** The class templates name `mHandleCount` (`TRPSndAudioActorBaseWithHandles`,
+  `TRPSndObject`) and `smCommon3DManager` (`TRPSndAudio3DActor`) without `this->`, inside
+  `RP_ASSERT`.
+  - `RP_ASSERT` stringizes its expression, and those strings are in the binary, so `this->`
+    would change `.data`.
+  - Instead, each template has a `using Base::member;` declaration.
+- **`PATH_MAX`.** `RPSysFile` and `RPSndAudioMgr` have static members of that name. The host
+  `types.h` includes `<limits.h>` / `<climits>` (its guard keeps it from coming back), then
+  `#undef PATH_MAX`.
+- **Other headers.**
+  - `RPSysParticleManager`'s destructor loses `override`. The base destructor
+    (`ef::ParticleManager`) is not virtual, and `decomp/lang.h` defines `override` away for
+    CodeWarrior.
+  - `ef::MemoryManagerImpl` rounds its heap start through `reinterpret_cast<uintptr_t>`
+    instead of `<u32>`. MSL's `uintptr_t` is `unsigned long`, so the code is the same.
+  - On the host, `ut::RoundUp(T, ...)` now widens its mask to `T`, so a 64-bit address keeps
+    its upper half.
+- **Host `decomp/compat.h`.**
+  - `__declspec(x)` becomes `PORT_DECLSPEC_x`. Only `novtable` is defined (empty), so any other
+    use, such as `section ".ctors"`, fails to compile instead of being dropped.
+  - `__fmadds`, `__fmsubs`, `__fnmadds` and `__fnmsubs` are single-precision `fmaf`, rounded
+    once as on Gekko. The Duc units use them.
+
+### `check_matching.py` and the precompiled header
+
+The Pack units are compiled with `-prefix SportsPack.mch`, which is built from
+`include/SportsPack.pch` → `nw4r/ut/ut_algorithm.h` → `nw4r/types_nw4r.h` → `types.h`.
+
+`check_matching.py` uses the decomp checkout's `.mch`, so it never reads this repository's
+copies of those headers. Their include guards are already set. That is why `ui32` is in
+`types_pack.h`; a first version in `types.h` failed to compile there.
+
+The `ut_algorithm.h` change is inside `#if defined(PORT_HOST)`, so the stale `.mch` does not
+matter for it. A future change to the non-host text of these headers needs a rebuilt `.mch`.
+
+### What runs
+
+All of these are in `tests/data_harness.cpp` (`make data`), checked by `tests/test_data.py`.
+
+- **Duc parameters (6 files, each in both TV modes).**
+  - `RPDucCircleTarget`, `RPDucDuck` and `RPDucUfo::LoadParams` run for real. They triple the
+    frame counts, and `RPDucDuck` scales two x ranges by `0.75f` on 4:3.
+  - `RPDucBalloon`, `RPDucCan` and `RPDucClay` load their file in the first statement of `Load`,
+    which goes on to build models. The harness does that statement (the struct copy) itself.
+    Their units are compiled only.
+  - The harness prints each struct after loading as words (`DP`), plus `mBaseRadius` and every
+    pattern's hit scale read through the member names (`DN`).
+  - The structs are `be_*`. `mParam` is a copy of the file, so the object holds big-endian
+    values and every read converts.
+- **`TnkGameParam`.**
+  - `RPTnkGameManager::Load` runs with the real `RPTnkEmptyTask`. Then `PickStageVariant` runs
+    for all 100 stages in both modes, with fixed `RP_randSeedX` / `RP_randSeedY` (`TP`).
+  - `PickStageVariant` reads each stage record's variant range and draws with `TnkGameRandom`.
+  - The views in `RPTnkGameManager.cpp` (`TnkGameParam`, `TnkStageParam`) and in
+    `RPTnkStageMap.cpp` are `be_*`. `RPTnkStageMap` is compiled only.
+- **Level tables.**
+  - The real `RPWlyLevelTable` constructor runs in both TV modes (`mSpeed * 1.3684211f` on
+    16:9, `unk20 = 6.25f` on field type 3), and again with `sUseDefaultLevel` set.
+  - `sDefaultLevel`'s initialiser spells each value as `be_s32(8)`, `be_f32(-130.0f)` and so
+    on, because the host wrapper's constructor is explicit. On the Wii these are plain casts.
+  - The real `RPPnpLevelTable` constructor runs, and its levels are read through
+    `GetLevelEntry`.
+- **How the harness calls these objects.**
+  - `LoadParams` and the Tnk calls run on zeroed storage of the object, without the
+    constructor. A constructor would set the vtable, and the vtable pulls in every virtual
+    function and the scene code behind it. These calls only touch the members the harness
+    prints.
+  - Private members are read through explicit template instantiation of a member pointer
+    (`PRIVATE_MEMBER`); the classes are unchanged.
+  - The Tnk test sets the two members `ResetForMode` would set. `ResetForMode` itself also
+    resets the stats, guide and BGM objects, which the harness does not create.
+  - `Wly_fieldType3Unk20` is defined in the harness (6.25f, as in `RPWlyAvatarMgr_2`).
+- **Results.** Both builds match:
+
+  ```
+  data_harness: ... tables: 120 Tnk maps, 1 BomQuestionParam, 716 Wly levels, 331 Pnp records, 12 Duc params, 1 TnkGameParam; 0 errors
+  lines: ... WL 716/716, PL 331/331, DP 12/12, DN 12/12, TP 2/2 (harness/python)
+  ```
+
+### Parser fixes (`port/assets/tools/fmt_game_data.py`)
+
+- **`DucCircleMatoParam`.** The schema listed all eight patterns' hit scales and radii first,
+  then the grow frames, then the stand frames. In the struct (`RPDucCircleTargetPattern`, 0x1C
+  bytes) each pattern holds its own seven words. The `DN` line, read through the member names,
+  showed this.
+- **`leveltable.bin`.** `unk8` was decoded as `f32`. All three words are `u32` weights, summed
+  as `u32` by `PnpPlayerPickTargetIndex` (`RPPnpPlayer.cpp:376-379`). The struct already said
+  `u32`. `port/assets/formats/game_data.md` is corrected too (and its `RPWlyLevelData` field
+  list, which left out `unk4`).
+
+### Build note
+
+Objects compiled before this change list `tests/shadow/...` in their `.d` files. Make stops
+with "No rule to make target". Delete those `.d` files and their objects, or `make clean`.
+
+### Not covered yet
+
+- **`TnkGameParam`'s enemy records** (10 × 0xA8 bytes at 0x4). The game reads them through
+  three more views: `TnkEnemyParamsData` (`RPTnkTank.cpp`), `AttackEnemyParamsData`
+  (`RPTnkAi_4.cpp`) and `RPTnkPlayerParams` (`RPTnkPlayerController.cpp`).
+  - Those views are still plain types.
+  - `fmt_game_data.parse_tnk_game_param` does not decode the records either.
+  - `lives` and the stage bonus are read only by `SetupFirstStage` and a state function,
+    which the harness does not run.
+- **The full `Load` of Balloon, Can and Clay** (models). `RPDucCan::AdjustPatterns` is inline
+  in `Load` and does not run.
+
+## 16. BTI, `RFL_Res.dat`, HOME Menu; the last step 8 pointer sites
+
+The remaining formats now load through the game's own code on the host: BTI textures through
+`EGG::GXUtility::getTexObj`, `RFL_Res.dat` through the whole of RVLFaceLib (`src/RVLFaceLib`,
+all decompiled and matching), and the HOME Menu files through homebuttonMiniLib's `HBMCreate`.
+The step 8 pointer sites that were still design (POINTERS.md §5.1, §5.2) are done. As before,
+nothing is swapped in place except where noted, and `check_matching.py` lists the files at the
+end of `TOUCHED`: all 797 units that depend on a touched file are byte-identical (2026-10-30).
+
+### Source changes
+
+- **BTI.** `EGG::ResTIMG` (`include/egg/gfx/eggResTIMG.h`): `width`, `height`,
+  `paletteEntryNum`, `paletteOffset`, `LODBias` and `imageOffset` are `be_*`. `getTexObj`,
+  `CpuTexture::initResTIMG` (which writes a header for its own image) and the other readers
+  compile unchanged.
+- **`RFL_Res.dat`.**
+  - `RFL_NANDLoader.c`: every header and offset-table word is read as
+    `BE_GET(*(be_u32*)p)` / `be_u16`. That covers the cached path the game uses
+    (`parseOnmemoryRes_`, `getCachedLength_`, `getCachedFile_`) and the NAND path.
+  - `RFLiTexture` (`RFLi_Texture.h`): the `u16` / `u32` / `s16` fields are `be_*`. Its readers
+    use `BE_GET`: `RFLiGetTexImage`, `RFLiInitRFLTexture` (`RFL_MakeTex.c`), `RFLiInitTexRes`.
+  - `RFLiInitShapeRes` (`RFL_Model.c`): the vertex counts are `be_u16`, the vertex data
+    `be_s16`. The faceline's three `Vec`s are loaded with `RFLi_LOAD_VEC` (a `memcpy` on the
+    Wii, three `be_f32` reads on the host).
+  - The vertex arrays RFL builds (`RFLiCharModelRes`, `RFLiShapeRes`) are GX data. Like the
+    BRRES vertex arrays, they stay big-endian on every platform, so they are `be_s16`, and
+    `RFLiTransformCoordinate` reads and writes them with `BE_GET` / `BE_SET`. The texcoords are
+    copied from the file unchanged, as before.
+- **HOME Menu.**
+  - `home_nosave.csv` is UTF-16 with a byte-order mark, big-endian on the disc.
+    `HomeButton::set_text` stores pointers into it and hands them to `lyt::TextBox`. On the
+    host it first converts the buffer to native order in place, up to the terminating 0 (the
+    archive padding after the file), if the mark reads `0xFFFE`. A second `HBMCreate` on the
+    same buffer leaves it alone. `#if defined(PORT_HOST)` in `HBMBase.cpp`.
+  - `SpeakerSe.arc`'s `.bwav` files are big-endian 16-bit PCM. `RemoteSpk`'s PCM pointer is
+    `be_s16`, and `MakeVolumeData` reads it with `BE_GET` (`HBMRemoteSpk.h` / `.cpp`).
+  - `config.txt` is ASCII. The layout archives are covered by §9 (`nw4r::lyt`).
+- **Cookies (POINTERS.md §5.2).**
+  - RFL: `RFLiExCallback` takes a `uintptr_t`. So do `RFLiLoadHiddenDataAsync` and
+    `RFLiHDBManager::loadArg`, and the callbacks that receive it (`RFL_MiddleDatabase.c`
+    passes `(uintptr_t)db`; `RFL_Database.c`, `RFL_Format.c` and `RFL_NANDAccess.c` take the
+    same parameter type). On the Wii `uintptr_t` is `unsigned long`, the same type as `u32`.
+  - HBM alarm user data: `reinterpret_cast<uintptr_t>` / `<intptr_t>` (`HBMBase.cpp`,
+    `HBMController.cpp`, `HBMRemoteSpk.cpp`). `HBMAllocMem` takes a `size_t` (the
+    `AXFXSetHooks` type; `unsigned long` on the Wii, like `u32`).
+- **Opaque RFL structs.** `RFLCharModel` (0x88) and `RFLMiddleDB` (0x18) are byte arrays that
+  RFL casts to `RFLiCharModel` / `RFLiMiddleDB`. Those hold pointers and are larger on a
+  64-bit host. Under `PORT_HOST` the public structs declare the same members; a
+  `_Static_assert` in `RFL_Model.c` / `RFL_MiddleDatabase.c` checks the size.
+- **POINTERS.md §5.1.**
+  - `RPPolyline::Calc`: under `PORT_HOST` the control-point walk adds the offset to a
+    `const u8*`, and `mPointNum` is read as a member instead of by the inline `lwz`.
+  - `RPKokeshiMgr_3`'s `SetScreenFlags` names `EGG::Frustum::mFlags` (protected) through a
+    pointer to member taken in a derived class, instead of writing byte 0x34. A public setter
+    in `eggFrustum.h` would change the matching objects of every unit that includes it.
+- **`nw4r::math` paired-single inlines.** `VEC3Add`, `VEC3Sub`, `VEC3Scale`, `VEC3Lerp`,
+  `VEC3Dot` and `VEC3LenSq` (`math_types.h`) are inline asm only. On the host they were
+  no-ops: `ASM(...)` expands to nothing, so `VEC3` `+ - *` did nothing, and `Dot` / `LenSq`
+  returned an uninitialised value.
+  - Each asm block is now opened with `ASM_PS(name)`. On the Wii, `ASM_PS(name)` is `ASM`
+    (defined at the top of `math_types.h`).
+  - The Wii definition is in `math_types.h`, not in `decomp/compat.h`: the game units'
+    precompiled header (`SportsPack.pch`) includes `compat.h`, and `check_matching.py`
+    compiles them with the decomp checkout's copy of it.
+  - On the host, `port/host/include/decomp/compat.h` turns `ASM_PS(name) ( asm )` into the
+    same operations in C on the function's own parameters, and drops the asm text. The fused
+    multiply-adds use `__fmadds`.
+  - `RPPolyline` needs this (`VEC3Lerp`). Every earlier harness gives the same results with
+    it, on both builds.
+- **Host headers.**
+  - `port/host/include/types.h` wraps its C++ standard headers in `extern "C++"`, and the
+    host `be.h` its C++ part, because `HBMTypes.h` and RVLFaceLib include them inside
+    `extern "C"`.
+
+### What runs
+
+`tests/bti_harness.cpp` (`make bti`):
+
+- **All 15 `.bti` files.** Each goes through `RPGrpTexture(const ResTIMG*)` (as
+  `RPSysKokeshiIcon::SetupModel` does for `lm_0` / `lm_1`), `GXUtility::getTexObj` and
+  `DrawGX::LoadTexture`. The harness checks that all three give the same `GXTexObj` and that
+  the header is unchanged.
+- **Tanks.** `Common/RPTnkScene/common.carc`'s `RPTnkFootmarkTex::Load` (`RPTnkTask_3.cpp`)
+  runs while the archive is mounted, and its 11 textures go through `getTexObj`.
+- **Test.** `tests/test_bti.py` builds every `GXTexObj` word from the header
+  (`fmt_text_font.parse_bti`). It uses a Python model of `GXInitTexObj` / `GXInitTexObjLOD`
+  (`gx_tex_obj`, after `GXTexture.c`, which `test_rfl.py` shares). It also decodes every image
+  with `gxtex.py` at the offset, size and format the `GXTexObj` holds.
+- **`ball_face.bti`** (Billiards) is not named anywhere in the DOL. Billiards uses the Mii
+  icon texture (`RPSysKokeshiIcon::GetResTIMG`), so the file is walked like the others but the
+  game never loads it.
+
+`tests/rfl_harness.cpp` (`make rfl`):
+
+- **Init.** `RFLInitRes(work, RFL_Res.dat, size, FALSE)` runs as `RPSysKokeshiManager` does.
+  - There is no NAND on the host (`tests/rfl_host.c`). The Mii database open reports
+    `NAND_RESULT_NOEXISTS`.
+  - `RFLiBootLoadDatabaseAsync` treats that as an empty database and goes on to read the
+    cached resource's header.
+- **Every file of the 18 part archives (472 files).**
+  - Textures (eye, eyebrow, mouth, mustache, mole): `RFLiLoadTexture` and
+    `RFLiInitRFLTexture`.
+  - Shape textures (face, cap, nose line, glasses): `RFLiLoadShpTexture` and
+    `RFLiInitTexRes`, which copies the image and makes the `GXTexObj`.
+  - Shapes: `RFLiLoadShape` and `RFLiInitShapeRes` in four modes: plain, flipped, transformed
+    (scale 0.75 and an offset, as the hair, cap and beard are) and both.
+- **Test.** `tests/test_rfl.py` parses `RFL_Res.dat` on its own: the section table, the
+  per-archive offset tables, the texture headers and the shapes. From that it builds the
+  loader state, every file's size and hash, the `GXTexObj` words, the image copies, and the
+  vertex arrays in the four modes (as big-endian GX data) with the faceline `Vec`s.
+- **Not checked.** The display lists `RFLiInitShapeRes` builds go to the GX FIFO (`WGPIPE`).
+  The host has no FIFO yet (`rfl_host.c` defines it as a plain variable), so their bytes are
+  not checked. Their source bytes are 8-bit indices and need no conversion.
+
+`tests/hbm_harness.cpp` (`make hbm`):
+
+- **Set-up.** The harness mounts `Common/PartyStatic/common.carc` and
+  `US/PartyStatic/local.carc` as `RPSysResourceManager` does. It fills `HBMDataInfo` as
+  `RPSysHomeMenuMgr` does (work memory, `HBM_CONFIG_SIZE`, the same archive paths) and runs the
+  real `HBMCreate` for each `homeBtn_*.arc` on the disc (ENG, FRA, SPA). That covers:
+  - `set_config`
+  - `set_text`
+  - the layout, its 6 button animations, the group and pair animations, and the GUI pane
+    manager
+  - `RemoteSpk`
+  - `init_msg`, which puts the region's three messages in the text boxes
+- **Speaker sounds.** Every `SpeakerSe.arc` sound is played with `RemoteSpk::Play`, and the
+  real `UpdateSpeaker` (from `RemoteSpk::Start`'s periodic alarm) runs until it is done.
+  `tests/hbm_host.cpp` records what reaches `WENCGetEncodeData`.
+- **Repeated create.** The library has no `HBMDelete` (and `~HomeButton` is not in the game),
+  so each language makes a new instance in new work memory. The second and third creates see
+  the message buffer already in native order.
+- **Test.** `tests/test_hbm.py`:
+  - parses `config.txt` the way `set_config` does
+  - splits the big-endian `.csv` the way `set_text` does
+  - scales the PCM into 40-sample packets, times the volume / 10 and zero-padded
+  - checks that every file in a `HomeMenu` directory is covered: here, or by the snd harness
+    (`HomeButtonSe.brsar`), the BTI harness (`homeBtnIcon.bti`) or the layout harness (the
+    archives' contents)
+
+`test_polyline` (in `make unit`): the real `RPPolyline::Calc` for 3 to 8 control points at 65
+values of `t`, compared bit for bit with de Casteljau's algorithm written out with the same
+`VEC3Lerp`.
+
+Compiled only, so their host forms keep building: `RPKokeshiMgr_3`, `RPSysKokeshiManager`,
+`RPSysHomeMenuMgr` and `g3d_scnrfl`.
+
+Results (64- and 32-bit):
+
+```
+bti_harness: 15 BTI, 11 RPTnkFootmarkTex textures; 0 errors
+rfl_harness: 1 RFL_Res.dat, 472 part files (105 textures, 106 shape textures, 1044 shape loads); 0 errors
+hbm_harness: 3 HBMCreate, 84 messages, 9 text boxes, 5 speaker sounds; 0 errors
+test_polyline: 390 checks, 0 errors
+```
+
+### Host stand-ins
+
+- **`tests/rfl_host.c`.**
+  - NAND: open reports `NOEXISTS`; the other file calls abort.
+  - `GXBeginDisplayList` / `GXEndDisplayList`: no-ops; End returns 0 bytes, so
+    `RFLiCharModelRes`'s display-list sizes are 0 on the host until Phase 7.
+  - `WGPIPE`, `OSRegisterVersion`, alarms and interrupts.
+- **`tests/hbm_host.cpp`.**
+  - `MEMInitAllocatorForExpHeap`: the SDK's, in `mem_allocator.c`. That file is not built,
+    because its two dispatch functions are already in `src/host_gx.cpp`.
+  - Alarms: `RemoteSpk::Start`'s periodic alarm is recorded, not scheduled.
+  - WPAD: one always-ready speaker per remote.
+  - `WENCGetEncodeData`: records its input.
+  - The motor, drawing and pointer-math calls that `HBMCreate` does not reach abort.
+  - Thread and interrupt stand-ins come from `src/host_snd.cpp` (`libwiiplay_snd.a`, which
+    also provides the snd classes HBM references).
+
+### Not covered yet
+
+- **Mii data.** `RFLiCharData` / `RFLiHiddenCharData` / `RFLStoreData` are packed big-endian
+  bitfield records (the NAND database `RFL_DB.dat`, Wii Remote memory, `RFLMakeIcon` input).
+  They are not disc files, and the host has no NAND, so `RFL_DataUtility.c`'s conversions run
+  on host bitfield layouts that do not match the Wii's.
+  - That needs a typed big-endian accessor for the bitfields, and test data from a real
+    database.
+  - It is needed before Miis from a Wii save can be shown. The default Miis
+    (`RFL_DefaultDatabase.c`) are built in code and do not depend on it.
+- **RFL display lists and face textures.** `RFLiInitShapeRes`'s display lists and
+  `RFLiMakeTexture`'s render-to-texture face (`GXCopyTex`) need the Phase 7 GX layer.
+- **HOME Menu at run time.**
+  - `HBMInit` / `HBMCalc` / `HBMDraw`: controllers, the pointer hit test with `PSMTXInverse`,
+    drawing, and the AX reverb hooks.
+  - The HOME Menu's sound archive player (`HomeButtonSe.brsar` itself opens through the snd
+    harness).
+  - PLAN Phase 7 replaces or stubs the HOME Menu.

@@ -2,6 +2,8 @@
 #define RP_PARTY_DUC_CIRCLE_TARGET_H
 #include <Pack/types_pack.h>
 
+#include <port/be.h>
+
 #include <Pack/RPParty/RPDucScene/RPDucTarget.h>
 
 #include <nw4r/math.h>
@@ -17,10 +19,10 @@ class RPGrpModel;
  * @details Size 0x1C [H]; the frame counts are tripled by LoadParams. [0] 16:9, [1] 4:3.
  */
 struct RPDucCircleTargetPattern {
-    f32 mHitScale[2];   // at 0x0
-    f32 mRadius[2];     // at 0x8
-    s32 mGrowFrames;    // at 0x10
-    s32 mStandFrames[2]; // at 0x14 [1] in the two-player versus mode
+    be_f32 mHitScale[2];    // at 0x0
+    be_f32 mRadius[2];      // at 0x8
+    be_s32 mGrowFrames;     // at 0x10
+    be_s32 mStandFrames[2]; // at 0x14 [1] in the two-player versus mode
 };
 
 /**
@@ -29,24 +31,24 @@ struct RPDucCircleTargetPattern {
  * patterns copied as one Layout.
  */
 struct RPDucCircleTargetParam {
-    f32 mToppleMax;                        // at 0x0 degrees
-    f32 mToppleStep;                       // at 0x4
-    f32 mFallDrag;                         // at 0x8
-    f32 mFallGravity;                      // at 0xC
-    f32 unk10;                             // at 0x10 [L]
-    s32 mPoints[8];                        // at 0x14 per type, [odd] in the versus mode:
-                                           // b, a, other face, own face
-    f32 mBaseRadius;                       // at 0x34 hit radius of scale 1
+    be_f32 mToppleMax;                         // at 0x0 degrees
+    be_f32 mToppleStep;                        // at 0x4
+    be_f32 mFallDrag;                          // at 0x8
+    be_f32 mFallGravity;                       // at 0xC
+    be_f32 unk10;                              // at 0x10 [L]
+    be_s32 mPoints[8];                         // at 0x14 per type, [odd] in the versus mode:
+                                               // b, a, other face, own face
+    be_f32 mBaseRadius;                        // at 0x34 hit radius of scale 1
     /**
      * @brief Grid and patterns, copied by LoadParams as one block (size 0x108) [H]
      */
     struct Layout {
-        f32 mGrid[2][5];                       // at 0x0 16:9 and 4:3: step x, step y, z,
+        be_f32 mGrid[2][5];                    // at 0x0 16:9 and 4:3: step x, step y, z,
                                                // origin x, origin y
         RPDucCircleTargetPattern mPatterns[8]; // at 0x28
     };
 
-    Layout mLayout;                        // at 0x38
+    Layout mLayout;                            // at 0x38
 };
 
 /**

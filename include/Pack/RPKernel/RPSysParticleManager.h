@@ -21,7 +21,7 @@ public:
     /**
      * @brief Destructor
      */
-    virtual ~RPSysParticleManager() override; // at 0x20
+    virtual ~RPSysParticleManager(); // at 0x20
 
     /**
      * @brief Prepares this particle manager for creation

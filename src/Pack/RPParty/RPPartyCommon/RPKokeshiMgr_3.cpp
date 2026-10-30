@@ -35,8 +35,23 @@ inline bool IsValidCreateID(const RFLCreateID& rID) {
     return valid;
 }
 
+#if defined(PORT_HOST)
+// EGG::Frustum::mFlags (protected), named through a derived class. The Wii code
+// writes byte offset 0x34; the host's layout differs (vtable pointer first,
+// 64-bit pointers; port/docs/POINTERS.md §5.1).
+struct FrustumFlags : EGG::Frustum {
+    static u16 EGG::Frustum::*Member() {
+        return &FrustumFlags::mFlags;
+    }
+};
+#endif
+
 inline void SetScreenFlags(RPGrpScreen* pScreen, u16 flags) {
+#if defined(PORT_HOST)
+    pScreen->*FrustumFlags::Member() |= flags;
+#else
     *reinterpret_cast<u16*>(reinterpret_cast<u8*>(pScreen) + 0x34) |= flags;
+#endif
 }
 
 } // namespace

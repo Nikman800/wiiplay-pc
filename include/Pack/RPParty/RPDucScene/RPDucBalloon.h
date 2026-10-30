@@ -2,6 +2,8 @@
 #define RP_PARTY_DUC_BALLOON_H
 #include <Pack/types_pack.h>
 
+#include <port/be.h>
+
 #include <Pack/RPGraphics/IRPGrpModelCallback.h>
 #include <Pack/RPParty/RPDucScene/RPDucTarget.h>
 
@@ -18,10 +20,10 @@ class RPGrpModel;
  * @brief One launch pattern of param/DucBalloonParam.bin (RPDucBalloon::Launch, pattern & 7)
  */
 struct RPDucBalloonPattern {
-    f32 mHitScale;  // at 0x0 debug sphere scale
-    f32 mRise;      // at 0x4 [M] acceleration along unk1BC
-    f32 mDriftX;    // at 0x8 [M] random sideways drift range
-    f32 mHitRadius; // at 0xC
+    be_f32 mHitScale;  // at 0x0 debug sphere scale
+    be_f32 mRise;      // at 0x4 [M] acceleration along unk1BC
+    be_f32 mDriftX;    // at 0x8 [M] random sideways drift range
+    be_f32 mHitRadius; // at 0xC
 };
 
 /**
@@ -29,18 +31,18 @@ struct RPDucBalloonPattern {
  * @details Size 0xBC [H] (47 words); copied member by member (the Load copy).
  */
 struct RPDucBalloonParam {
-    f32 mDrag;                        // at 0x0 velocity factor per step
-    s32 mPoints;                      // at 0x4 doubled for the same colour twice
-    f32 mBaseRadius;                  // at 0x8 hit radius of scale 1
-    f32 unk0C;                        // at 0xC [L] string curve parameter
-    f32 unk10;                        // at 0x10 [L] string curve parameter
-    f32 unk14;                        // at 0x14 [M] screen-exit offset below the string top
-    f32 unk18;                        // at 0x18 [L] string curve parameter
-    f32 mStringLength;                // at 0x1C balloon centre to the string top
-    s32 mSwayStep;                    // at 0x20 sway angle step (16-bit index)
-    f32 mSwayAmp;                     // at 0x24 sway amplitude in degrees
+    be_f32 mDrag;                     // at 0x0 velocity factor per step
+    be_s32 mPoints;                   // at 0x4 doubled for the same colour twice
+    be_f32 mBaseRadius;               // at 0x8 hit radius of scale 1
+    be_f32 unk0C;                     // at 0xC [L] string curve parameter
+    be_f32 unk10;                     // at 0x10 [L] string curve parameter
+    be_f32 unk14;                     // at 0x14 [M] screen-exit offset below the string top
+    be_f32 unk18;                     // at 0x18 [L] string curve parameter
+    be_f32 mStringLength;             // at 0x1C balloon centre to the string top
+    be_s32 mSwayStep;                 // at 0x20 sway angle step (16-bit index)
+    be_f32 mSwayAmp;                  // at 0x24 sway amplitude in degrees
     RPDucBalloonPattern mPatterns[8]; // at 0x28
-    f32 mStringSegs[5];               // at 0xA8 curve segment lengths of the string [M]
+    be_f32 mStringSegs[5];            // at 0xA8 curve segment lengths of the string [M]
 };
 
 /**

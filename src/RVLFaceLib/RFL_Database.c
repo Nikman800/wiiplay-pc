@@ -18,7 +18,7 @@ static void initBrokenDatabase_(void) {
     RFLiClearDBBuffer();
 }
 
-static void bootloadCheckCRCCb_(u32 crc) {
+static void bootloadCheckCRCCb_(uintptr_t crc) {
     RFLiDBManager* mgr = RFLiGetDBManager();
 
     if (crc != 0) {
@@ -184,7 +184,7 @@ static void saveDBmultiopencallback_(void) {
     }
 }
 
-static void saveDatabase_(u32 arg) {
+static void saveDatabase_(uintptr_t arg) {
 #pragma unused(arg)
 
     switch (RFLiGetDBManager()->saveType) {

@@ -20,6 +20,8 @@
 #include <Pack/RPKernel/RPSysEffectBase.h>
 #include <Pack/RPSystem/RPSysResourceManager.h>
 
+#include <port/be.h>
+
 extern u32 RP_randSeedX;
 extern u32 RP_randSeedY;
 // This entry ignores its argument, but the original callers still supply it.
@@ -28,13 +30,13 @@ extern "C" void RPTnkHideExMsg__Fv(RPTnkExGuide*);
 
 // param/TnkGameParam.bin
 struct TnkStageParam {
-    s32 bonus[2];         // at 0x0 1P / 2P; > 0 shows the bonus fade
-    s32 enemyTypes[2][8]; // at 0x8 1P / 2P (RPTnkStageMap::LoadStage)
-    s32 variants[2][2];   // at 0x48 1P / 2P first and last stage variant
+    be_s32 bonus[2];         // at 0x0 1P / 2P; > 0 shows the bonus fade
+    be_s32 enemyTypes[2][8]; // at 0x8 1P / 2P (RPTnkStageMap::LoadStage)
+    be_s32 variants[2][2];   // at 0x48 1P / 2P first and last stage variant
 };
 struct TnkGameParam {
-    s32 lives;                // at 0x0
-    s32 enemies[10][0x2A];    // at 0x4 one 0xA8 record per enemy type (RPTnkTank, RPTnkAiAttack)
+    be_s32 lives;              // at 0x0
+    be_s32 enemies[10][0x2A];  // at 0x4 one 0xA8 record per enemy type (RPTnkTank, RPTnkAiAttack)
     TnkStageParam stages[100]; // at 0x694 STAGE_NUM
 };
 

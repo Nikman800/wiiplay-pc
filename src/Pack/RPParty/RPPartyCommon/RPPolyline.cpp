@@ -90,15 +90,25 @@ void RPPolyline::Calc(f32 t, nw4r::math::VEC3* pOut) const {
     // prologue's `stw r31` (a set1=worst store), i.e. the loads had mem-raw edges from it, so their
     // object was in the worst-case set. Calc is const (CF): the this dummy is const and stays out,
     // so in natural C the post-RA scheduler interleaves the loads with the li's (73/78, order only).
+#if defined(PORT_HOST)
+    count = self->mPointNum;
+#else
     asm volatile {
         lwz count, 0(self)
     }
+#endif
     points = mpPoints;
     work = mpWork[src];
     point = points;
     do {
+#if defined(PORT_HOST)
+        // Pointer-sized arithmetic (port/docs/POINTERS.md §5.1).
+        nw4r::math::VEC3Lerp(work, point,
+            reinterpret_cast<const nw4r::math::VEC3*>(reinterpret_cast<const u8*>(points) + offset) + 1, t);
+#else
         nw4r::math::VEC3Lerp(work, point,
             reinterpret_cast<const nw4r::math::VEC3*>(offset + reinterpret_cast<u32>(points)) + 1, t);
+#endif
         offset += sizeof(nw4r::math::VEC3);
         ++point;
         ++work;

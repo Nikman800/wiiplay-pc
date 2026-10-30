@@ -24,6 +24,10 @@ typedef struct Param2 {
     u16 padding;    // at 0x2
 } Param2;
 
+#if defined(PORT_HOST)
+_Static_assert(sizeof(RFLMiddleDB) >= sizeof(RFLiMiddleDB), "RFLMiddleDB holds RFLiMiddleDB");
+#endif
+
 u32 RFLGetMiddleDBBufferSize(u16 size) {
     return size * sizeof(RFLiHiddenCharData);
 }
@@ -104,7 +108,7 @@ static BOOL checkHiddenData_(RFLiHiddenCharData* data) {
     return RFLiCheckValidInfo(&info) ? TRUE : FALSE;
 }
 
-static void updateHDBcallback_(u32 arg) {
+static void updateHDBcallback_(uintptr_t arg) {
     RFLErrcode err;
     HiddenNewOldParam* nparam;
     RFLiMiddleDB* db;
@@ -134,7 +138,7 @@ static void updateHDBcallback_(u32 arg) {
 
             err = RFLiLoadHiddenDataAsync(&db->data[db->storedSize],
                                           nparam->srcIdx, updateHDBcallback_,
-                                          (u32)db);
+                                          (uintptr_t)db);
 
             if (err != RFLErrcode_Busy) {
                 RFLiEndWorking(err);
@@ -241,7 +245,7 @@ static void updateHiddenOld_(RFLiMiddleDB* db, BOOL oldIsHead, BOOL cache) {
         } else {
             RFLErrcode err = RFLiLoadHiddenDataAsync(
                 &db->data[nparam->dstIdx], nparam->srcIdx, updateHDBcallback_,
-                (u32)db);
+                (uintptr_t)db);
 
             if (err != RFLErrcode_Busy) {
                 RFLiEndWorking(err);
@@ -287,7 +291,7 @@ static void loadHiddenRandomSync_(RFLiMiddleDB* db) {
         db->storedSize < db->size ? RFLErrcode_DBNodata : RFLErrcode_Success;
 }
 
-static void updateHDBRandcallback_(u32 arg) {
+static void updateHDBRandcallback_(uintptr_t arg) {
     RFLiMiddleDB* db = (RFLiMiddleDB*)arg;
     HiddenRandomParam* hparam = (HiddenRandomParam*)&db->userData1;
     u32* src;
@@ -308,7 +312,7 @@ static void updateHDBRandcallback_(u32 arg) {
                 u16 srcIdx = *src - 1;
                 RFLErrcode err =
                     RFLiLoadHiddenDataAsync(&db->data[db->storedSize], srcIdx,
-                                            updateHDBRandcallback_, (u32)db);
+                                            updateHDBRandcallback_, (uintptr_t)db);
 
                 if (err != RFLErrcode_Busy) {
                     RFLiEndWorking(err);
@@ -415,7 +419,7 @@ static void updateHiddenRandom_(RFLiMiddleDB* db, BOOL cache) {
             } else {
                 RFLErrcode err =
                     RFLiLoadHiddenDataAsync(&db->data[hparam->dstIdx], srcIdx,
-                                            updateHDBRandcallback_, (u32)db);
+                                            updateHDBRandcallback_, (uintptr_t)db);
 
                 if (err != RFLErrcode_Busy) {
                     RFLiEndWorking(err);

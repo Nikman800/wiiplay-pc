@@ -20,7 +20,10 @@ Step 7 is implemented: the §5.2 snd cookies are `uintptr_t`, and the sound arch
 the host with `be_*` file structs (all 11 `.brsar` opened, every group loaded; HOST_BUILD.md
 §13). Step 8 is implemented for PMP (§3.5) and KCL (§3.6): `RES_PTR` slots, `be_*` file
 structs, every disc file through `RPResTable` / `RPKcl::SetResource` (HOST_BUILD.md §14). The
-rest of step 8 (`RPPolyline`, HBM and RFL cookies, `RPKokeshiMgr_3`) is still design.
+rest of step 8 is implemented too (HOST_BUILD.md §16): `RPPolyline` and `RPKokeshiMgr_3` (§5.1)
+have host forms, the RFL callback cookies are `uintptr_t` and the HBM alarm user data
+`intptr_t` / `uintptr_t` (§5.2), and RFL's opaque `RFLCharModel` / `RFLMiddleDB` hold their
+pointer-carrying internal structs on a 64-bit host.
 Line numbers refer to `src/` and `include/` as of 2026-10-30 (identical to the decomp) and do not
 account for the step 0-2 edits.
 

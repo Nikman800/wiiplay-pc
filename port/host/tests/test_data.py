@@ -19,8 +19,17 @@ lines (see the harness header):
   BQ, BW          RPBomQuestionParam: BuildLevelTable's question ranges from
                   the patterns' mQuestion, and every record word (the header
                   also against parse_bom_question_param)
-  WL, PL          RPWlyLevelData and RPPnpLevelTable records
-                  (parse_wly_leveltable, parse_leveltable)
+  WL              RPWlyLevelTable's records (parse_wly_leveltable) after its
+                  constructor in both TV modes: mSpeed * 1.3684211f on 16:9,
+                  unk20 = 6.25f on field type 3; and with sUseDefaultLevel set
+  PL              RPPnpLevelTable's records (parse_leveltable)
+  DP, DN          the six Duc parameter files (parse_duc_param) in both TV
+                  modes, with LoadParams' changes: frame counts tripled
+                  (CircleMato, Duck, Ufo), Duck's jump and forward x ranges
+                  * 0.75f on 4:3; DN: mBaseRadius and the patterns' hit scales
+  TP              TnkGameParam (parse_tnk_game_param): the variant
+                  PickStageVariant picks for each stage in both modes, from the
+                  stage records' range and the Tnk random generator
 
 Every value is compared as the hex of its 32-bit pattern (floats as bits), so a
 field read in the wrong byte order or at the wrong offset shows up as a
@@ -31,6 +40,7 @@ mismatch.
 import argparse
 import collections
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -132,6 +142,95 @@ def bom_lines(path, data, p):
     return lines
 
 
+def f32(x):
+    return struct.unpack(">f", struct.pack(">f", x))[0]
+
+
+WLY_WIDE_SPEED = f32(1.3684211)  # RPWlyLevelTable::RPWlyLevelTable
+WLY_FIELD3_UNK20 = 6.25          # Wly_fieldType3Unk20 (RPWlyAvatarMgr_2)
+WLY_DEFAULT = dict(zip(          # RPWlyLevelTable::sDefaultLevel
+    ("mAvatarNum", "unk4", "mQuestionType", "mFieldType", "unk10", "unk14", "mCameraTarget",
+     "mSpeed", "unk20", "mSpotlight", "mFoundScale", "mSpotPos.x", "mSpotPos.y", "mSpotPos.z",
+     "mPlaneY", "mPlaneZ"),
+    (8, 0, 1, 0, -130.0, -130.0, -27.0, 8.0, 15.0, 0.0, 1.5, 1.0, 1.0, 1.0, 0.0, 0.0)))
+
+
+def wly_lines(path, p):
+    out = []
+    for default in (0, 1):
+        for tv in (0, 1):
+            kind = ("default-" if default else "") + f"tv{tv}"
+            for i, rec in enumerate(p["records"]):
+                rec = dict(WLY_DEFAULT if default else rec)
+                if tv == 1:  # EGG::Screen::TV_MODE_WIDE
+                    rec["mSpeed"] = f32(rec["mSpeed"] * WLY_WIDE_SPEED)
+                if rec["mFieldType"] == 3:
+                    rec["unk20"] = WLY_FIELD3_UNK20
+                out.append("\t".join(["WL", path, kind, str(i)]
+                                      + [fb(v) if isinstance(v, float) else ib(v) for v in rec.values()]))
+    return out
+
+
+# Members RPDuc*::LoadParams multiplies by 3 (frame counts; three sub-steps per frame).
+DUC_TRIPLED = {
+    "DucCircleMatoParam": r"mLayout\.mPatterns\[\d\]\.(mGrowFrames|mStandFrames\[\d\])",
+    "DucDuckParam": r"mPatterns\[\d\]\.mBounceFrames|mDamageFrames",
+    "DucUfoParam": r"mPatterns\[\d\]\.(mWait2Frames|mWaitFrames|mWanderFrames|mCircleTimeMin"
+                   r"|mCircleTimeMax|mCircleFrames|mAbductFrames|mLiftFrames[01]|mHoldFrames)",
+}
+# RPDucDuck::LoadParams on 4:3 (EGG::Screen TV mode 0): * 0.75f (lbl_8043FE04).
+DUC_STD_SCALED = {"DucDuckParam": r"mPatterns\[\d\]\.mJumpRangeX|mForwardRangeX"}
+
+
+def duc_lines(path, name, p):
+    out = []
+    types = dict(fmt_game_data.DUC_PARAM_FIELDS[name])
+    for tv in (0, 1):
+        fields = dict(p["fields"])
+        for field in fields:
+            if name in DUC_TRIPLED and re.fullmatch(DUC_TRIPLED[name], field):
+                fields[field] = (fields[field] * 3 + 2**31) % 2**32 - 2**31
+            if tv == 0 and name in DUC_STD_SCALED and re.fullmatch(DUC_STD_SCALED[name], field):
+                fields[field] = f32(fields[field] * f32(0.75))
+        out.append("\t".join(["DP", path, str(tv)]
+                              + [fb(v) if types[k] == "f32" else ib(v) for k, v in fields.items()]))
+        if name == "DucCircleMatoParam":
+            scales = [fields[f"mLayout.mPatterns[{i}].mHitScale[{k}]"] for i in range(8) for k in range(2)]
+        else:
+            scales = [fields[f"mPatterns[{i}].mHitScale"] for i in range(8)]
+        out.append("\t".join(["DN", path, str(tv), fb(fields["mBaseRadius"]),
+                               ",".join(fb(v) for v in scales)]))
+    return out
+
+
+def tnk_param_lines(path, p):
+    # RPTnkGameManager::PickStageVariant with TnkGameRandom; the harness seeds
+    # RP_randSeedX/Y and sets mModeIdx and unk14 (-1) as ResetForMode does.
+    out = []
+    for players in (1, 2):
+        mode = players - 1
+        x, y = 0x12345678, 0x9ABCDEF1
+        last = -1
+        picks = []
+        for stage in p["stages"]:
+            first, final = stage[f"variants[{mode}][0]"], stage[f"variants[{mode}][1]"]
+            if first == final:
+                pick = first
+            else:
+                while True:
+                    x = (x * 0x41C64E6D + 12345) & 0xFFFFFFFF
+                    if y & 1:
+                        y ^= 0x11020
+                    y >>= 1
+                    pick = ((x ^ y) % ((final - first + 1) & 0xFFFFFFFF)) + first
+                    if pick != last:
+                        break
+            last = pick
+            picks.append(str(pick))
+        out.append("\t".join(["TP", path, str(players), ",".join(picks)]))
+    return out
+
+
 def record_lines(tag, path, kind, p):
     out = []
     for i, rec in enumerate(p["records"]):
@@ -175,7 +274,11 @@ def main():
         elif kind == "BomQuestionParam":
             expected += bom_lines(path, data, p)
         elif kind.startswith("wanted_"):
-            expected += record_lines("WL", path, "level", p)
+            expected += wly_lines(path, p)
+        elif kind.startswith("Duc"):
+            expected += duc_lines(path, kind, p)
+        elif kind == "TnkGameParam":
+            expected += tnk_param_lines(path, p)
         elif kind == "leveltable":
             expected += record_lines("PL", path, "level", p)
         elif kind.startswith("rallyleveluptable"):
@@ -183,7 +286,7 @@ def main():
         else:
             uncovered[kind] += 1
 
-    tags = ("LO", "LD", "LA", "LT", "MT", "ML", "BL", "TM", "BQ", "BW", "WL", "PL")
+    tags = ("LO", "LD", "LA", "LT", "MT", "ML", "BL", "TM", "BQ", "BW", "WL", "PL", "DP", "DN", "TP")
     kinds_got = collections.Counter(line.split("\t", 1)[0] for line in got)
     kinds_exp = collections.Counter(line.split("\t", 1)[0] for line in expected)
     cg, ce = collections.Counter(got), collections.Counter(expected)

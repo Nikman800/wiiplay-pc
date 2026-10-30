@@ -464,10 +464,10 @@ void RFLiMakeTexture(const RFLiCharInfo* info, u8** buffers,
 void RFLiInitRFLTexture(RFLiTexObj* tobj) {
     RFLiTexture* tex = tobj->texture;
 
-    GXInitTexObj(&tobj->tobj, RFLiGetTexImage(tex), tex->width, tex->height,
-                 tex->format, GX_CLAMP, GX_CLAMP, FALSE);
+    GXInitTexObj(&tobj->tobj, RFLiGetTexImage(tex), BE_GET(tex->width),
+                 BE_GET(tex->height), tex->format, GX_CLAMP, GX_CLAMP, FALSE);
     GXInitTexObjLOD(&tobj->tobj, tex->minFilt, tex->magFilt, tex->minLOD,
-                    tex->maxLOD, tex->lodBias, tex->enableBiasClamp,
+                    tex->maxLOD, BE_GET(tex->lodBias), tex->enableBiasClamp,
                     tex->enableEdgeLOD, tex->enableMaxAniso);
 }
 

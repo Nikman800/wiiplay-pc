@@ -104,7 +104,7 @@ static void formatWriteCallback_(void) {
     }
 }
 
-static void formatCalcCRCCb_(u32 arg) {
+static void formatCalcCRCCb_(uintptr_t arg) {
 #pragma unused(arg)
     RFLiWriteAsync(RFLiFileType_Database, RFLiGetDBManager()->database,
                    sizeof(RFLiDatabase), formatWriteCallback_, 0);

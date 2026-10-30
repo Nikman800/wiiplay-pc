@@ -21,23 +21,23 @@ RemoteSpk* RemoteSpk::GetInstance() {
     return spInstance;
 }
 
-void RemoteSpk::GetPCMFromSeID(int id, s16*& rpPcm, int& rLength) {
+void RemoteSpk::GetPCMFromSeID(int id, be_s16*& rpPcm, int& rLength) {
     ARCFileInfo af;
     ARCFastOpen(&handle, id, &af);
 
-    rpPcm = static_cast<s16*>(ARCGetStartAddrInMem(&af));
+    rpPcm = static_cast<be_s16*>(ARCGetStartAddrInMem(&af));
     rLength = ARCGetLength(&af);
 
     ARCClose(&af);
 }
 
-static bool MakeVolumeData(const s16* pSrc, s16* pDst, int vol, u32 size) {
+static bool MakeVolumeData(const be_s16* pSrc, s16* pDst, int vol, u32 size) {
     u32 enc_size = size <= nw4r::snd::RemoteSpeaker::SAMPLES_PER_AUDIO_PACKET
                        ? size
                        : nw4r::snd::RemoteSpeaker::SAMPLES_PER_AUDIO_PACKET;
 
     for (int i = 0; i < enc_size; i++) {
-        *pDst++ = static_cast<s16>(*pSrc++ * vol / 10);
+        *pDst++ = static_cast<s16>(BE_GET(*pSrc++) * vol / 10);
     }
 
     if (size > nw4r::snd::RemoteSpeaker::SAMPLES_PER_AUDIO_PACKET) {
@@ -163,7 +163,7 @@ void RemoteSpk::Stop() {
 
 void RemoteSpk::DelaySpeakerOnCallback(OSAlarm* pAlarm,
                                        OSContext* /* pContext */) {
-    s32 chan = reinterpret_cast<s32>(OSGetAlarmUserData(pAlarm));
+    s32 chan = reinterpret_cast<intptr_t>(OSGetAlarmUserData(pAlarm));
     s32 result = WPADControlSpeaker(chan, WPAD_SPEAKER_ON, &SpeakerOnCallback);
 }
 
@@ -195,7 +195,7 @@ void RemoteSpk::SpeakerOnCallback(s32 chan, s32 result) {
 
 void RemoteSpk::DelaySpeakerPlayCallback(OSAlarm* pAlarm,
                                          OSContext* /* pContext */) {
-    s32 chan = reinterpret_cast<s32>(OSGetAlarmUserData(pAlarm));
+    s32 chan = reinterpret_cast<intptr_t>(OSGetAlarmUserData(pAlarm));
     s32 result =
         WPADControlSpeaker(chan, WPAD_SPEAKER_PLAY, &SpeakerPlayCallback);
 }
@@ -246,7 +246,7 @@ void RemoteSpk::Play(s32 chan, int seID, s8 vol) {
         return;
     }
 
-    s16* pPcm;
+    be_s16* pPcm;
     int length;
     GetPCMFromSeID(seID, pPcm, length);
 

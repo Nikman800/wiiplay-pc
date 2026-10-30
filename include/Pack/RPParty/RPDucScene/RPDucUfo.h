@@ -2,6 +2,8 @@
 #define RP_PARTY_DUC_UFO_H
 #include <Pack/types_pack.h>
 
+#include <port/be.h>
+
 #include <Pack/RPGraphics/IRPGrpModelCallback.h>
 #include <Pack/RPParty/RPDucScene/RPDucTarget.h>
 
@@ -21,36 +23,36 @@ class RPSysEffect;
  * frame) [M].
  */
 struct RPDucUfoPattern {
-    f32 mHitScale;           // at 0x0
-    f32 mLeaveAccel;         // at 0x4 vertical acceleration while leaving
-    f32 mSteer;              // at 0x8 approach steering factor
-    f32 mApproachSpeed;      // at 0xC
-    s32 mHoldFrames;         // at 0x10
-    s32 mAbductFrames;       // at 0x14 circling before the abduction
-    s32 mLiftFrames[2];      // at 0x18 [1] in the two-player versus mode
-    f32 mFlyAccel[2];        // at 0x20 [1] in the two-player versus mode
-    f32 mFleeRangeX;         // at 0x28
-    f32 mFleeRangeY;         // at 0x2C
-    f32 mFleeAimY;           // at 0x30
-    f32 mFleeAimZ;           // at 0x34
-    f32 mFleeSpeed[2];       // at 0x38 [1] in the two-player versus mode
-    f32 mHitRadius;          // at 0x40
-    s32 mWaitFrames;         // at 0x44
-    s32 mMoveCount;          // at 0x48 wander moves before a long wait
-    f32 mWanderSpeed;        // at 0x4C
-    f32 mWanderVelZ;         // at 0x50
-    s32 mWanderFrames;       // at 0x54
-    s32 mWait2Frames;        // at 0x58
-    f32 mCircleSpeed;        // at 0x5C
-    f32 mCircleVelZ;         // at 0x60
-    s32 mCircleTimeMax;      // at 0x64
-    s32 mCircleTimeMin;      // at 0x68
-    s32 mCircleStep[2];      // at 0x6C [0] model b, [1] model a
-    s32 mCircleFrames;       // at 0x74
-    f32 mAbductSpeed;        // at 0x78
-    s32 mAbductTimeMax;      // at 0x7C
-    s32 mAbductTimeMin;      // at 0x80
-    s32 mAbductStep[2];      // at 0x84 [0] model b, [1] model a
+    be_f32 mHitScale;      // at 0x0
+    be_f32 mLeaveAccel;    // at 0x4 vertical acceleration while leaving
+    be_f32 mSteer;         // at 0x8 approach steering factor
+    be_f32 mApproachSpeed; // at 0xC
+    be_s32 mHoldFrames;    // at 0x10
+    be_s32 mAbductFrames;  // at 0x14 circling before the abduction
+    be_s32 mLiftFrames[2]; // at 0x18 [1] in the two-player versus mode
+    be_f32 mFlyAccel[2];   // at 0x20 [1] in the two-player versus mode
+    be_f32 mFleeRangeX;    // at 0x28
+    be_f32 mFleeRangeY;    // at 0x2C
+    be_f32 mFleeAimY;      // at 0x30
+    be_f32 mFleeAimZ;      // at 0x34
+    be_f32 mFleeSpeed[2];  // at 0x38 [1] in the two-player versus mode
+    be_f32 mHitRadius;     // at 0x40
+    be_s32 mWaitFrames;    // at 0x44
+    be_s32 mMoveCount;     // at 0x48 wander moves before a long wait
+    be_f32 mWanderSpeed;   // at 0x4C
+    be_f32 mWanderVelZ;    // at 0x50
+    be_s32 mWanderFrames;  // at 0x54
+    be_s32 mWait2Frames;   // at 0x58
+    be_f32 mCircleSpeed;   // at 0x5C
+    be_f32 mCircleVelZ;    // at 0x60
+    be_s32 mCircleTimeMax; // at 0x64
+    be_s32 mCircleTimeMin; // at 0x68
+    be_s32 mCircleStep[2]; // at 0x6C [0] model b, [1] model a
+    be_s32 mCircleFrames;  // at 0x74
+    be_f32 mAbductSpeed;   // at 0x78
+    be_s32 mAbductTimeMax; // at 0x7C
+    be_s32 mAbductTimeMin; // at 0x80
+    be_s32 mAbductStep[2]; // at 0x84 [0] model b, [1] model a
 };
 
 /**
@@ -58,24 +60,24 @@ struct RPDucUfoPattern {
  * @details Size 0x4A8 [H]: a 0x48-byte header and eight patterns; copied member by member.
  */
 struct RPDucUfoParam {
-    f32 mFarDist;                 // at 0x0 [M] hit scale grows from mNearDist to here
-    f32 mGrowZ;                   // at 0x4 [M]
-    f32 mNearDist;                // at 0x8 [M]
-    f32 mNearZ;                   // at 0xC [M]
-    s32 mPointsB;                 // at 0x10
-    s32 mPointsVersusB;           // at 0x14
-    s32 mPointsA;                 // at 0x18
-    s32 mPointsVersusA;           // at 0x1C
-    f32 mLiftHeight;              // at 0x20
-    f32 mAbductY;                 // at 0x24
-    f32 mBaseRadius;              // at 0x28 hit radius of scale 1
-    f32 unk2C;                    // at 0x2C [L]
-    f32 mWanderDistMax;           // at 0x30
-    f32 mWanderDistMin;           // at 0x34
-    f32 unk38;                    // at 0x38 [L]
-    f32 mCircleRadius;            // at 0x3C
-    f32 mAbductBottom;            // at 0x40
-    f32 mAbductRadius;            // at 0x44
+    be_f32 mFarDist;              // at 0x0 [M] hit scale grows from mNearDist to here
+    be_f32 mGrowZ;                // at 0x4 [M]
+    be_f32 mNearDist;             // at 0x8 [M]
+    be_f32 mNearZ;                // at 0xC [M]
+    be_s32 mPointsB;              // at 0x10
+    be_s32 mPointsVersusB;        // at 0x14
+    be_s32 mPointsA;              // at 0x18
+    be_s32 mPointsVersusA;        // at 0x1C
+    be_f32 mLiftHeight;           // at 0x20
+    be_f32 mAbductY;              // at 0x24
+    be_f32 mBaseRadius;           // at 0x28 hit radius of scale 1
+    be_f32 unk2C;                 // at 0x2C [L]
+    be_f32 mWanderDistMax;        // at 0x30
+    be_f32 mWanderDistMin;        // at 0x34
+    be_f32 unk38;                 // at 0x38 [L]
+    be_f32 mCircleRadius;         // at 0x3C
+    be_f32 mAbductBottom;         // at 0x40
+    be_f32 mAbductRadius;         // at 0x44
     RPDucUfoPattern mPatterns[8]; // at 0x48
 };
 

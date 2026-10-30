@@ -74,13 +74,14 @@ DUC_PARAM_FIELDS = {
         *((f"mPoints[{index}]", "s32") for index in range(8)),
         ("mBaseRadius", "f32"),
         *((f"mLayout.mGrid[{grid}][{index}]", "f32") for grid in range(2) for index in range(5)),
-        *((f"mLayout.mPatterns[{pattern}].{field}[{index}]", kind)
+        # Each 0x1C-byte pattern holds its own fields (RPDucCircleTargetPattern).
+        *((f"mLayout.mPatterns[{pattern}].{field}", kind)
           for pattern in range(8)
-          for field, kind in (("mHitScale", "f32"), ("mRadius", "f32"))
-          for index in range(2)),
-        *((f"mLayout.mPatterns[{pattern}].mGrowFrames", "s32") for pattern in range(8)),
-        *((f"mLayout.mPatterns[{pattern}].mStandFrames[{index}]", "s32")
-          for pattern in range(8) for index in range(2)),
+          for field, kind in (
+              ("mHitScale[0]", "f32"), ("mHitScale[1]", "f32"),
+              ("mRadius[0]", "f32"), ("mRadius[1]", "f32"), ("mGrowFrames", "s32"),
+              ("mStandFrames[0]", "s32"), ("mStandFrames[1]", "s32"),
+          )),
     ),
     "DucClayParam": (
         ("mDrag", "f32"), ("mNearZ", "f32"), ("mFarZ", "f32"), ("mBonusZ", "f32"),
@@ -499,12 +500,16 @@ def parse_leveltable(data: bytes, name: str) -> dict[str, Any]:
     if len(data) != expected_size or expected_size % 12:
         raise FormatError(f"{name}: file size {len(data):#x}, expected {expected_size:#x}")
     record_num = expected_size // 12
-    fields = ("unk0", "unk4", "unk8") if name == "leveltable" else ("mRally", "mCpuLevel", "mBallSpeed")
+    # LevelEntry is three u32 target weights (near, centre, far), summed as u32 by
+    # PnpPlayerPickTargetIndex (src/Pack/RPParty/RPPnpScene/RPPnpPlayer.cpp:376-379);
+    # RallyEntry is s32 mRally, s32 mCpuLevel, f32 mBallSpeed.
+    if name == "leveltable":
+        fields = (("unk0", "u32"), ("unk4", "u32"), ("unk8", "u32"))
+    else:
+        fields = (("mRally", "s32"), ("mCpuLevel", "s32"), ("mBallSpeed", "f32"))
     records = []
     for index in range(record_num):
-        offset = index * 12
-        values = section_table(data, tuple((field, "s32" if index < 2 else "f32") for index, field in enumerate(fields)), offset)
-        records.append(values)
+        records.append(section_table(data, fields, index * 12))
     return {"format": name, "size": expected_size, "recordCount": record_num, "records": records}
 
 

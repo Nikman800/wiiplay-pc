@@ -6,6 +6,8 @@
 #include <Pack/RPParty/RPTnkScene/RPTnkLyt.h>
 #include <Pack/RPParty/RPTnkScene/RPTnkTankManager.h>
 
+#include <port/be.h>
+
 extern nw4r::math::VEC3 RP_vecZero;
 extern u32 RP_randSeedX;
 extern u32 RP_randSeedY;
@@ -30,18 +32,18 @@ inline s32 ChooseEnemyType(s32 type) {
     return lo + RandomU32() % count;
 }
 
-struct EnemyTypes { s32 values[8]; };
+struct EnemyTypes { be_s32 values[8]; };
 
 struct StageParam {
-    s32 header[2];
+    be_s32 header[2];
     EnemyTypes enemies[2];
-    s32 tail[4];
+    be_s32 tail[4];
 };
 
 // param/TnkGameParam.bin: lives, one 0xA8 record per enemy type, then the stage records.
 struct GameParam {
-    s32 lives;
-    s32 enemyParams[10][0x2A];
+    be_s32 lives;
+    be_s32 enemyParams[10][0x2A];
     StageParam stages[100];
 };
 }

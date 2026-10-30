@@ -7,6 +7,13 @@
 
 #include <revolution/MTX.h>
 
+// The paired-single VEC3 inlines below mark their asm block with the function's
+// name, so the PC port can put C in its place (port/host/include/decomp/compat.h).
+// Here it is the asm block itself.
+#ifndef ASM_PS
+#define ASM_PS(name) ASM
+#endif
+
 namespace nw4r {
 namespace math {
 
@@ -327,7 +334,7 @@ inline VEC3* VEC3Add(register VEC3* pOut, register const VEC3* pA,
                      register const VEC3* pB) {
     register f32 work0, work1, work2;
 
-    ASM (
+    ASM_PS(VEC3Add) (
         // Add XY
         psq_l  work0, VEC3.x(pA),   0, 0
         psq_l  work1, VEC3.x(pB),   0, 0
@@ -348,7 +355,7 @@ inline f32 VEC3Dot(register const VEC3* pA, register const VEC3* pB) {
     register f32 dot;
     register f32 work0, work1, work2, work3;
 
-    ASM (
+    ASM_PS(VEC3Dot) (
         // YZ product
         psq_l  work0, VEC3.y(pA), 0, 0
         psq_l  work1, VEC3.y(pB), 0, 0
@@ -369,7 +376,7 @@ inline f32 VEC3Dot(register const VEC3* pA, register const VEC3* pB) {
 inline f32 VEC3LenSq(register const VEC3* pVec) {
     register f32 work0, work1, work2;
 
-    ASM (
+    ASM_PS(VEC3LenSq) (
         // Square XY
         psq_l  work0, VEC3.x(pVec), 0, 0
         ps_mul work0, work0, work0
@@ -389,7 +396,7 @@ inline VEC3* VEC3Lerp(register VEC3* pOut, register const VEC3* pVec1,
                       register const VEC3* pVec2, register f32 t) {
     register f32 work0, work1, work2;
 
-    ASM (
+    ASM_PS(VEC3Lerp) (
         // X/Y delta
         psq_l  work0, VEC3.x(pVec1), 0, 0
         psq_l  work1, VEC3.x(pVec2), 0, 0
@@ -414,7 +421,7 @@ inline VEC3* VEC3Scale(register VEC3* pOut, register const VEC3* pIn,
                        register f32 scale) {
     register f32 work0, work1;
 
-    ASM (
+    ASM_PS(VEC3Scale) (
         // Scale XY
         psq_l    work0, VEC3.x(pIn),  0, 0
         ps_muls0 work1, work0, scale
@@ -433,7 +440,7 @@ inline VEC3* VEC3Sub(register VEC3* pOut, register const VEC3* pA,
                      register const VEC3* pB) {
     register f32 work0, work1, work2;
 
-    ASM (
+    ASM_PS(VEC3Sub) (
         // Sub XY
         psq_l  work0, VEC3.x(pA),   0, 0
         psq_l  work1, VEC3.x(pB),   0, 0

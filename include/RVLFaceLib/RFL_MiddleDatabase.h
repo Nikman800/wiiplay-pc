@@ -17,7 +17,16 @@ typedef enum {
 } RFLMiddleDBType;
 
 typedef struct RFLMiddleDB {
+#if defined(PORT_HOST)
+    // The members of RFLiMiddleDB, which holds two pointers (larger on a 64-bit
+    // host; RFL_MiddleDatabase.c checks the size).
+    u32 dummy0;
+    void* dummy1[2];
+    u16 dummy2[2];
+    u32 dummy3[2];
+#else
     u8 dummy[0x18];
+#endif
 } RFLMiddleDB;
 
 u32 RFLGetMiddleDBBufferSize(u16 size);

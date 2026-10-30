@@ -7,6 +7,8 @@
 
 #include <revolution/GX.h>
 #include <revolution/MTX.h>
+
+#include <port/be.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -29,6 +31,8 @@ typedef struct RFLiCoordinateData {
     BOOL rRev; // at 0xC
 } RFLiCoordinateData;
 
+// The vertex arrays are GX data and stay big-endian on every platform, like the
+// BRRES vertex arrays (RFLiInitShapeRes writes them with BE_SET).
 typedef struct RFLiCharModelRes {
     u8 noseDl[0xC0];     // at 0x0
     u8 capDl[0x560];     // at 0xC0
@@ -43,42 +47,42 @@ typedef struct RFLiCharModelRes {
     u8 noseTex[0x400];     // at 0x5280
     u8 glassesTex[0x1000]; // at 0x5680
 
-    s16 noseVtxPos[23 * VTX_COORDS_IN_POS]; // at 0x6680
-    s16 noseVtxNrm[23 * VTX_COORDS_IN_NRM]; // at 0x670A
+    be_s16 noseVtxPos[23 * VTX_COORDS_IN_POS]; // at 0x6680
+    be_s16 noseVtxNrm[23 * VTX_COORDS_IN_NRM]; // at 0x670A
 
-    s16 capVtxPos[173 * VTX_COORDS_IN_POS]; // at 0x6794
-    s16 capVtxNrm[246 * VTX_COORDS_IN_NRM]; // at 0x6BA2
-    s16 capVtxTxc[95 * VTX_COORDS_IN_TXC];  // at 0x7166
+    be_s16 capVtxPos[173 * VTX_COORDS_IN_POS]; // at 0x6794
+    be_s16 capVtxNrm[246 * VTX_COORDS_IN_NRM]; // at 0x6BA2
+    be_s16 capVtxTxc[95 * VTX_COORDS_IN_TXC];  // at 0x7166
 
-    s16 faceVtxPos[66 * VTX_COORDS_IN_POS];  // at 0x72E2
-    s16 faceVtxNrm[66 * VTX_COORDS_IN_NRM];  // at 0x746E
-    s16 faceVtxTxc[115 * VTX_COORDS_IN_TXC]; // at 0x75FA
+    be_s16 faceVtxPos[66 * VTX_COORDS_IN_POS];  // at 0x72E2
+    be_s16 faceVtxNrm[66 * VTX_COORDS_IN_NRM];  // at 0x746E
+    be_s16 faceVtxTxc[115 * VTX_COORDS_IN_TXC]; // at 0x75FA
 
-    s16 beardVtxPos[40 * VTX_COORDS_IN_POS]; // at 0x77C6
-    s16 beardVtxNrm[68 * VTX_COORDS_IN_NRM]; // at 0x78B6
+    be_s16 beardVtxPos[40 * VTX_COORDS_IN_POS]; // at 0x77C6
+    be_s16 beardVtxNrm[68 * VTX_COORDS_IN_NRM]; // at 0x78B6
 
-    s16 noselineVtxPos[6 * VTX_COORDS_IN_POS]; // at 0x7A4E
-    s16 noselineVtxNrm[2 * VTX_COORDS_IN_NRM]; // at 0x7A72
-    s16 noselineVtxTxc[7 * VTX_COORDS_IN_TXC]; // at 0x7A7E
+    be_s16 noselineVtxPos[6 * VTX_COORDS_IN_POS]; // at 0x7A4E
+    be_s16 noselineVtxNrm[2 * VTX_COORDS_IN_NRM]; // at 0x7A72
+    be_s16 noselineVtxTxc[7 * VTX_COORDS_IN_TXC]; // at 0x7A7E
 
-    s16 maskVtxPos[88 * VTX_COORDS_IN_POS];  // at 0x7A9A
-    s16 maskVtxNrm[86 * VTX_COORDS_IN_NRM];  // at 0x7CAA
-    s16 maskVtxTxc[176 * VTX_COORDS_IN_TXC]; // at 0x7EAE
+    be_s16 maskVtxPos[88 * VTX_COORDS_IN_POS];  // at 0x7A9A
+    be_s16 maskVtxNrm[86 * VTX_COORDS_IN_NRM];  // at 0x7CAA
+    be_s16 maskVtxTxc[176 * VTX_COORDS_IN_TXC]; // at 0x7EAE
 
-    s16 glassesVtxPos[4 * VTX_COORDS_IN_POS]; // at 0x816E
-    s16 glassesVtxNrm[1 * VTX_COORDS_IN_NRM]; // at 0x8186
-    s16 glassesVtxTxc[4 * VTX_COORDS_IN_TXC]; // at 0x818C
+    be_s16 glassesVtxPos[4 * VTX_COORDS_IN_POS]; // at 0x816E
+    be_s16 glassesVtxNrm[1 * VTX_COORDS_IN_NRM]; // at 0x8186
+    be_s16 glassesVtxTxc[4 * VTX_COORDS_IN_TXC]; // at 0x818C
 
     GXTexObj faceTexObj;    // at 0x819C
     GXTexObj capTexObj;     // at 0x81BC
     GXTexObj noseTexObj;    // at 0x81DC
     GXTexObj glassesTexObj; // at 0x81FC
 
-    s16* hairVtxPos;     // at 0x821C
-    s16* hairVtxNrm;     // at 0x8220
+    be_s16* hairVtxPos;     // at 0x821C
+    be_s16* hairVtxNrm;     // at 0x8220
     u8* hairDl;          // at 0x8224
-    s16* foreheadVtxPos; // at 0x8228
-    s16* foreheadVtxNrm; // at 0x822C
+    be_s16* foreheadVtxPos; // at 0x8228
+    be_s16* foreheadVtxNrm; // at 0x822C
     u8* foreheadDl;      // at 0x8230
 
     u16 noseDlSize;     // at 0x8234
@@ -107,9 +111,9 @@ typedef struct RFLiShapeRes {
     u16 file;          // at 0x4
     BOOL transform;    // at 0x8
     BOOL flipX;        // at 0xC
-    s16* vtxPosBuf;    // at 0x10
-    s16* vtxNrmBuf;    // at 0x14
-    s16* vtxTxcBuf;    // at 0x18
+    be_s16* vtxPosBuf;    // at 0x10
+    be_s16* vtxNrmBuf;    // at 0x14
+    be_s16* vtxTxcBuf;    // at 0x18
     u8* dlBuf;         // at 0x1C
     u16 vtxPosBufSize; // at 0x20
     u16 vtxNrmBufSize; // at 0x22
@@ -149,7 +153,7 @@ void RFLiInitCharModelRes(RFLiCharModelRes* res, const RFLiCharInfo* info);
 void RFLiInitShapeRes(RFLiShapeRes* shape);
 void RFLiInitTexRes(GXTexObj* texObj, RFLiPartsShpTex part, u16 file,
                     void* buffer) DECOMP_DONT_INLINE;
-void RFLiTransformCoordinate(s16* to, const s16* from);
+void RFLiTransformCoordinate(be_s16* to, const be_s16* from);
 
 #ifdef __cplusplus
 }

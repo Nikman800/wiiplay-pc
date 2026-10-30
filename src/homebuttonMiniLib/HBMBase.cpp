@@ -34,7 +34,7 @@ static MEMAllocator* spAllocator = &sAllocator;
 
 DECOMP_FORCEACTIVE(HBMBase_cpp, (GXColor){0, 0, 0, 255});
 
-void* HBMAllocMem(u32 size) {
+void* HBMAllocMem(size_t size) {
     return MEMAllocFromAllocator(spAllocator, size);
 }
 
@@ -516,10 +516,30 @@ void HomeButton::set_config() {
     mAnmNum = mButtonNum * res::eAnim_Max;
 }
 
+#if defined(PORT_HOST)
+// home_nosave.csv is UTF-16 with a byte-order mark, big-endian on the disc. The
+// host converts the buffer to native order in place, up to the terminating 0
+// (the archive's padding after the file). The mark shows which order the buffer
+// is in, so a second HBMCreate on the same buffer leaves it alone.
+static void SwapMessageToHost(wchar_t* pMessage) {
+    if (pMessage[0] != static_cast<wchar_t>(0xFFFE)) {
+        return;
+    }
+
+    for (; *pMessage != L'\0'; pMessage++) {
+        *pMessage = static_cast<wchar_t>(PORT_BSWAP16(*pMessage));
+    }
+}
+#endif
+
 void HomeButton::set_text() {
     int i = 0, j = 0, k = 0;
     bool flag = false; // more accurately insideStringFlag
     wchar_t* message = static_cast<wchar_t*>(mpHBInfo->msgBuf);
+
+#if defined(PORT_HOST)
+    SwapMessageToHost(message);
+#endif
 
     for (; message[i] != '\0'; i++) {
         if (message[i] == L'\"') {
@@ -1423,7 +1443,7 @@ void HomeButton::draw() {
 }
 
 static void SpeakerCallback(OSAlarm* pAlarm, OSContext* /* pContext */) {
-    u32 data = reinterpret_cast<u32>(OSGetAlarmUserData(pAlarm));
+    u32 data = reinterpret_cast<uintptr_t>(OSGetAlarmUserData(pAlarm));
     int chan = (data >> 16) & 0xFFFF;
     int id = data & 0xFFFF;
 
@@ -1457,7 +1477,7 @@ void HomeButton::setSpeakerAlarm(int chan, int msec) {
 static void RetrySimpleSyncCallback(OSAlarm* pAlarm,
                                     OSContext* /* pContext */) {
     HomeButton* pHBObj = HomeButton::getInstance();
-    int type = reinterpret_cast<int>(OSGetAlarmUserData(pAlarm));
+    int type = reinterpret_cast<intptr_t>(OSGetAlarmUserData(pAlarm));
     bool retrySuccessFlag = false;
 
     if (type == HomeButton::eSyncType_Start) {

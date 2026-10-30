@@ -14,6 +14,19 @@ typedef u16 RPTime16;
  */
 typedef u32 RPTime32;
 
+/**
+ * @brief `unsigned int`, the ABI's other 32-bit unsigned type (u32 is `unsigned long`)
+ * @details The RPAudio sound actors have overload pairs that take a sound ID as either type.
+ * On the PC port u32 is `unsigned int`, so ui32 is another type there to keep the pairs (and
+ * their vtable slots); a call with a u32 or `unsigned int` argument picks the u32 overload,
+ * which does the same thing.
+ */
+#if defined(PORT_HOST)
+typedef unsigned long ui32;
+#else
+typedef unsigned int ui32;
+#endif
+
 //! Maximum number of connected remotes
 #define RP_MAX_CONTROLLERS 4
 

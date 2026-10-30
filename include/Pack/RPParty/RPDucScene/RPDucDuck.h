@@ -2,6 +2,8 @@
 #define RP_PARTY_DUC_DUCK_H
 #include <Pack/types_pack.h>
 
+#include <port/be.h>
+
 // Wii Play: the duck constructor must not emit an unused callback vtable/destructor.
 class __declspec(novtable) IRPGrpModelCallback;
 #include <Pack/RPGraphics/IRPGrpModelCallback.h>
@@ -22,27 +24,27 @@ class RPSysEffect;
  * by 0.75 [M].
  */
 struct RPDucDuckPattern {
-    f32 mHitScale;      // at 0x0
-    f32 mHitRadius;     // at 0x4
-    f32 mJumpLift;      // at 0x8 added to the velocity each step while jumping out
-    f32 mJumpRangeX;    // at 0xC random aim offset
-    f32 mJumpRangeY;    // at 0x10 random aim offset
-    f32 mJumpAimY;      // at 0x14
-    f32 mJumpAimZ;      // at 0x18
-    f32 mJumpSpeed;     // at 0x1C
-    s32 mBounceFrames;  // at 0x20 tripled on load (three sub-steps per frame)
-    f32 mApproachSpeed; // at 0x24
-    f32 mArcGravity;    // at 0x28
-    f32 mArcAngle;      // at 0x2C degrees
-    f32 mArcSpeed;      // at 0x30
+    be_f32 mHitScale;      // at 0x0
+    be_f32 mHitRadius;     // at 0x4
+    be_f32 mJumpLift;      // at 0x8 added to the velocity each step while jumping out
+    be_f32 mJumpRangeX;    // at 0xC random aim offset
+    be_f32 mJumpRangeY;    // at 0x10 random aim offset
+    be_f32 mJumpAimY;      // at 0x14
+    be_f32 mJumpAimZ;      // at 0x18
+    be_f32 mJumpSpeed;     // at 0x1C
+    be_s32 mBounceFrames;  // at 0x20 tripled on load (three sub-steps per frame)
+    be_f32 mApproachSpeed; // at 0x24
+    be_f32 mArcGravity;    // at 0x28
+    be_f32 mArcAngle;      // at 0x2C degrees
+    be_f32 mArcSpeed;      // at 0x30
 };
 
 /**
  * @brief Velocity damping and gravity of one motion type (RPDucDuck::mMotion)
  */
 struct RPDucDuckMotion {
-    f32 mDrag;    // at 0x0
-    f32 mGravity; // at 0x4
+    be_f32 mDrag;    // at 0x0
+    be_f32 mGravity; // at 0x4
 };
 
 /**
@@ -50,29 +52,29 @@ struct RPDucDuckMotion {
  * @details Size 0x21C [H] (135 words); copied member by member (the LoadParams copy).
  */
 struct RPDucDuckParam {
-    s32 mFarPoints;                // at 0x0 jumping duck hit high on the screen
-    s32 mPoints;                   // at 0x4 jumping duck
-    s32 unk08;                     // at 0x8 [L]
-    s32 mApproachPoints;           // at 0xC
-    s32 unk10;                     // at 0x10 [L]
-    s32 mArcPoints;                // at 0x14
-    f32 mBaseRadius;               // at 0x18 hit radius of scale 1
-    f32 mDamageDrag;               // at 0x1C
-    f32 mDamageLift;               // at 0x20 vertical speed when hit
-    s32 mDamageFrames;             // at 0x24 tripled on load
-    f32 mJumpDrag;                 // at 0x28
-    f32 mFarScreenY;               // at 0x2C
-    f32 mApproachRangeMax;         // at 0x30
-    f32 mApproachRangeMin;         // at 0x34
-    f32 mApproachRadius;           // at 0x38
-    f32 mForwardY;                 // at 0x3C
-    f32 mForwardRangeX;            // at 0x40 scaled by 0.75 in 4:3
-    f32 mForwardZMax;              // at 0x44
-    f32 mForwardXMin;              // at 0x48
-    f32 mForwardZMin;              // at 0x4C
-    f32 mForwardAccel;             // at 0x50
-    f32 mForwardSpeedMax;          // at 0x54
-    f32 mForwardSpeed;             // at 0x58
+    be_s32 mFarPoints;             // at 0x0 jumping duck hit high on the screen
+    be_s32 mPoints;                // at 0x4 jumping duck
+    be_s32 unk08;                  // at 0x8 [L]
+    be_s32 mApproachPoints;        // at 0xC
+    be_s32 unk10;                  // at 0x10 [L]
+    be_s32 mArcPoints;             // at 0x14
+    be_f32 mBaseRadius;            // at 0x18 hit radius of scale 1
+    be_f32 mDamageDrag;            // at 0x1C
+    be_f32 mDamageLift;            // at 0x20 vertical speed when hit
+    be_s32 mDamageFrames;          // at 0x24 tripled on load
+    be_f32 mJumpDrag;              // at 0x28
+    be_f32 mFarScreenY;            // at 0x2C
+    be_f32 mApproachRangeMax;      // at 0x30
+    be_f32 mApproachRangeMin;      // at 0x34
+    be_f32 mApproachRadius;        // at 0x38
+    be_f32 mForwardY;              // at 0x3C
+    be_f32 mForwardRangeX;         // at 0x40 scaled by 0.75 in 4:3
+    be_f32 mForwardZMax;           // at 0x44
+    be_f32 mForwardXMin;           // at 0x48
+    be_f32 mForwardZMin;           // at 0x4C
+    be_f32 mForwardAccel;          // at 0x50
+    be_f32 mForwardSpeedMax;       // at 0x54
+    be_f32 mForwardSpeed;          // at 0x58
     RPDucDuckMotion mMotions[4];   // at 0x5C
     RPDucDuckPattern mPatterns[8]; // at 0x7C
 };

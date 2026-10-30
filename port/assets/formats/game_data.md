@@ -82,13 +82,13 @@ The named loaders are `RPDucBalloon::Load` (`src/Pack/RPParty/RPDucScene/RPDucBa
 
 ### Pose Mii level tables
 
-- `leveltable.bin`: 13 records of 12 bytes. `LevelEntry` has three `s32` fields at `0x00`, `0x04`, and `0x08`. (`include/Pack/RPParty/RPPnpScene/RPPnpLevelTable.h:16-20`)
+- `leveltable.bin`: 13 records of 12 bytes. `LevelEntry` has three `u32` fields at `0x00`, `0x04`, and `0x08`: the CPU's near, centre and far target weights, summed as `u32` by `PnpPlayerPickTargetIndex`. (`include/Pack/RPParty/RPPnpScene/RPPnpLevelTable.h:16-20`; `src/Pack/RPParty/RPPnpScene/RPPnpPlayer.cpp:376-379`)
 - `rallyleveluptable.bin`: 217 records; `rallyleveluptable2.bin`: 101 records. `RallyEntry` is `s32 mRally`, `s32 mCpuLevel`, `f32 mBallSpeed`. (`include/Pack/RPParty/RPPnpScene/RPPnpLevelTable.h:22-26`)
 - `RPPnpLevelTable` loads each file into a private buffer with `memcpy`; there are no relocations. (`src/Pack/RPParty/RPPnpScene/RPPnpLevelTable.cpp:21-42`)
 
 ### Find Mii level tables
 
-`wanted_1p_leveltable.bin` and `wanted_2p_leveltable.bin` contain `RPWlyLevelData` records of `0x40` bytes. The fields are `mAvatarNum` (`s32`), `mQuestionType` (`s32`), `mFieldType` (`s32`), and 13 `f32` fields; see the parser schema for the exact names and order. The 99/80 record count is derived from file size. (`include/Pack/RPParty/RPWlyScene/RPWlyLevelTable.h:20-35`; loader `src/Pack/RPParty/RPWlyScene/RPWlyLevelTable.cpp:39-47`)
+`wanted_1p_leveltable.bin` and `wanted_2p_leveltable.bin` contain `RPWlyLevelData` records of `0x40` bytes. The fields are `mAvatarNum` (`s32`), `unk4` (`u32`), `mQuestionType` (`s32`), `mFieldType` (`s32`), and 12 `f32` fields; see the parser schema for the exact names and order. The constructor scales `mSpeed` by `1.3684211f` on 16:9 and sets `unk20` to `6.25f` on field type 3. The 99/80 record count is derived from file size. (`include/Pack/RPParty/RPWlyScene/RPWlyLevelTable.h:20-35`; loader `src/Pack/RPParty/RPWlyScene/RPWlyLevelTable.cpp:39-47`)
 
 ### Tank map data
 

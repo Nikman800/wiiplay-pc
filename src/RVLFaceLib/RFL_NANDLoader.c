@@ -2,6 +2,10 @@
 #include <revolution/NAND.h>
 #include <string.h>
 
+// RFL_Res.dat is big-endian: every header and offset-table word is read with
+// BE_GET through a be_* pointer (the identity on the Wii; include/port/be.h).
+#include <port/be.h>
+
 #define LOADER_HEADER_BUF_1_SIZE 0x100
 #define LOADER_HEADER_BUF_2_SIZE 0x20
 #define TEMP_BUF_SIZE 0x400
@@ -32,16 +36,16 @@ static void parseOnmemoryRes_(void) DECOMP_DONT_INLINE {
     int i;
 
     loader = RFLiGetLoader();
-    loader->version = *(u16*)((u8*)loader->cache + 2);
+    loader->version = BE_GET(*(be_u16*)((u8*)loader->cache + 2));
     for (i = 0; i < RFLiArcID_Max; i++) {
         // Pointer to section offset in header
-        u32* offset = (u32*)((u8*)loader->cache + ((i + 1) * 4));
+        be_u32* offset = (be_u32*)((u8*)loader->cache + ((i + 1) * 4));
         // Pointer to section
-        u32* p_section = (u32*)((u8*)loader->cache + *offset);
+        u32* p_section = (u32*)((u8*)loader->cache + BE_GET(*offset));
         // Load archive
-        loader->archives[i].numFiles = ((u16*)p_section)[0];
-        loader->archives[i].biggestSize = ((u16*)p_section)[1];
-        loader->archives[i].offset = *offset + 4;
+        loader->archives[i].numFiles = BE_GET(((be_u16*)p_section)[0]);
+        loader->archives[i].biggestSize = BE_GET(((be_u16*)p_section)[1]);
+        loader->archives[i].offset = BE_GET(*offset) + 4;
     }
 }
 
@@ -49,7 +53,7 @@ static void loadResRead2ndcallback_(void) {
     RFLiLoader* loader;
     BOOL free;
     RFLiCallback cb;
-    u32* headerBuf1;
+    be_u32* headerBuf1;
     u32* headerBuf2;
 
     loader = RFLiGetLoader();
@@ -57,16 +61,16 @@ static void loadResRead2ndcallback_(void) {
     cb = NULL;
     if (RFLGetAsyncStatus() == RFLErrcode_Success) {
         const u16 arc = loader->numResources;
-        headerBuf1 = (u32*)loader->headerBuf1;
+        headerBuf1 = (be_u32*)loader->headerBuf1;
         if (arc < RFLiArcID_Max) {
             headerBuf2 = (u32*)loader->headerBuf2;
             headerBuf1 = &headerBuf1[arc + 1];
-            loader->archives[arc].numFiles = ((u16*)headerBuf2)[0];
-            loader->archives[arc].biggestSize = ((u16*)headerBuf2)[1];
-            loader->archives[arc].offset = *headerBuf1 + 4;
+            loader->archives[arc].numFiles = BE_GET(((be_u16*)headerBuf2)[0]);
+            loader->archives[arc].biggestSize = BE_GET(((be_u16*)headerBuf2)[1]);
+            loader->archives[arc].offset = BE_GET(*headerBuf1) + 4;
             loader->numResources++;
             switch (RFLiReadAsync(RFLiFileType_Resource, loader->headerBuf2, 32,
-                                  loadResRead2ndcallback_, *(headerBuf1 + 1))) {
+                                  loadResRead2ndcallback_, BE_GET(*(headerBuf1 + 1)))) {
             case RFLErrcode_Busy:
                 break;
             case RFLErrcode_Success:
@@ -99,14 +103,14 @@ static void errclosecallback_(void) {
 static void loadResRead1stcallback_(void) {
     RFLiLoader* loader;
     BOOL free;
-    u32* headerBuf1;
+    be_u32* headerBuf1;
     void* headerBuf2;
 
     loader = RFLiGetLoader();
     free = FALSE;
     if (RFLGetAsyncStatus() == RFLErrcode_Success) {
-        headerBuf1 = (u32*)loader->headerBuf1;
-        loader->version = *(u16*)((u8*)headerBuf1 + 2);
+        headerBuf1 = (be_u32*)loader->headerBuf1;
+        loader->version = BE_GET(*(be_u16*)((u8*)headerBuf1 + 2));
 
         headerBuf2 = RFLiAlloc32(LOADER_HEADER_BUF_2_SIZE);
         loader->headerBuf2 = headerBuf2;
@@ -114,7 +118,7 @@ static void loadResRead1stcallback_(void) {
 
         switch (RFLiReadAsync(RFLiFileType_Resource, headerBuf2,
                               LOADER_HEADER_BUF_2_SIZE, loadResRead2ndcallback_,
-                              *(headerBuf1 + 1))) {
+                              BE_GET(*(headerBuf1 + 1)))) {
         case RFLErrcode_Busy:
             break;
         case RFLErrcode_Success:
@@ -207,8 +211,8 @@ RFLErrcode RFLiLoadResourceHeaderAsync(void) {
 static u32 getCachedLength_(RFLiLoader* loader, u32 arcIdx, u16 fileIdx) {
     RFLiArchive* arc = &loader->archives[arcIdx];
     const void* arcBuf = (u8*)loader->cache + arc->offset;
-    const u32 next = ((u32*)arcBuf)[fileIdx + 1];
-    const u32 self = ((u32*)arcBuf)[fileIdx];
+    const u32 next = BE_GET(((be_u32*)arcBuf)[fileIdx + 1]);
+    const u32 self = BE_GET(((be_u32*)arcBuf)[fileIdx]);
     return next - self;
 }
 
@@ -227,8 +231,8 @@ static u32 getNANDLength_(RFLiLoader* loader, u32 arcIdx, u16 fileIdx) {
         NANDSeek(&file, arc->offset, NAND_SEEK_BEG);
 
         if (NANDRead(&file, tmpBuf, readSize) == readSize) {
-            const u32 self = ((u32*)tmpBuf)[fileIdx];
-            const u32 next = ((u32*)tmpBuf)[fileIdx + 1];
+            const u32 self = BE_GET(((be_u32*)tmpBuf)[fileIdx]);
+            const u32 next = BE_GET(((be_u32*)tmpBuf)[fileIdx + 1]);
             length = next - self;
         }
 
@@ -263,8 +267,8 @@ static void* getCachedFile_(void* dst, RFLiLoader* loader, u32 arcIdx,
     const u8* cache = (u8*)loader->cache;
     RFLiArchive* arc = &loader->archives[arcIdx];
     const void* arcBuf = cache + arc->offset;
-    const u32 self = ((u32*)arcBuf)[fileIdx];
-    const u32 next = ((u32*)arcBuf)[fileIdx + 1];
+    const u32 self = BE_GET(((be_u32*)arcBuf)[fileIdx]);
+    const u32 next = BE_GET(((be_u32*)arcBuf)[fileIdx + 1]);
     const u32 size = next - self;
     const u32 src = arc->offset + self + (arc->numFiles * 4);
 
@@ -299,8 +303,8 @@ static void* getNANDFile_(void* dst, RFLiLoader* loader, u32 arcIdx,
         NANDSeek(&file, arc->offset, NAND_SEEK_BEG);
 
         if (NANDRead(&file, tmpBuf, readSize) == readSize) {
-            const u32 next = ((u32*)tmpBuf)[fileIdx + 1];
-            const u32 self = ((u32*)tmpBuf)[fileIdx];
+            const u32 next = BE_GET(((be_u32*)tmpBuf)[fileIdx + 1]);
+            const u32 self = BE_GET(((be_u32*)tmpBuf)[fileIdx]);
             arcSize = next - self;
             arcOffset = self;
         } else {

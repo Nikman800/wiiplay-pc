@@ -13,6 +13,23 @@
 #define NUM_VTX_TXC(size) ((size) / VTX_TXC_SIZE)
 #define SIZE_VTX_TXC(count) ((count) * VTX_TXC_SIZE)
 
+// The faceline shape's three Vecs are big-endian f32s in RFL_Res.dat.
+#if defined(PORT_HOST)
+static void RFLiLoadVecBE(Vec* dst, const u8* src) {
+    const be_f32* p = (const be_f32*)src;
+    dst->x = BE_GET(p[0]);
+    dst->y = BE_GET(p[1]);
+    dst->z = BE_GET(p[2]);
+}
+#define RFLi_LOAD_VEC(dst, src) RFLiLoadVecBE((dst), (src))
+#else
+#define RFLi_LOAD_VEC(dst, src) memcpy((dst), (src), sizeof(Vec))
+#endif
+
+#if defined(PORT_HOST)
+_Static_assert(sizeof(RFLCharModel) >= sizeof(RFLiCharModel), "RFLCharModel holds RFLiCharModel");
+#endif
+
 RFLiCoordinateData coordinateData = {1, 2, 0, FALSE, FALSE, FALSE};
 
 const RFLDrawCoreSetting cDefaultDrawCoreSetting2Tev = {
@@ -587,9 +604,9 @@ void RFLiInitCharModelRes(RFLiCharModelRes* res, const RFLiCharInfo* info) {
 
         res->capDlSize = arg.dlSize;
 
-        res->hairVtxPos = (s16*)((u8*)res->capVtxPos +
+        res->hairVtxPos = (be_s16*)((u8*)res->capVtxPos +
                                  (arg.numVtxPos * 4 - arg.numVtxPos) * 2);
-        res->hairVtxNrm = (s16*)((u8*)res->capVtxNrm +
+        res->hairVtxNrm = (be_s16*)((u8*)res->capVtxNrm +
                                  (arg.numVtxNrm * 4 - arg.numVtxNrm) * 2);
 
         res->hairDl = res->noseDl + ROUND_UP(arg.dlSize, 32) +
@@ -633,11 +650,11 @@ void RFLiInitCharModelRes(RFLiCharModelRes* res, const RFLiCharInfo* info) {
         res->hairDlSize = arg.dlSize;
 
         res->foreheadVtxPos =
-            (s16*)((u8*)res->hairVtxPos +
+            (be_s16*)((u8*)res->hairVtxPos +
                    (arg.numVtxPos * temp - arg.numVtxPos) * 2);
 
         res->foreheadVtxNrm =
-            (s16*)((u8*)res->hairVtxNrm +
+            (be_s16*)((u8*)res->hairVtxNrm +
                    (arg.numVtxNrm * temp - arg.numVtxNrm) * 2);
 
         res->foreheadDl = res->hairDl + ROUND_UP(arg.dlSize, 32);
@@ -863,11 +880,11 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
 
     // Faceline extra data
     if (shape->part == RFLiPartsShp_Faceline) {
-        memcpy(shape->noseTrans, ptr8, sizeof(Vec));
+        RFLi_LOAD_VEC(shape->noseTrans, ptr8);
         ptr8 += sizeof(Vec);
-        memcpy(shape->beardTrans, ptr8, sizeof(Vec));
+        RFLi_LOAD_VEC(shape->beardTrans, ptr8);
         ptr8 += sizeof(Vec);
-        memcpy(shape->hairTrans, ptr8, sizeof(Vec));
+        RFLi_LOAD_VEC(shape->hairTrans, ptr8);
         ptr8 += sizeof(Vec);
     }
 
@@ -875,7 +892,7 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
      * Vertex positions
      */
 
-    if (*(u16*)ptr8 == 0) {
+    if (BE_GET(*(be_u16*)ptr8) == 0) {
         shape->numVtxPos = 0;
         shape->numVtxNrm = 0;
         shape->numVtxTxc = 0;
@@ -884,12 +901,12 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
         return;
     }
 
-    shape->numVtxPos = *(u16*)ptr8;
+    shape->numVtxPos = BE_GET(*(be_u16*)ptr8);
     ptr8 += sizeof(u16);
 
     {
         u32 byteSize = SIZE_VTX_POS(shape->numVtxPos);
-        s16* ptr16 = (s16*)ptr8;
+        be_s16* ptr16 = (be_s16*)ptr8;
         int i;
 
         if (shape->transform) {
@@ -899,16 +916,16 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
             s32 tz = 256.0f * shape->posTrans->z;
 
             for (i = 0; i < shape->numVtxPos; i++) {
-                s16 temp[3];
+                be_s16 temp[3];
 
                 if (shape->flipX) {
-                    temp[0] = tx + ((-ptr16[0] * s) >> 8);
+                    BE_SET(temp[0], tx + ((-BE_GET(ptr16[0]) * s) >> 8));
                 } else {
-                    temp[0] = tx + ((ptr16[0] * s) >> 8);
+                    BE_SET(temp[0], tx + ((BE_GET(ptr16[0]) * s) >> 8));
                 }
 
-                temp[1] = ty + ((ptr16[1] * s) >> 8);
-                temp[2] = tz + ((ptr16[2] * s) >> 8);
+                BE_SET(temp[1], ty + ((BE_GET(ptr16[1]) * s) >> 8));
+                BE_SET(temp[2], tz + ((BE_GET(ptr16[2]) * s) >> 8));
 
                 RFLiTransformCoordinate(
                     &shape->vtxPosBuf[i * VTX_COORDS_IN_POS], temp);
@@ -917,9 +934,9 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
 
         } else if (shape->flipX != 0) {
             for (i = 0; i < shape->numVtxPos; i++) {
-                s16 temp[3];
+                be_s16 temp[3];
 
-                temp[0] = -ptr16[0];
+                BE_SET(temp[0], -BE_GET(ptr16[0]));
                 temp[1] = ptr16[1];
                 temp[2] = ptr16[2];
 
@@ -942,19 +959,19 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
      * Vertex normals
      */
 
-    shape->numVtxNrm = *(u16*)ptr8;
+    shape->numVtxNrm = BE_GET(*(be_u16*)ptr8);
     ptr8 += sizeof(u16);
 
     {
-        s16* ptr16 = (s16*)ptr8;
+        be_s16* ptr16 = (be_s16*)ptr8;
         u32 byteSize = SIZE_VTX_NRM(shape->numVtxNrm);
 
         if (shape->flipX != 0) {
             int i;
             for (i = 0; i < shape->numVtxNrm; i++) {
-                s16 temp[3];
+                be_s16 temp[3];
 
-                temp[0] = -ptr16[0];
+                BE_SET(temp[0], -BE_GET(ptr16[0]));
                 temp[1] = ptr16[1];
                 temp[2] = ptr16[2];
 
@@ -984,7 +1001,7 @@ void RFLiInitShapeRes(RFLiShapeRes* shape) {
         if (skipTxc) {
             shape->numVtxTxc = 0;
         } else {
-            shape->numVtxTxc = *(u16*)ptr8;
+            shape->numVtxTxc = BE_GET(*(be_u16*)ptr8);
             ptr8 += sizeof(u16);
 
             byteSize = SIZE_VTX_TXC(shape->numVtxTxc);
@@ -1038,18 +1055,18 @@ void RFLiInitTexRes(GXTexObj* texObj, RFLiPartsShpTex part, u16 file,
 
     switch (part) {
     case RFLiPartsShpTex_Face: {
-        texSize = tex->height * tex->width * 2;
+        texSize = BE_GET(tex->height) * BE_GET(tex->width) * 2;
         break;
     }
 
     case RFLiPartsShpTex_Cap:
     case RFLiPartsShpTex_Noseline: {
-        texSize = tex->height * tex->width / 2;
+        texSize = BE_GET(tex->height) * BE_GET(tex->width) / 2;
         break;
     }
 
     case RFLiPartsShpTex_Glass: {
-        texSize = tex->height * tex->width;
+        texSize = BE_GET(tex->height) * BE_GET(tex->width);
         break;
     }
 
@@ -1059,17 +1076,20 @@ void RFLiInitTexRes(GXTexObj* texObj, RFLiPartsShpTex part, u16 file,
     }
 
     memcpy(buffer, RFLiGetTexImage(tex), texSize);
-    GXInitTexObj(texObj, buffer, tex->width, tex->height, tex->format,
+    GXInitTexObj(texObj, buffer, BE_GET(tex->width), BE_GET(tex->height), tex->format,
                  tex->wrapS, tex->wrapT, FALSE);
     GXInitTexObjLOD(texObj, GX_LINEAR, GX_LINEAR, 0.0f, 0.0f, 0.0f, FALSE,
                     FALSE, GX_ANISO_1);
     RFLiFree(tex);
 }
 
-void RFLiTransformCoordinate(s16* to, const s16* from) {
-    to[coordinateData.rOff] = coordinateData.rRev ? -from[0] : from[0];
-    to[coordinateData.uOff] = coordinateData.uRev ? -from[1] : from[1];
-    to[coordinateData.fOff] = coordinateData.fRev ? -from[2] : from[2];
+void RFLiTransformCoordinate(be_s16* to, const be_s16* from) {
+    BE_SET(to[coordinateData.rOff],
+           coordinateData.rRev ? -BE_GET(from[0]) : BE_GET(from[0]));
+    BE_SET(to[coordinateData.uOff],
+           coordinateData.uRev ? -BE_GET(from[1]) : BE_GET(from[1]));
+    BE_SET(to[coordinateData.fOff],
+           coordinateData.fRev ? -BE_GET(from[2]) : BE_GET(from[2]));
 }
 
 void RFLDrawShape(const RFLCharModel* model) {

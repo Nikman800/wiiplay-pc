@@ -2,6 +2,8 @@
 #define RP_PARTY_DUC_CAN_H
 #include <Pack/types_pack.h>
 
+#include <port/be.h>
+
 #include <Pack/RPParty/RPDucScene/RPDucTarget.h>
 
 #include <nw4r/math.h>
@@ -19,22 +21,22 @@ namespace EGG { class Archive; }
  * 0.85 [M].
  */
 struct RPDucCanPattern {
-    f32 mAimRangeX;       // at 0x0
-    f32 mAimRangeY;       // at 0x4
-    f32 mAimY;            // at 0x8
-    f32 mAimZ;            // at 0xC
-    f32 mHitScale;        // at 0x10
-    f32 mSpinMax;         // at 0x14
-    f32 mSpinMin;         // at 0x18
-    f32 unk1C;            // at 0x1C [L]
-    f32 mBounceVelZ;      // at 0x20
-    s32 mMaxHits;         // at 0x24 the can breaks on this hit
-    f32 mGravityUp;       // at 0x28
-    f32 mSpeed;           // at 0x2C
-    f32 mGravityDown;     // at 0x30
-    f32 mBounceHeight[4]; // at 0x34 per hit count 1, 2, 3, more
-    s32 mBounceFrames[4]; // at 0x44 per hit count 1, 2, 3, more
-    f32 mHitRadius;       // at 0x54
+    be_f32 mAimRangeX;       // at 0x0
+    be_f32 mAimRangeY;       // at 0x4
+    be_f32 mAimY;            // at 0x8
+    be_f32 mAimZ;            // at 0xC
+    be_f32 mHitScale;        // at 0x10
+    be_f32 mSpinMax;         // at 0x14
+    be_f32 mSpinMin;         // at 0x18
+    be_f32 unk1C;            // at 0x1C [L]
+    be_f32 mBounceVelZ;      // at 0x20
+    be_s32 mMaxHits;         // at 0x24 the can breaks on this hit
+    be_f32 mGravityUp;       // at 0x28
+    be_f32 mSpeed;           // at 0x2C
+    be_f32 mGravityDown;     // at 0x30
+    be_f32 mBounceHeight[4]; // at 0x34 per hit count 1, 2, 3, more
+    be_s32 mBounceFrames[4]; // at 0x44 per hit count 1, 2, 3, more
+    be_f32 mHitRadius;       // at 0x54
 };
 
 /**
@@ -42,14 +44,14 @@ struct RPDucCanPattern {
  * @details Size 0x2E0 [H]: a 0x20-byte header and eight patterns; copied member by member.
  */
 struct RPDucCanParam {
-    f32 mDrag;                    // at 0x0
-    f32 mHitPush;                 // at 0x4 [M] spin push of a hit
-    s32 unk08;                    // at 0x8 [L]
-    s32 unk0C;                    // at 0xC [L]
-    s32 mCooldown;                // at 0x10 frames between hits, tripled on load
-    f32 mBaseRadius;              // at 0x14 hit radius of scale 1
-    f32 mEdgeScreenY;             // at 0x18 [M]
-    f32 mSpinDecay;               // at 0x1C
+    be_f32 mDrag;                 // at 0x0
+    be_f32 mHitPush;              // at 0x4 [M] spin push of a hit
+    be_s32 unk08;                 // at 0x8 [L]
+    be_s32 unk0C;                 // at 0xC [L]
+    be_s32 mCooldown;             // at 0x10 frames between hits, tripled on load
+    be_f32 mBaseRadius;           // at 0x14 hit radius of scale 1
+    be_f32 mEdgeScreenY;          // at 0x18 [M]
+    be_f32 mSpinDecay;            // at 0x1C
     RPDucCanPattern mPatterns[8]; // at 0x20
 };
 

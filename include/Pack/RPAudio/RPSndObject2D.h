@@ -27,7 +27,7 @@ public:
     virtual ~RPSndObject2D(); // at 0x8
 
     virtual void stopSound(u32 id, int frames);            // at 0xC
-    virtual void stopSound(unsigned int id, int frames);   // at 0x10
+    virtual void stopSound(ui32 id, int frames);   // at 0x10
     virtual void stopSound(const char* pName, int frames); // at 0x14
     virtual void stopAllSound(int frames);                 // at 0x18
     virtual void setActorVolume(f32 volume, int frames);   // at 0x1C
@@ -44,7 +44,7 @@ public:
                                                                u32 remoteFlag); // at 0x40
     virtual nw4r::snd::SoundHandle* startSound(u32 id, int idx);          // at 0x44
     virtual nw4r::snd::SoundHandle* holdSound(u32 id);                    // at 0x48
-    virtual nw4r::snd::SoundHandle* holdSound(unsigned int id);           // at 0x4C
+    virtual nw4r::snd::SoundHandle* holdSound(ui32 id);           // at 0x4C
     virtual nw4r::snd::SoundHandle* holdSound(const char* pLabel);        // at 0x50
     virtual nw4r::snd::SoundHandle* holdSoundWithRemotePlayer(u32 id,
                                                               u32 remoteFlag); // at 0x54

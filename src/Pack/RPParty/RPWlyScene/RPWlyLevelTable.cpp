@@ -22,8 +22,14 @@ u16 RPWlyLevelTable::sUseDefaultLevel;
 extern const f32 Wly_fieldType3Unk20;
 
 // Replaces every record when RPWlyLevelTable::sUseDefaultLevel is set
+// (be_* values: on the PC port the members are big-endian wrappers, whose constructor is
+// explicit; on the Wii these are plain casts.)
 RPWlyLevelData RPWlyLevelTable::sDefaultLevel = {
-    8, 0, 1, 0, -130.0f, -130.0f, -27.0f, 8.0f, 15.0f, 0.0f, 1.5f, {1.0f, 1.0f, 1.0f}, 0.0f, 0.0f,
+    be_s32(8), be_u32(0), be_s32(1), be_s32(0),
+    be_f32(-130.0f), be_f32(-130.0f), be_f32(-27.0f), be_f32(8.0f),
+    be_f32(15.0f), be_f32(0.0f), be_f32(1.5f),
+    {be_f32(1.0f), be_f32(1.0f), be_f32(1.0f)},
+    be_f32(0.0f), be_f32(0.0f),
 };
 
 

@@ -189,7 +189,7 @@ nw4r::snd::SoundHandle* RPSndObject2D::holdSound(u32 id) {
     return NULL;
 }
 
-nw4r::snd::SoundHandle* RPSndObject2D::holdSound(unsigned int id) {
+nw4r::snd::SoundHandle* RPSndObject2D::holdSound(ui32 id) {
     nw4r::snd::SoundHandle* pHandle = FindFishSoundHandle(mSoundHandles, mHandleCount, id);
     if (pHandle == NULL) {
         if (mIsSilenced) {
@@ -347,7 +347,7 @@ void RPSndObject2D::stopSound(u32 id, int frames) {
     }
 }
 
-void RPSndObject2D::stopSound(unsigned int id, int frames) {
+void RPSndObject2D::stopSound(ui32 id, int frames) {
     for (int i = 0; i < mHandleCount; i++) {
         if (mSoundHandles[i].IsAttachedSound() && mSoundHandles[i].GetId() == id) {
             mSoundHandles[i].Stop(frames);

@@ -3,21 +3,24 @@
 #include <types.h>
 
 #include <RVLFaceLib/RFLi_Types.h>
+
+#include <port/be.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+// A texture in RFL_Res.dat (big-endian file data; be_* fields are read with BE_GET).
 typedef struct RFLiTexture {
     u8 format;          // at 0x0
     u8 alpha;           // at 0x1
-    u16 width;          // at 0x2
-    u16 height;         // at 0x4
+    be_u16 width;       // at 0x2
+    be_u16 height;      // at 0x4
     u8 wrapS;           // at 0x6
     u8 wrapT;           // at 0x7
     u8 indexTexture;    // at 0x8
     u8 colorFormat;     // at 0x9
-    u16 numColors;      // at 0xA
-    u32 paletteOfs;     // at 0xC
+    be_u16 numColors;   // at 0xA
+    be_u32 paletteOfs;  // at 0xC
     u8 enableLOD;       // at 0x10
     u8 enableEdgeLOD;   // at 0x11
     u8 enableBiasClamp; // at 0x12
@@ -28,12 +31,12 @@ typedef struct RFLiTexture {
     s8 maxLOD;          // at 0x16
     u8 mipmapLevel;     // at 0x18
     s8 reserved;        // at 0x19
-    s16 lodBias;        // at 0x1A
-    u32 imageOfs;       // at 0x1C
+    be_s16 lodBias;     // at 0x1A
+    be_u32 imageOfs;    // at 0x1C
 } RFLiTexture;
 
 inline void* RFLiGetTexImage(const RFLiTexture* tex) {
-    return (u8*)tex + tex->imageOfs;
+    return (u8*)tex + BE_GET(tex->imageOfs);
 }
 
 #ifdef __cplusplus

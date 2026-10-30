@@ -115,7 +115,7 @@ public:
      * @return Success
      */
     virtual bool startSound(nw4r::snd::SoundHandle* pHandle,
-                            unsigned int id); // at 0x3C
+                            ui32 id); // at 0x3C
 
     /**
      * @brief Attempts to start the specified sound

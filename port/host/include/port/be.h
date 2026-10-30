@@ -119,6 +119,9 @@ static inline void port_store_be64(void* p, u64 v) {
  * C++: be<T>
  ******************************************************************************/
 
+// RVLFaceLib's headers include this inside extern "C".
+extern "C++" {
+
 #include <type_traits>
 
 namespace port {
@@ -260,6 +263,8 @@ PORT_BE_CHECK(be_u64, u64);
 PORT_BE_CHECK(be_f64, f64);
 static_assert(sizeof(be_u24) == 3 && alignof(be_u24) == 1, "be_u24 layout");
 #undef PORT_BE_CHECK
+
+} // extern "C++"
 
 #else /* !__cplusplus */
 /******************************************************************************

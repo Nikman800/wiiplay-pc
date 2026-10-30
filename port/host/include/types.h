@@ -21,6 +21,8 @@
 #endif
 
 #ifdef __cplusplus
+// Some decomp headers include this inside extern "C" (homebuttonMiniLib's HBMTypes.h).
+extern "C++" {
 #include <cstdarg>
 #include <cstddef>
 #include <cfloat>
@@ -28,6 +30,7 @@
 #include <new>
 #include <cstring>
 #include <strings.h>
+#include <climits>
 
 // MSL's std::stricmp (ArcResourceAccessor's name lookup); ASCII only, like MSL.
 namespace std {
@@ -35,12 +38,20 @@ inline int stricmp(const char* pLhs, const char* pRhs) {
     return ::strcasecmp(pLhs, pRhs);
 }
 } // namespace std
+} // extern "C++"
 #else
+#include <limits.h>
 #include <stdarg.h>
 #include <float.h>
 #include <stddef.h>
 #include <stdint.h>
 #endif
+
+// <limits.h> (included above, so its guard keeps it from coming back) defines
+// PATH_MAX on Linux; the game's classes have static members of that name
+// (RPSysFile, RPSndAudioMgr). Host code that needs the OS limit uses PATH_MAX
+// before this header or its own constant.
+#undef PATH_MAX
 
 // glibc's <sys/cdefs.h> also defines __CONCAT (same meaning as macros.h).
 #undef __CONCAT

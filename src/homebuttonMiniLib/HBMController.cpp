@@ -56,7 +56,7 @@ void Controller::wpadExtensionCallback(s32 chan, s32 result) {
 }
 
 void Controller::soundOnCallback(OSAlarm* pAlarm, OSContext* /* pContext */) {
-    int chan = reinterpret_cast<int>(OSGetAlarmUserData(pAlarm));
+    int chan = reinterpret_cast<intptr_t>(OSGetAlarmUserData(pAlarm));
     sThis[chan]->soundOn();
 }
 

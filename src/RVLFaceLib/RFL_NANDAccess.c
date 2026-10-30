@@ -603,7 +603,7 @@ RFLErrcode RFLiReadAsync(RFLiFileType type, void* dst, u32 size,
     return RFLGetAsyncStatus();
 }
 
-static void retryWrite_(u32 arg) {
+static void retryWrite_(uintptr_t arg) {
     NANDCommandBlock* block;
     RFLiAccessInfo* info;
     NANDFileInfo* file;
@@ -677,7 +677,7 @@ static void writecallback_(s32 result, NANDCommandBlock* block) {
     }
 }
 
-static void retryWriteSeek_(u32 arg) {
+static void retryWriteSeek_(uintptr_t arg) {
     NANDCommandBlock* block;
     RFLiAccessInfo* info;
     NANDFileInfo* file;

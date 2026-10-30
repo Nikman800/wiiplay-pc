@@ -272,13 +272,11 @@ sound: $(OUT)/snd_harness
 	python3 $(HOST)/tests/test_sound.py --harness $(OUT)/snd_harness --disc $(DISC)
 test: sound
 
-# --- Game-owned formats (POINTERS.md step 8; docs/HOST_BUILD.md §14) ---------
-# The game's units that load them include Pack/RPSystem/RPSysResourceManager.h,
-# whose real version pulls in RPAudio headers that do not build on the host yet;
-# tests/shadow holds a stand-in with the two lookups they call (the harnesses
-# define them). -mfpmath=sse on -m32 keeps the collision queries in single
-# precision (x87 would compute them in extended precision), as on x86-64.
-SHADOW := -I$(HOST)/tests/shadow
+# --- Game-owned formats (POINTERS.md step 8; docs/HOST_BUILD.md §14, §15) ----
+# The game's units that load them call RPSysResourceManager's two archive
+# lookups; the harnesses define them over the archive the disc walk mounted.
+# -mfpmath=sse on -m32 keeps the collision queries in single precision (x87
+# would compute them in extended precision), as on x86-64.
 ifeq ($(M32),1)
 STEP8_FP := -msse2 -mfpmath=sse
 endif
@@ -293,10 +291,10 @@ COLL_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(COLL_SRCS))
 # compiled only: it needs RPBBox and the RP matrix helpers to link.
 COLL_COMPILE_OBJS := $(OUT)/decomp/$(RPPC)/RPCollisionModel.cpp.o
 
-$(patsubst %,$(OUT)/decomp/%.o,$(filter src/Pack/%,$(COLL_SRCS))) $(COLL_COMPILE_OBJS): CXXFLAGS := $(SHADOW) $(CXXFLAGS) $(STEP8_FP)
+$(patsubst %,$(OUT)/decomp/%.o,$(filter src/Pack/%,$(COLL_SRCS))) $(COLL_COMPILE_OBJS): CXXFLAGS += $(STEP8_FP)
 
 $(OUT)/coll_harness: $(HOST)/tests/coll_harness.cpp $(HOST)/tests/disc_walk.h $(COLL_OBJS) $(LIB)
-	$(CXX) $(SHADOW) $(CXXFLAGS) $(STEP8_FP) -MMD $< $(COLL_OBJS) $(LIB) -o $@
+	$(CXX) $(CXXFLAGS) $(STEP8_FP) -MMD $< $(COLL_OBJS) $(LIB) -o $@
 
 .PHONY: collision
 all: $(OUT)/coll_harness $(COLL_COMPILE_OBJS)
@@ -308,21 +306,108 @@ test: collision
 # light-map and bloom objects are made of, the table loaders that build on the
 # host, and src/host_gfx_stubs.cpp for the GX / g3d scene functions that code
 # references (they abort if called; nothing on the load path calls them).
+DUC := src/Pack/RPParty/RPDucScene
+TNK := src/Pack/RPParty/RPTnkScene
 DATA_SRCS := $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/egg/gfxe/*.cpp) \
     $(wildcard $(REPO)/src/egg/gfx/*.cpp) $(wildcard $(REPO)/src/egg/math/*.cpp))) \
     $(RPPC)/RPTnkMapData.cpp src/Pack/RPParty/RPBomScene/RPBomQuestionParam.cpp \
-    $(RPPC)/RPSceneObj.cpp
+    $(RPPC)/RPSceneObj.cpp \
+    src/Pack/RPParty/RPWlyScene/RPWlyLevelTable.cpp src/Pack/RPParty/RPPnpScene/RPPnpLevelTable.cpp \
+    $(DUC)/RPDucCircleTarget.cpp $(DUC)/RPDucDuck.cpp $(DUC)/RPDucUfo.cpp \
+    $(TNK)/RPTnkGameManager.cpp $(TNK)/RPTnkTask_2.cpp
 DATA_HOST_SRCS := src/host_gfx_stubs.c
 DATA_OBJS := $(sort $(patsubst %,$(OUT)/decomp/%.o,$(DATA_SRCS))) \
     $(patsubst %,$(OUT)/host/%.o,$(DATA_HOST_SRCS))
-
-$(patsubst %,$(OUT)/decomp/%.o,$(filter src/Pack/%,$(DATA_SRCS))): CXXFLAGS := $(SHADOW) $(CXXFLAGS)
+# Other readers of the same files, compiled only (docs/HOST_BUILD.md §15): the
+# Balloon / Can / Clay loaders (their Load goes on to build models) and the Tnk
+# stage map (LoadStage reads the stage records' enemy types).
+DATA_COMPILE_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(DUC)/RPDucBalloon.cpp $(DUC)/RPDucCan.cpp \
+    $(DUC)/RPDucClay.cpp $(TNK)/RPTnkStageMap.cpp)
 
 $(OUT)/data_harness: $(HOST)/tests/data_harness.cpp $(HOST)/tests/disc_walk.h $(DATA_OBJS) $(LIB)
-	$(CXX) $(SHADOW) $(CXXFLAGS) -MMD $< $(DATA_OBJS) $(LIB) -Wl,--gc-sections -o $@
+	$(CXX) $(CXXFLAGS) -MMD $< $(DATA_OBJS) $(LIB) -Wl,--gc-sections -o $@
 
 .PHONY: data
-all: $(OUT)/data_harness
+all: $(OUT)/data_harness $(DATA_COMPILE_OBJS)
 data: $(OUT)/data_harness
 	python3 $(HOST)/tests/test_data.py --harness $(OUT)/data_harness --disc $(DISC)
 test: data
+
+# --- Remaining loaders (POINTERS.md step 8; docs/HOST_BUILD.md §16) ---------
+# BTI: RPGrpTexture / EGG::GXUtility::getTexObj / DrawGX::LoadTexture on every
+# .bti, and the Tanks scene's RPTnkFootmarkTex::Load.
+BTI_SRCS := src/Pack/RPGraphics/RPGrpTexture.cpp src/Pack/RPParty/RPTnkScene/RPTnkTask_3.cpp \
+    $(RPPC)/RPSceneObj.cpp src/egg/gfxe/eggGXUtility.cpp src/egg/gfxe/eggDrawGX.cpp
+BTI_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(BTI_SRCS)) $(OUT)/host/src/host_gfx_stubs.c.o
+
+$(OUT)/bti_harness: $(HOST)/tests/bti_harness.cpp $(HOST)/tests/disc_walk.h $(BTI_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(BTI_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: bti
+all: $(OUT)/bti_harness
+bti: $(OUT)/bti_harness
+	python3 $(HOST)/tests/test_bti.py --harness $(OUT)/bti_harness --disc $(DISC)
+test: bti
+
+# RFL_Res.dat: all of RVLFaceLib, linked with --gc-sections against the MEM
+# expanded heap and tests/rfl_host.c (NAND, alarm, GX display-list and other
+# SDK stand-ins the library references; no NAND on the host).
+RFL_SRCS := $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/RVLFaceLib/*.c))) \
+    src/revolution/MEM/mem_expHeap.c src/revolution/MEM/mem_heapCommon.c \
+    src/revolution/MEM/mem_list.c
+RFL_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(RFL_SRCS)) $(OUT)/tests/rfl_host.c.o
+
+$(OUT)/tests/%.c.o: $(HOST)/tests/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -MMD -c $< -o $@
+
+$(OUT)/rfl_harness: $(HOST)/tests/rfl_harness.cpp $(HOST)/tests/disc_walk.h $(RFL_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(RFL_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: rfl
+all: $(OUT)/rfl_harness
+rfl: $(OUT)/rfl_harness
+	python3 $(HOST)/tests/test_rfl.py --harness $(OUT)/rfl_harness --disc $(DISC)
+test: rfl
+
+# HOME Menu: homebuttonMiniLib's HBMCreate on the disc's HOME Menu files
+# (layouts through nw4r::lyt, the snd library it references, the MEM expanded
+# heap), with tests/hbm_host.cpp for the WPAD / KPAD / AX / OS / WENC calls it
+# references (no controllers or speaker on the host).
+HBM_SRCS := $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/homebuttonMiniLib/*.cpp))) \
+    src/revolution/MEM/mem_expHeap.c src/revolution/MEM/mem_heapCommon.c \
+    src/revolution/MEM/mem_list.c
+HBM_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(HBM_SRCS)) $(OUT)/tests/hbm_host.cpp.o
+
+$(OUT)/tests/%.cpp.o: $(HOST)/tests/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -MMD -c $< -o $@
+
+$(OUT)/hbm_harness: $(HOST)/tests/hbm_harness.cpp $(HOST)/tests/disc_walk.h $(HBM_OBJS) $(SND_LIB) $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(HBM_OBJS) $(SND_LIB) $(LIB) $(SND_LIB) -Wl,--gc-sections -o $@
+
+.PHONY: hbm
+all: $(OUT)/hbm_harness
+hbm: $(OUT)/hbm_harness
+	python3 $(HOST)/tests/test_hbm.py --harness $(OUT)/hbm_harness --disc $(DISC)
+test: hbm
+
+# POINTERS.md §5.1 leftovers: RPPolyline::Calc (pointer-sized arithmetic; run
+# by test_polyline). Compiled only, so their host forms keep building:
+# RPKokeshiMgr_3 (EGG::Frustum::mFlags by name; an unlinked FUNCTIONAL unit),
+# and the game's RFL / HBM callers RPSysKokeshiManager (RFLInitRes),
+# RPSysHomeMenuMgr (HBMDataInfo) and g3d_scnrfl (RFLCharModel).
+POLY_OBJS := $(OUT)/decomp/$(RPPC)/RPPolyline.cpp.o
+KOKESHI3_OBJS := $(OUT)/decomp/$(RPPC)/RPKokeshiMgr_3.cpp.o \
+    $(OUT)/decomp/src/Pack/RPKernel/RPSysKokeshiManager.cpp.o \
+    $(OUT)/decomp/src/Pack/RPKernel/RPSysHomeMenuMgr.cpp.o \
+    $(OUT)/decomp/src/nw4r/g3d/g3d_scnrfl.cpp.o
+
+$(OUT)/test_polyline: $(HOST)/tests/test_polyline.cpp $(POLY_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(POLY_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: polyline-unit
+all: $(OUT)/test_polyline $(KOKESHI3_OBJS)
+unit: polyline-unit
+polyline-unit: $(OUT)/test_polyline $(KOKESHI3_OBJS)
+	$(OUT)/test_polyline

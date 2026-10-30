@@ -579,7 +579,7 @@ bool RPSndAudioMgr::startSound(nw4r::snd::SoundHandle* pHandle, u32 id) {
  * @return Success
  */
 bool RPSndAudioMgr::startSound(nw4r::snd::SoundHandle* pHandle,
-                               unsigned int id) {
+                               ui32 id) {
     return getPlayer().StartSound(pHandle, id);
 }
 

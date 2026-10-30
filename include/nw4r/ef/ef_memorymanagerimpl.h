@@ -96,7 +96,7 @@ public:
 
         mHeapEndAddr = static_cast<u8*>(pStartAddr) + size;
         mHeapStartAddr = reinterpret_cast<u8*>(
-            ::nw4r::ut::RoundUp(reinterpret_cast<u32>(pStartAddr), 32));
+            ::nw4r::ut::RoundUp(reinterpret_cast<uintptr_t>(pStartAddr), 32));
 
         mLeastEffect = maxEffect;
         mLeastEmitter = maxEmitter;
