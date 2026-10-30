@@ -129,11 +129,11 @@ u16 ResFontBase::FindGlyphIndex(const FontCodeMap* pMap, u16 ch) const {
 
     case FONT_MAPMETHOD_SCAN: {
         struct CMapScanEntry {
-            u16 ccode; // at 0x0
-            u16 index; // at 0x2
+            be_u16 ccode; // at 0x0
+            be_u16 index; // at 0x2
         };
         struct CMapInfoScan {
-            u16 num;                 // at 0x0
+            be_u16 num;              // at 0x0
             CMapScanEntry entries[]; // at 0x2
         };
 

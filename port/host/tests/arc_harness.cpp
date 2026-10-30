@@ -34,6 +34,8 @@
 
 #include <port/host.h>
 
+#include "disc_walk.h"
+
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
@@ -46,8 +48,6 @@
 
 namespace {
 
-int sErrors = 0;
-int sArchives = 0;
 int sLeaves = 0;
 
 u64 Fnv1a64(const u8* p, u32 n) {
@@ -59,56 +59,7 @@ u64 Fnv1a64(const u8* p, u32 n) {
     return h;
 }
 
-/**
- * RPSysResourceManager::LoadFromDVD (src/Pack/RPSystem/RPSysResourceManager.cpp),
- * reproduced with the same EGG calls. Returns the 32-byte-rounded buffer and
- * the true file size.
- */
-u8* LoadFromDVD(const char* pPath, s32* pSize, u32* pTrueSize) {
-    EGG::DvdFile f;
-
-    if (!f.open(pPath, NULL)) {
-        return NULL;
-    }
-
-    *pTrueSize = f.getFileSize();
-    s32 fileSize = ROUND_UP(f.getFileSize(), 32);
-    *pSize = fileSize;
-
-    u8* pBuffer = new (static_cast<EGG::Heap*>(NULL), -32) u8[fileSize];
-    if (pBuffer == NULL) {
-        return NULL;
-    }
-
-    return EGG::DvdRipper::loadToMainRAM(&f, pBuffer, NULL,
-                                         EGG::DvdRipper::ALLOC_DIR_HEAD);
-}
-
-/**
- * RPSysResourceManager::ExpandCompressed, same EGG calls.
- */
-u8* ExpandCompressed(u8* pData, s32 size, s32* pExpandSize) {
-    u8* pExpandData = NULL;
-
-    if (EGG::Decomp::checkCompressed(pData) != EGG::Decomp::cCompress_None) {
-        *pExpandSize = EGG::Decomp::getExpandSize(pData);
-        pExpandData = new (static_cast<EGG::Heap*>(NULL), 32) u8[*pExpandSize];
-        EGG::Decomp::decode(pData, pExpandData);
-    } else {
-        *pExpandSize = size;
-        pExpandData = new (static_cast<EGG::Heap*>(NULL), 32) u8[*pExpandSize];
-        std::memcpy(pExpandData, pData, *pExpandSize);
-    }
-
-    return pExpandData;
-}
-
-bool IsU8(const u8* p, u32 size) {
-    return size >= 0x20 && p[0] == 0x55 && p[1] == 0xAA && p[2] == 0x38 &&
-           p[3] == 0x2D;
-}
-
-void EmitLeaf(const std::string& path, const u8* p, u32 size) {
+void EmitLeaf(const std::string& path, u8* p, u32 size) {
     std::string hdr = "-";
 
     if (size >= sizeof(nw4r::ut::BinaryFileHeader) && p[4] == 0xFE &&
@@ -137,111 +88,10 @@ void EmitLeaf(const std::string& path, const u8* p, u32 size) {
     sLeaves++;
 }
 
-void Expand(const std::string& path, u8* pData, u32 size);
-
-/** Walk one mounted archive with the ARC directory API. */
-void WalkDir(EGG::Archive* pArchive, ARCHandle* pHandle,
-             const std::string& prefix, const std::string& dir) {
-    ARCDir arcDir;
-    if (!ARCOpenDir(pHandle, dir.c_str(), &arcDir)) {
-        std::fprintf(stderr, "ERROR: ARCOpenDir(%s) failed in %s\n",
-                     dir.c_str(), prefix.c_str());
-        sErrors++;
-        return;
-    }
-
-    ARCDirEntry entry;
-    while (ARCReadDir(&arcDir, &entry)) {
-        std::string rel = (dir == "/" ? std::string("") : dir.substr(1) + "/") +
-                          entry.name;
-
-        if (entry.isDir) {
-            WalkDir(pArchive, pHandle, prefix, "/" + rel);
-            continue;
-        }
-
-        // Game-style access by path through EGG::Archive...
-        EGG::Archive::FileInfo info;
-        u8* pFile =
-            static_cast<u8*>(pArchive->getFile(("/" + rel).c_str(), &info));
-
-        // ...cross-checked against ARC's entry-number API.
-        ARCFileInfo fast;
-        if (pFile == NULL ||
-            !ARCFastOpen(pHandle, entry.entryNum, &fast) ||
-            ARCGetStartOffset(&fast) != info.getStartOffset() ||
-            ARCGetLength(&fast) != info.getLength() ||
-            ARCConvertPathToEntrynum(pHandle, ("/" + rel).c_str()) !=
-                static_cast<s32>(entry.entryNum)) {
-            std::fprintf(stderr, "ERROR: lookup mismatch for %s/%s\n",
-                         prefix.c_str(), rel.c_str());
-            sErrors++;
-            continue;
-        }
-        ARCClose(&fast);
-
-        Expand(prefix + "/" + rel, pFile, info.getLength());
-    }
-    ARCCloseDir(&arcDir);
-}
-
-/** Same rule as wiiarc._expand: decompress, then descend if U8. */
-void Expand(const std::string& path, u8* pData, u32 size) {
-    s32 expandSize = 0;
-    u8* pExpand = NULL;
-
-    if (EGG::Decomp::checkCompressed(pData) != EGG::Decomp::cCompress_None) {
-        pExpand = ExpandCompressed(pData, static_cast<s32>(size), &expandSize);
-        pData = pExpand;
-        size = static_cast<u32>(expandSize);
-    }
-
-    if (IsU8(pData, size)) {
-        sArchives++;
-        EGG::Archive* pArchive = EGG::Archive::mount(pData, NULL, 4);
-        ARCHandle handle;
-        if (pArchive == NULL || !ARCInitHandle(pData, &handle)) {
-            std::fprintf(stderr, "ERROR: mount failed: %s\n", path.c_str());
-            sErrors++;
-        } else {
-            // Archive record: path and node count (root's next index).
-            std::printf("#archive\t%s\t%u\n", path.c_str(),
-                        static_cast<unsigned>(handle.entryNum));
-            WalkDir(pArchive, &handle, path, "/");
-            delete pArchive;
-        }
-    } else {
-        EmitLeaf(path, pData, size);
-    }
-
-    delete[] pExpand;
-}
-
-void ListDisc(const std::string& root, const std::string& rel,
-              std::vector<std::string>* pOut) {
-    std::string full = rel.empty() ? root : root + "/" + rel;
-    DIR* d = opendir(full.c_str());
-    if (d == NULL) {
-        return;
-    }
-    std::vector<std::string> names;
-    while (dirent* e = readdir(d)) {
-        if (std::strcmp(e->d_name, ".") != 0 &&
-            std::strcmp(e->d_name, "..") != 0) {
-            names.push_back(e->d_name);
-        }
-    }
-    closedir(d);
-    std::sort(names.begin(), names.end());
-    for (const std::string& n : names) {
-        std::string r = rel.empty() ? n : rel + "/" + n;
-        struct stat st;
-        if (stat((root + "/" + r).c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-            ListDisc(root, r, pOut);
-        } else {
-            pOut->push_back(r);
-        }
-    }
+void EmitArchive(const std::string& path, const ARCHandle& handle) {
+    // Archive record: path and node count (root's next index).
+    std::printf("#archive\t%s\t%u\n", path.c_str(),
+                static_cast<unsigned>(handle.entryNum));
 }
 
 } // namespace
@@ -260,25 +110,16 @@ int main(int argc, char** argv) {
     if (argc > 2) {
         paths.assign(argv + 2, argv + argc);
     } else {
-        ListDisc(argv[1], "", &paths);
+        disc_walk::ListDisc(argv[1], "", &paths);
     }
 
-    for (const std::string& p : paths) {
-        s32 bufSize = 0;
-        u32 trueSize = 0;
-        u8* pFile = LoadFromDVD(("/" + p).c_str(), &bufSize, &trueSize);
-        if (pFile == NULL) {
-            std::fprintf(stderr, "ERROR: cannot load %s\n", p.c_str());
-            sErrors++;
-            continue;
-        }
-        Expand(p, pFile, trueSize);
-        delete[] pFile;
-    }
+    disc_walk::Visitor visitor = {EmitLeaf, EmitArchive};
+    disc_walk::WalkDisc(visitor, paths);
 
     std::fprintf(stderr,
                  "arc_harness: %zu disc files, %d archives, %d leaf files, "
                  "%d errors (pointer size %zu)\n",
-                 paths.size(), sArchives, sLeaves, sErrors, sizeof(void*));
-    return sErrors == 0 ? 0 : 1;
+                 paths.size(), disc_walk::Archives(), sLeaves,
+                 disc_walk::Errors(), sizeof(void*));
+    return disc_walk::Errors() == 0 ? 0 : 1;
 }

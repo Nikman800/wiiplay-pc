@@ -9,8 +9,9 @@
  *   OS     mutexes and message queues (single-threaded), OSReport/OSPanic
  *   DVD    paths resolve against a host directory (the extracted disc's
  *          files/ folder); entry numbers index a table of opened paths
- *   EGG    Heap::alloc/free and the global/heap operator new/delete map to
- *          aligned host allocations; Heap::findContainHeap returns NULL
+ *   EGG    Heap::alloc/free and the global/heap operator new/delete
+ *          allocate from the M0 arena (host_arena.cpp, port/arena.h);
+ *          Heap::findContainHeap returns NULL
  *   VI/DC  no-ops
  */
 
@@ -19,6 +20,7 @@
 #include <revolution/OS.h>
 #include <revolution/VI.h>
 
+#include <port/arena.h>
 #include <port/host.h>
 
 #include <cerrno>
@@ -223,17 +225,20 @@ s32 DVDGetCommandBlockStatus(const DVDCommandBlock* block) {
 namespace {
 
 void* HostAlloc(size_t size, int align) {
-    // Negative alignment means "allocate from the tail" on the Wii; the host
-    // only keeps the alignment.
-    size_t a = static_cast<size_t>(align < 0 ? -align : align);
-    if (a < sizeof(void*)) {
-        a = sizeof(void*);
-    }
-    void* p = NULL;
-    if (posix_memalign(&p, a, size == 0 ? 1 : size) != 0) {
-        return NULL;
+    // M0: every heap block and every operator new comes from the emulated
+    // MEM1/MEM2 block (port/arena.h), so file buffers have 32-bit Wii
+    // addresses. Negative alignment means "allocate from the tail" on the
+    // Wii; the host only keeps the alignment.
+    void* p = PortArenaAlloc(size, align);
+    if (p == NULL) {
+        std::fprintf(stderr, "host heap: out of arena memory (%zu bytes)\n",
+                     size);
     }
     return p;
+}
+
+void HostFree(void* p) {
+    PortArenaFree(p);
 }
 
 } // namespace
@@ -247,7 +252,7 @@ void* Heap::alloc(u32 size, int align, Heap* pHeap) {
 
 void Heap::free(void* pBlock, Heap* pHeap) {
     (void)pHeap;
-    std::free(pBlock);
+    HostFree(pBlock);
 }
 
 Heap* Heap::findContainHeap(const void* pBlock) {
@@ -273,14 +278,14 @@ void* operator new[](size_t size, EGG::Heap* pHeap, int align) {
     return EGG::Heap::alloc(static_cast<u32>(size), align, pHeap);
 }
 void operator delete(void* pBlock) noexcept {
-    std::free(pBlock);
+    HostFree(pBlock);
 }
 void operator delete[](void* pBlock) noexcept {
-    std::free(pBlock);
+    HostFree(pBlock);
 }
 void operator delete(void* pBlock, size_t) noexcept {
-    std::free(pBlock);
+    HostFree(pBlock);
 }
 void operator delete[](void* pBlock, size_t) noexcept {
-    std::free(pBlock);
+    HostFree(pBlock);
 }

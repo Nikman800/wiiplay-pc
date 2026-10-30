@@ -9,6 +9,15 @@ template <typename T> inline void ResolveOffset(T*& rpPtr, void* pBase) {
                                  reinterpret_cast<s32>(rpPtr));
 }
 
+#if defined(PORT_HOST)
+// RES_PTR slot: the file offset is the raw u32; store the emulated address.
+template <typename T>
+inline void ResolveOffset(port::res_ptr<T>& rSlot, void* pBase) {
+    rSlot = reinterpret_cast<T*>(static_cast<char*>(pBase) +
+                                 static_cast<s32>(rSlot.raw()));
+}
+#endif
+
 } // namespace
 
 ResFont::ResFont() {}

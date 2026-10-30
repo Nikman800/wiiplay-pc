@@ -31,7 +31,11 @@ DISC ?= $(HOME)/wii-play/extracted/files
 # include/revolution/BTE is searched recursively by CodeWarrior (-ir); GCC has
 # no recursive form, so every subdirectory is added (after the system headers).
 BTE_DIRS := $(shell find $(REPO)/include/revolution/BTE -type d)
-INCLUDES := -I$(HOST)/include -I$(REPO)/include $(addprefix -idirafter ,$(BTE_DIRS))
+# Likewise -ir include/egg, -i include/nw4r and -i include/Pack (EGG headers include their
+# siblings by bare name, e.g. "eggIBinary.h").
+EGG_DIRS := $(shell find $(REPO)/include/egg -type d)
+INCLUDES := -I$(HOST)/include -I$(REPO)/include $(addprefix -idirafter ,$(BTE_DIRS)) \
+            $(addprefix -idirafter ,$(EGG_DIRS)) -idirafter $(REPO)/include/nw4r -idirafter $(REPO)/include/Pack
 
 DEFINES := -DPORT_HOST=1 -DNONMATCHING -DREVOLUTION -DNDEBUG=1 \
            -DVERSION_RHAE01 -DVERSION_RHAE01_01
@@ -40,10 +44,17 @@ WARN := -Wall -Wno-unknown-pragmas -Wno-unused-function -Wno-unused-variable \
         -Wno-unused-but-set-variable -Wno-sign-compare -Wno-parentheses
 # OSAddress.h casts u32 physical addresses to pointers; harmless here, listed
 # in docs/HOST_BUILD.md as a 64-bit site.
-WARN += -Wno-int-to-pointer-cast
+# Pointer-size checklist (port/docs/POINTERS.md §2): a cast between a
+# pointer and a narrower integer is an error, not a silent truncation. (In
+# C++ reinterpret_cast<u32>(ptr) is already ill-formed on LP64.)
+WARN += -Werror=int-to-pointer-cast
 
-COMMON := $(ARCH) -O2 -g -fno-strict-aliasing $(INCLUDES) $(DEFINES) $(WARN)
-CFLAGS := -std=gnu11 $(COMMON)
+# 16-bit wchar_t as on the Wii; port/wide.h checks it and routes the wide
+# string calls to the decomp's MSL_C versions (port/docs/POINTERS.md §6).
+WIDE := -fshort-wchar -include $(HOST)/include/port/wide.h
+
+COMMON := $(ARCH) -O2 -g -fno-strict-aliasing $(WIDE) $(INCLUDES) $(DEFINES) $(WARN)
+CFLAGS := -std=gnu11 $(COMMON) -Werror=pointer-to-int-cast
 # Decompiled class layouts: offsetof on classes with vtables (nw4r lists),
 # member init order and anonymous-namespace bases are as in the original.
 CXXFLAGS := -std=gnu++17 -fno-exceptions -fno-rtti $(COMMON) \
@@ -60,16 +71,32 @@ DECOMP_SRCS := \
     src/egg/core/eggDvdRipper.cpp \
     src/egg/prim/eggAssert.cpp \
     src/nw4r/ut/ut_binaryFileFormat.cpp \
-    src/nw4r/ut/ut_list.cpp
+    src/nw4r/ut/ut_list.cpp \
+    src/nw4r/ut/ut_CharStrmReader.cpp \
+    src/nw4r/ut/ut_Font.cpp \
+    src/nw4r/ut/ut_ResFont.cpp \
+    src/nw4r/ut/ut_ResFontBase.cpp \
+    src/egg/util/eggMsgRes.cpp
 
-HOST_SRCS := src/host_sdk.cpp
+# MSL_C wide-string functions, compiled under port_* names (port/wide.h).
+# Their headers live in include/MSL/internal; include/MSL is searched last so
+# the C library headers still win.
+MSL_SRCS := \
+    src/MSL_C/wstring.c \
+    src/MSL_C/wmem.c
+
+HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp
 
 DECOMP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(DECOMP_SRCS))
+MSL_OBJS := $(patsubst %,$(OUT)/msl/%.o,$(MSL_SRCS))
 HOST_OBJS := $(patsubst %,$(OUT)/host/%.o,$(HOST_SRCS))
 LIB := $(OUT)/libwiiplay_loader.a
 
-.PHONY: all test unit archives clean
-all: $(OUT)/arc_harness $(OUT)/test_be $(OUT)/test_be_c
+TESTS := $(OUT)/test_be $(OUT)/test_be_c $(OUT)/test_port $(OUT)/test_port_c \
+         $(OUT)/test_layout
+
+.PHONY: all test unit archives resources clean
+all: $(OUT)/arc_harness $(OUT)/res_harness $(TESTS)
 
 $(OUT)/decomp/%.c.o: $(REPO)/%.c
 	@mkdir -p $(dir $@)
@@ -79,16 +106,24 @@ $(OUT)/decomp/%.cpp.o: $(REPO)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -MMD -c $< -o $@
 
+$(OUT)/msl/%.c.o: $(REPO)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -DPORT_WIDE_IMPL -idirafter $(REPO)/include/MSL -MMD -c $< -o $@
+
 $(OUT)/host/%.cpp.o: $(HOST)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -MMD -c $< -o $@
 
-$(LIB): $(DECOMP_OBJS) $(HOST_OBJS)
+$(LIB): $(DECOMP_OBJS) $(MSL_OBJS) $(HOST_OBJS)
 	@rm -f $@
 	ar rcs $@ $^
 
-$(OUT)/arc_harness: $(HOST)/tests/arc_harness.cpp $(LIB)
+$(OUT)/arc_harness: $(HOST)/tests/arc_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(LIB) -o $@
+
+$(OUT)/res_harness: $(HOST)/tests/res_harness.cpp $(HOST)/tests/rpsysmessage_unit.cpp \
+                   $(HOST)/tests/disc_walk.h $(LIB)
+	$(CXX) $(CXXFLAGS) $(filter %.cpp,$^) $(LIB) -o $@
 
 $(OUT)/test_be: $(HOST)/tests/test_be.cpp $(HOST)/include/port/be.h
 	$(CXX) $(CXXFLAGS) $< -o $@
@@ -96,14 +131,29 @@ $(OUT)/test_be: $(HOST)/tests/test_be.cpp $(HOST)/include/port/be.h
 $(OUT)/test_be_c: $(HOST)/tests/test_be_c.c $(HOST)/include/port/be.h
 	$(CC) $(CFLAGS) $< -o $@
 
-unit: $(OUT)/test_be $(OUT)/test_be_c
+$(OUT)/test_port: $(HOST)/tests/test_port.cpp $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(LIB) -o $@
+
+$(OUT)/test_port_c: $(HOST)/tests/test_port_c.c $(LIB)
+	$(CC) $(CFLAGS) -MMD $< $(LIB) -lstdc++ -o $@
+
+$(OUT)/test_layout: $(HOST)/tests/layout_asserts.cpp
+	$(CXX) $(CXXFLAGS) -MMD $< -o $@
+
+unit: $(TESTS)
 	$(OUT)/test_be
 	$(OUT)/test_be_c
+	$(OUT)/test_port
+	$(OUT)/test_port_c
+	$(OUT)/test_layout
 
 archives: $(OUT)/arc_harness
 	python3 $(HOST)/tests/test_archives.py --harness $(OUT)/arc_harness --disc $(DISC)
 
-test: unit archives
+resources: $(OUT)/res_harness
+	python3 $(HOST)/tests/test_resources.py --harness $(OUT)/res_harness --disc $(DISC)
+
+test: unit archives resources
 
 clean:
 	rm -rf $(HOST)/build

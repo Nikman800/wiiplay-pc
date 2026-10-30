@@ -149,7 +149,9 @@ public:
     // Trivial default constructor: be<T> stays a POD-like type usable in
     // unions and structs that are overlaid on file bytes.
     be() = default;
-    be(T v) { set(v); }
+    // explicit: with an implicit constructor, `cond ? u16 : be_u16` would be
+    // ambiguous (each operand converts to the other's type).
+    explicit be(T v) { set(v); }
 
     T get() const {
         raw_t r = be_swap(raw_);
@@ -166,6 +168,14 @@ public:
     }
 
     operator T() const { return get(); }
+
+    // static_cast<SomeEnum>(field) on an integer field, as the decompiled
+    // code does for format fields (e.g. static_cast<GXTexFmt>(sheetFormat)).
+    template <typename E, typename = typename std::enable_if<
+                              std::is_enum<E>::value>::type>
+    explicit operator E() const {
+        return static_cast<E>(get());
+    }
 
     be& operator=(T v) {
         set(v);

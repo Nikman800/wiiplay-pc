@@ -1,7 +1,12 @@
 # In-place pointer writes and other pointer-size hazards (design)
 
-Status: design only. Nothing here is implemented yet. Line numbers refer to `src/` and `include/`
-as of 2026-10-30 (identical to the decomp).
+Status (2026-10-30): steps 0, 1 and 2 of §7 are implemented in the host build (M0 arena,
+`RES_PTR(T)` and the cast macros, the warning flags, `layout_asserts.cpp`, `-fshort-wchar` with
+the MSL_C `wcs*`/`wmem*` functions, the `analyzeTag` big-endian read, and ResFont); see
+`port/docs/HOST_BUILD.md` §4 to §7 for what was built and how it is tested. `swprintf` and
+`vswprintf` are not routed yet (HOST_BUILD.md §6). Everything from step 3 on is still design.
+Line numbers refer to `src/` and `include/` as of 2026-10-30 (identical to the decomp) and do not
+account for the step 0-2 edits.
 
 Inputs: `docs/ASSETS.md` §2 and §5 in the decomp repo, `docs/PLAN.md` Phases 6 and 7, and the
 existing port conventions: `include/port/be.h` (Wii: macros expand to plain types) paired with

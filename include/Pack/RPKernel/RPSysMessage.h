@@ -17,7 +17,7 @@ public:
      */
     struct Entry : EGG::MsgRes::MessageInfoDataBlock::Entry {
         //! Text scale
-        u16 scale; // at 0x8
+        be_u16 scale; // at 0x8
         //! Space between characters
         s8 charSpace; // at 0xA
     };

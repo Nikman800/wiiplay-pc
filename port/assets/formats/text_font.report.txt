@@ -1,0 +1,14 @@
+Command run:
+python3 port/assets/tools/fmt_text_font.py --check ~/wii-play/extracted/files
+
+Exact output:
+BMG: files parsed=2, errors=0, versions=1651337009=2, encodings=2=2, entries=714
+BRFNT: files parsed=8, errors=0, versions=260=8, sheet formats=0=5, 2=3, sections=CMAP=29, CWDH=8, FINF=8, TGLP=8
+BTI: files parsed=15, errors=0, formats=IA4=11, RGB565=1, RGB5A3=1, RGBA8=2, pixels=66624
+
+Known gaps:
+- None on this disc. All 8 BRFNT files parse: the 5 in US/Font/font.carc and the 3 HOME Menu copies in US/PartyStatic/local.carc/HomeMenu/homeBtn_*.arc.
+- Earlier versions of this report claimed five BRFNT files had CMAP pNext values (3, 4, 15) pointing outside the files. The parser was wrong, not the files: it unpacked the CMAP header as ">HHHI", so pNext was read at payload +0x6 (the reserved u16 plus the top half of the real pNext), and it treated pNext as relative to the current block. FontCodeMap has ccodeBegin, ccodeEnd, mappingMethod, reserved (u16 each), then pNext at payload +0x8, resolved by ResFont::Rebuild as an offset from the start of the file (src/nw4r/ut/ut_ResFont.cpp ResolveOffset). Direct maps keep their base glyph index at payload +0xC, not +0x8. All CMAP and CWDH chains now resolve, and the chain walk (_chain) rejects dangling links and cycles.
+- The decoded fonts and messages are cross-checked against the real decompiled ResFont and RPSysMessage code by port/host/tests/test_resources.py (every code point 0..0xFFFF of every font; all 714 messages).
+- Smaller FINF/TGLP fixes in the same change: linefeed and baselinePos are s8 and alterCharIndex is u16 (they were unpacked with the wrong signedness), the default widths are decoded as s8/u8/s8, and a mislabelled "maxCharWidth" key on FINF was removed.
+- BMG and BTI have no known errors or structural gaps on this disc.

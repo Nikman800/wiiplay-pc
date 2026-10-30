@@ -43,8 +43,14 @@ MsgRes::MsgRes(const void* data) {
     u32 numBlocks = mMsgHeader->mNumBlocks;
 
     for (int i = 0; i < numBlocks; i++) {
+#if defined(PORT_HOST)
+#line 77
+        EGG_ASSERT(static_cast<const u8*>(data) + mMsgHeader->mDataSize >
+                   static_cast<const u8*>(current));
+#else
 #line 77
         EGG_ASSERT(( u32 )data + mMsgHeader->mDataSize > ( u32 )current);
+#endif
 
         EDataBlkKind kind = analyzeDataBlkKind(getDataBlkKind(current));
         const DataBlock* pDataBlk = NULL;
@@ -111,7 +117,12 @@ void MsgRes::analyzeTag(u16 code, const wchar_t* tag, u8* tagLength, u32* tagID,
     EGG_ASSERT(cTagMark == code);
 
     *tagLength = *reinterpret_cast<const u8*>(tag) - 2;
+#if defined(PORT_HOST)
+    // Tag payloads stay big-endian when DAT1 text is swapped at load time.
+    *tagID = port_load_be32(tag) & 0x00FFFFFF;
+#else
     *tagID = *reinterpret_cast<const u32*>(tag) & 0x00FFFFFF;
+#endif
 
     if (*tagLength > 4) {
         *param = const_cast<wchar_t*>(tag + 2);

@@ -4,6 +4,8 @@
 
 #include <egg/prim.h>
 
+#include <port/be.h>
+
 namespace EGG {
 
 class MsgRes {
@@ -19,15 +21,15 @@ protected:
     };
 
     struct DataBlockHeader {
-        u32 mSignature; // at 0x0
-        u32 mType;      // at 0x4
-        u32 mDataSize;  // at 0x8
-        u32 mNumBlocks; // at 0xC
+        be_u32 mSignature; // at 0x0
+        be_u32 mType;      // at 0x4
+        be_u32 mDataSize;  // at 0x8
+        be_u32 mNumBlocks; // at 0xC
     };
 
     struct DataBlock {
-        u32 mKind;     // at 0x0
-        u32 mDataSize; // at 0x4
+        be_u32 mKind;     // at 0x0
+        be_u32 mDataSize; // at 0x4
     };
 
     struct MessageHeader : DataBlockHeader {
@@ -44,13 +46,13 @@ protected:
 
     struct MessageInfoDataBlock : DataBlock {
         struct Entry {
-            u32 mDataOffset; // at 0x0
-            u32 mAttribute;  // at 0x4
+            be_u32 mDataOffset; // at 0x0
+            be_u32 mAttribute;  // at 0x4
         };
 
-        u16 mNumEntries;   // at 0x8
-        u16 mEntrySize;    // at 0xA
-        u16 mGroupID;      // at 0xC
+        be_u16 mNumEntries; // at 0x8
+        be_u16 mEntrySize;  // at 0xA
+        be_u16 mGroupID;    // at 0xC
         Entry mContent[1]; // at 0x10
     };
 
@@ -61,11 +63,11 @@ protected:
     struct StringAttributeDataBlock : DataBlock {};
 
     struct MessageIDDataBlock : DataBlock {
-        u16 mNumEntries;    // at 0x8
+        be_u16 mNumEntries; // at 0x8
         u8 mForm;           // at 0xA
         u8 mFormSupplement; // at 0xB
         char UNK_0xC[0x10 - 0xC];
-        u32 mContent[]; // at 0x10
+        be_u32 mContent[]; // at 0x10
     };
 
     struct FlowChartInfoDataBlock : DataBlock {};

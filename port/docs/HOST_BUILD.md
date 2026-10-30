@@ -1,9 +1,18 @@
-# Host build: the loader harness and the big-endian field wrapper
+# Host build: the loader harnesses, the big-endian field wrapper and pointer slots
 
-Status (2026-10-30): the first piece of the game that runs natively on a PC is the disc load path.
-The decompiled Yaz0 decoder and U8 archive code, compiled with GCC for Linux x86-64, open every
-archive on the player's disc and read every file inside. The result matches
-`port/assets/tools/wiiarc.py` byte for byte.
+Status (2026-10-30): the first pieces of the game that run natively on a PC are the disc load
+path, the font loader and the message loader.
+
+- The decompiled Yaz0 decoder and U8 archive code, compiled with GCC for Linux x86-64, open every
+  archive on the player's disc and read every file inside. The result matches
+  `port/assets/tools/wiiarc.py` byte for byte.
+- The real `nw4r::ut::ResFont` relocates every `.brfnt` on the disc in place (including the HOME
+  Menu fonts inside layout archives) and answers glyph lookups for every code point exactly as an
+  independent Python decoder does.
+- The real `RPSysMessage` / `EGG::MsgRes` reads both BMG files with a 16-bit `wchar_t`.
+
+`POINTERS.md` steps 0 to 2 are implemented: M0 (emulated Wii addresses for all host heap memory),
+`RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, and ResFont (§5 to §7 below).
 
 ## 1. Build and run
 
@@ -12,18 +21,21 @@ Requirements: GCC/G++ (tested with 15.2), GNU make and Python 3. CMake is not ne
 
 ```sh
 cd port/host
-make                       # 64-bit (primary): build/host64/{arc_harness,test_be,test_be_c}
-make test                  # unit tests + archive comparison (DISC defaults to ~/wii-play/extracted/files)
+make                       # 64-bit (primary): build/host64/{arc_harness,res_harness,test_*}
+make test                  # unit tests + archive and resource comparisons (DISC defaults to ~/wii-play/extracted/files)
 make test DISC=/path/to/extracted/files
 make M32=1 test            # same code built with -m32 into build/host32 (cross-check)
 make clean
 ```
 
-Expected `make test` output:
+Expected `make test` output (`make M32=1 test` prints the same with pointer size 4):
 
 ```
 test_be (C++): OK
 test_be (C): OK
+test_port: OK (pointer size 8, wchar_t 2)
+test_port (C): OK
+test_layout: OK (static_asserts, pointer size 8)
 arc_harness: 59 disc files, 62 archives, 1615 leaf files, 0 errors (pointer size 8)
 disc files: 59 (.carc: 31, opened by the harness: 31)
 archives mounted: harness 62, wiiarc 62 (disc-level 31, nested 31)
@@ -31,15 +43,26 @@ leaf files: harness 1615, wiiarc 1615
 nw4r headers checked: 935
 missing 0, extra 0, mismatched 0
 OK
+res_harness: 8 fonts (1983 glyph lines), 2 BMG files (714 messages), 0 errors (pointer size 8, wchar_t 2)
+files: BRFNT 8, BMG 2
+lines: F 8/8, C 8/8, W 8/8, G 1983/1983, A 8/8, M 714/714 (harness/python)
+missing 0, extra 0
+OK
 ```
 
-The harness takes about 0.2 s. The Python reference walk takes about 13 s. Nothing is written to
-disk except the build directory, which is ignored by git. Disc data never leaves the extracted
-folder.
+| Target | What it runs |
+|---|---|
+| `unit` | `test_be`, `test_be_c` (wrapper), `test_port`, `test_port_c` (M0 arena, `RES_PTR`, wide functions, C++ and C), `test_layout` (compile-time struct layout checks) |
+| `archives` | `arc_harness` + `tests/test_archives.py` |
+| `resources` | `res_harness` + `tests/test_resources.py` |
+
+The harnesses take well under a second each. The Python reference walks take about 13 s
+(archives, which hashes every file) and 3 s (resources). Nothing is written to disk except the
+build directory, which is ignored by git. Disc data never leaves the extracted folder.
 
 ### What the harness does
 
-`tests/arc_harness.cpp` loads each disc file the way `RPSysResourceManager::LoadFromDVD` and
+`tests/disc_walk.h` (shared by both harnesses) loads each disc file the way `RPSysResourceManager::LoadFromDVD` and
 `ExpandCompressed` do. Everything named below is the real decompiled code, compiled unmodified
 unless §4 lists it:
 
@@ -54,7 +77,8 @@ unless §4 lists it:
 
 For each file it calls `Archive::getFile` with the file's path, then cross-checks the result
 against `ARCFastOpen` and `ARCConvertPathToEntrynum`. It descends into nested archives (Yaz0 or
-U8 inside an archive) with the same rule as `wiiarc._expand`. It prints one line per archive
+U8 inside an archive) with the same rule as `wiiarc._expand`, and hands each leaf file to the
+harness while its archive is still mounted. `tests/arc_harness.cpp` prints one line per archive
 (path, node count) and one per leaf file (path, size, FNV-1a 64 hash, nw4r header fields read
 through the wrapper).
 
@@ -72,7 +96,46 @@ each is 39 bytes of Yaz0 holding a root-only U8). Inside them are 31 nested arch
 files, including the 28 top-level non-archive disc files that are loaded through the same DVD
 path.
 
-### Host stand-ins (`src/host_sdk.cpp`)
+### The resource harness (`tests/res_harness.cpp`)
+
+For every leaf file that starts with `RFNT` or `MESG` (8 fonts and 2 message files on the US
+disc, three of the fonts inside the HOME Menu layout archives
+`US/PartyStatic/local.carc/HomeMenu/homeBtn_*.arc`):
+
+- **Fonts.** `ResFont::SetResource` on the buffer. This runs `Rebuild`, which relocates the
+  six offset slots in place (they become emulated Wii addresses, §5) and renames the file
+  `RFNU`. For every code point 0 to 0xFFFF the harness then calls:
+  - `SetAlternateChar(ch)`, which is `FindGlyphIndex(ch)` behind the public API; the index it
+    finds is read back from `FontInformation.alterCharIndex` and the original restored;
+  - `GetCharWidths(ch)`, `GetCharWidth(ch)` and `GetGlyph(&glyph, ch)`.
+
+  It also loads the same buffer into a second `ResFont`, which takes the `RFNU` branch (the path
+  `lyt::TextBox` takes for fonts in layout archives), and requires both fonts to agree on every
+  code point, and every unmapped code point to give the alternate glyph. It prints the font
+  metrics from the `ResFontBase` getters, the relocated slots as file offsets, the CMAP and CWDH
+  chains as the decomp follows them, and one line per mapped code point.
+- **Messages.** `PortSwapBmgText` (§6), then `RPSysMessage` (the game's loader; it derives from
+  `EGG::MsgRes`). `src/Pack/RPKernel/RPSysMessage.cpp` is compiled unmodified through
+  `tests/rpsysmessage_unit.cpp`, which supplies the include guard of the `Pack/RPKernel.h`
+  umbrella header (most of RPKernel does not build on the host yet). For each MID1 entry the
+  harness splits the id as `getMsgEntry` does, calls `GetMsgEntry`, `GetAttribute`, `GetScale`,
+  `GetCharSpace` and `GetMsg`, walks the text with `MsgRes::analyzeTag`, and calls `wcslen`
+  (the MSL_C version).
+
+`tests/test_resources.py` builds the same lines from `port/assets/tools/fmt_text_font.py`: the
+`BrfntFont` class (CMAP/CWDH chains from FINF, first matching map decides, dictionary lookup for
+scan maps, cell and sheet arithmetic from TGLP) and `bmg_messages()` (id split per MID1 form
+supplement, first INF1 entry with the same id, code units and tags read from the UTF-16BE bytes).
+Both are written from the file format, not translated from the decompiled readers.
+
+`fmt_text_font.py` used to report 5 of the 8 fonts as broken ("CMAP pNext does not point to a
+CMAP payload"). The parser was wrong: it unpacked the CMAP header as `>HHHI`, which reads
+`pNext` at payload +0x6 instead of +0x8 (it dropped the reserved `u16`), and it treated `pNext`
+as relative to the current block, whereas `Rebuild` resolves it from the start of the file. It
+also read direct maps' base index from +0x8 instead of +0xC. All 8 fonts parse now; the report is
+`port/assets/formats/text_font.report.txt`.
+
+### Host stand-ins (`src/host_sdk.cpp`, `src/host_arena.cpp`, `src/host_text.cpp`)
 
 These are deliberately minimal and synchronous. The Phase 7 platform layer replaces them.
 
@@ -88,9 +151,15 @@ These are deliberately minimal and synchronous. The Phase 7 platform layer repla
   - reads past the end of a file return zeros (callers round sizes up to 32)
   - the async read calls its callback before returning
 - **EGG heap**:
-  - `Heap::alloc`/`free` and the global and heap `operator new`/`delete` use `posix_memalign` with
-    the requested alignment (the sign of the alignment, head or tail, is ignored)
+  - `Heap::alloc`/`free` and the global and heap `operator new`/`delete` allocate from the M0
+    arena (§5): a first-fit, address-ordered free list with coalescing, MEM2 first, then MEM1.
+    Any power-of-two alignment is honoured (the sign of the alignment, head or tail, is ignored)
   - `Heap::findContainHeap` returns NULL, so disposers are not attached to heaps
+- **OS addresses**: `port/host/include/revolution/OS/OSAddress.h` shadows the SDK header.
+  `OSPhysicalToCached`/`Uncached` decode an address through M0; `OSCachedToPhysical` returns the
+  physical address as a `u32` (`vaddr & 0x3FFFFFFF`). On the Wii it returns a pointer that every
+  caller casts to `u32`.
+- **Text**: `PortSwapBmgText` (§6).
 - **VI, DC**: no-ops.
 
 ## 2. The big-endian field wrapper
@@ -129,7 +198,11 @@ Rules:
   under the misspelled macro `NW4R_LITLE_ENDIAN`. When `snd` structs move to `be_*`, either
   leave that macro undefined or keep those fields plain. Do not do both, or the value is swapped
   twice.
-- **Pointer slots inside files** need a different type. See §5 and `POINTERS.md`.
+- **Pointer slots inside files** need a different type: `RES_PTR(T)`, §5.
+- **Explicit conversions.** `be<T>`'s constructor from `T` is `explicit`, so `cond ? u16 : be_u16`
+  is not ambiguous (`ResFontBase::GetGlyphIndex` has one); assignment still takes a plain `T`.
+  `static_cast<SomeEnum>(field)` works through an explicit conversion to enum types
+  (`static_cast<GXTexFmt>(sheetFormat)`).
 
 ### Implementation
 
@@ -155,8 +228,9 @@ Rules:
     the decomp's `build.ninja`, writing to a temporary directory.
   - It compares each object byte for byte with the decomp checkout's object.
   - It skips a unit when any of its other dependencies differs between the two checkouts.
-- **Result on 2026-10-30.** All 734 units that depend on the touched files are byte-identical,
-  and none were skipped. Run it after every change to a decomp file:
+- **Result on 2026-10-30, after the ResFont/BMG changes.** All 734 units that depend on the
+  touched files (§4; the list is `TOUCHED` in the script) are byte-identical, and none were
+  skipped. Run it after every change to a decomp file:
 
   ```sh
   python3 port/host/tools/check_matching.py --decomp ~/wii-play -j 16    # ~1 min
@@ -171,11 +245,17 @@ All of these live in `port/host/include`, which shadows `include/` on the host o
 | `types.h` | `u32`/`s32` come from `<stdint.h>`. The original uses `unsigned long`, which is 8 bytes on LP64 and would change every struct layout. Also: `ROUND_UP_PTR`/`ROUND_DOWN_PTR` through `uintptr_t`; `DECL_HW_REGS` becomes a weak fake register array; `<cfloat>` for `FLT_EPSILON`. |
 | `decomp/compat.h` | The CodeWarrior syntax shims, without the parser-only `0` placeholders. Defines `COMPAT_ANY`, so `DECOMP_FORCEACTIVE` and the other matching hacks compile away. |
 | `revolution/OS/__ppc_eabi_init.h` | Emptied: PowerPC boot hooks and linker section symbols, and an `exit(void)` that conflicts with libc. |
-| `port/be.h`, `port/host.h` | The wrapper; `PortHostSetDiscRoot`. |
+| `port/be.h`, `port/host.h` | The wrapper; `PortHostSetDiscRoot`, `PortSwapBmgText`. |
+| `port/arena.h`, `port/resptr.h`, `port/wide.h` | M0, `RES_PTR`, 16-bit `wchar_t` (§5, §6). |
+| `revolution/OS/OSAddress.h` | Physical/cached conversions through M0 (§1, host stand-ins). |
 
 Build flags: `-DPORT_HOST=1 -DNONMATCHING -DREVOLUTION -DNDEBUG=1 -DVERSION_RHAE01
--DVERSION_RHAE01_01`, `-std=gnu++17 -fno-exceptions -fno-rtti` (C: `-std=gnu11`). CodeWarrior's
-recursive `-ir include/revolution/BTE` becomes one `-idirafter` per subdirectory.
+-DVERSION_RHAE01_01`, `-std=gnu++17 -fno-exceptions -fno-rtti` (C: `-std=gnu11`),
+`-fshort-wchar -include port/wide.h`, `-Werror=int-to-pointer-cast` (C also
+`-Werror=pointer-to-int-cast`). CodeWarrior's recursive `-ir include/revolution/BTE` and
+`-ir include/egg` become one `-idirafter` per subdirectory, and its `-i include/nw4r` and
+`-i include/Pack` become `-idirafter` too (EGG and game headers include siblings by bare name).
+The MSL_C wide-string units are built with `-DPORT_WIDE_IMPL -idirafter include/MSL`.
 
 ## 3. 64-bit
 
@@ -193,11 +273,11 @@ All of these are compile errors or truncations in 64-bit only; none is a problem
 | `include/macros.h` `ROUND_UP_PTR`, `ROUND_DOWN_PTR` | cast the pointer through `u32`. `DvdRipper::loadToMainRAM` uses `ROUND_UP_PTR` for its 32-byte chunk when the offset is non-zero | host `types.h` redefines both through `uintptr_t` |
 | `include/nw4r/ut/ut_algorithm.h` `GetIntPtr` | `reinterpret_cast<u32>(ptr)`. It is the basis of `AddOffsetToPtr`, `GetOffsetFromPtr` and `ComparePtr`, which every nw4r resource accessor uses | `#if defined(PORT_HOST)`: returns `uintptr_t` |
 | `src/egg/core/eggDvdFile.cpp` `DvdFile::sync` | `reinterpret_cast<s32>(OSMessage)`: the DVD result travels through a message queue as a `void*` | `#if defined(PORT_HOST)`: cast through `intptr_t` |
-| `include/revolution/OS/OSAddress.h` | `OSPhysicalToCached`/`Uncached` turn a `u32` into a pointer (warning silenced) | not on this path; the Phase 7 address model (`POINTERS.md` M0) decides |
+| `include/revolution/OS/OSAddress.h` | `OSPhysicalToCached`/`Uncached` turn a `u32` into a pointer | host shadow header through M0 (§1 host stand-ins); `-Wno-int-to-pointer-cast` is gone and the cast is now an error everywhere |
 
 ### Pointer slots inside files
 
-There are none on this path:
+There are none on the archive path:
 
 - **U8 nodes** hold offsets and indices, never pointers.
 - **`ARCHandle`** is a runtime struct and stores native pointers.
@@ -206,8 +286,8 @@ There are none on this path:
 
 The 4-byte pointer slots that do bite are in the formats that relocate in place. These are TPL,
 `ut::ResFont`, `ef`, g3d texture binding, PMP and the KCL header copy (ASSETS.md §3.1 item 3).
-They are inventoried, with a proposed `RES_PTR(T)` slot type, in `port/docs/POINTERS.md`. That
-type is meant to sit beside `be_*` with the same Wii/host header split.
+They are inventoried in `port/docs/POINTERS.md`. `RES_PTR(T)` (§5) sits beside `be_*` with the
+same Wii/host header split; ResFont is the first user.
 
 One layout trap the wrapper avoids: a byte array like `u8[4]` would have alignment 1 and would
 shift every field after a `u8`. `be<T>` stores an `alignas(T)` integer, so it keeps the Wii
@@ -221,25 +301,105 @@ check in §2 confirms all of them.
 | File | Change |
 |---|---|
 | `include/port/be.h` | **New.** The Wii side of the wrapper: macros for the plain types. |
+| `include/port/resptr.h` | **New.** The Wii side of `RES_PTR`: `RES_PTR(T)` is `T*`, the cast macros are the casts they replace (§5). |
 | `src/revolution/ARC/arc.c` | `#include <port/be.h>`. `ARCHeader` and `ARCNode` fields are declared `be_u32`/`be_s32`. The node's `is_folder:8`/`name:24` bitfield is under `#if PORT_BE_WRAPPED` (host: `u8 is_folder; be_u24 name;`). All 18 direct field reads, and the two `ARCNodeIsFolder`/`ARCNodeGetName` macros, are wrapped in `BE_GET(...)`. |
 | `include/nw4r/ut/ut_binaryFileFormat.h` | `#include <port/be.h>`. The `BinaryFileHeader` and `BinaryBlockHeader` members are `be_u32`/`be_u16`. This is the first C++ use: `IsValidBinaryFile` compiles unchanged and reads through the wrapper. |
 | `include/nw4r/ut/ut_algorithm.h` | `GetIntPtr` returns `uintptr_t` under `#if defined(PORT_HOST)`. |
 | `src/egg/core/eggDvdFile.cpp` | `DvdFile::sync` casts `OSMessage` to `s32` through `intptr_t` under `#if defined(PORT_HOST)`. |
+| `include/nw4r/ut/ut_ResFontBase.h` | `#include <port/resptr.h>`. `FontTextureGlyph`, `FontWidth`, `FontCodeMap`, `FontInformation`: the `u16`/`u32` members are `be_u16`/`be_u32` (including `mapInfo[]`), and the six pointer members (`sheetImage`, both `pNext`, `pGlyph`, `pWidth`, `pMap`) are `RES_PTR(...)`. Type tokens only. |
+| `src/nw4r/ut/ut_ResFont.cpp` | A host-only `ResolveOffset(port::res_ptr<T>&, void*)` overload under `#if defined(PORT_HOST)` (7 lines). `Rebuild` and its `ResolveOffset<T>(...)` calls are unchanged. |
+| `src/nw4r/ut/ut_ResFontBase.cpp` | The local `CMapScanEntry` / `CMapInfoScan` members in `FindGlyphIndex` are `be_u16`. Type tokens only. |
+| `include/nw4r/ut/ut_CharStrmReader.h` | `StepStrm` (`static_cast<const T*>(mCharStrm) += offset`, a CodeWarrior extension) is written as an assignment under `#if defined(PORT_HOST)`; needed by `ut_Font.cpp` / `ut_CharStrmReader.cpp`, which `ResFont` links. |
+| `include/egg/util/eggMsgRes.h` | `#include <port/be.h>`. The BMG header, block, INF1 entry and MID1 numeric members are `be_u32`/`be_u16` (`mContent` of MID1 is `be_u32[]`). `wchar_t mContent[1]` (DAT1) is unchanged; `-fshort-wchar` gives it the Wii layout. |
+| `src/egg/util/eggMsgRes.cpp` | Two `#if defined(PORT_HOST)` blocks: the block-bounds assert at `#line 77` compares `const u8*` instead of `(u32)` casts, and `analyzeTag` reads the tag id with `port_load_be32` (tag payloads stay big-endian, §6). The Wii branches are the original lines with the original `#line`. |
+| `include/Pack/RPKernel/RPSysMessage.h` | `RPSysMessage::Entry::scale` is `be_u16`. |
 
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
-`port/host/` and `port/docs/`.
+`port/host/`, `port/docs/` and `port/assets/`.
 
-## 5. Next steps
+## 5. M0 and `RES_PTR(T)`
 
+Design: `POINTERS.md` §2. Implementation:
+
+- **M0, `port/host/include/port/arena.h`, `src/host_arena.cpp`.** `PortArenaInit` reserves
+  `0x14000000` bytes with `mmap(PROT_NONE, MAP_NORESERVE)` and makes MEM1 (24 MiB at offset 0)
+  and MEM2 (64 MiB at offset `0x10000000`) read/write; the gap stays inaccessible. The first
+  `0x3100` bytes of MEM1 are never allocated, so address 0 means NULL. `port_vaddr(p)` is
+  `0x80000000 + (p - base)` and `port_hptr(v)` the inverse; both are inline and abort with a
+  message when the address is outside the block. `PortArenaAlloc`/`PortArenaFree` back every
+  heap allocation and every `operator new` (§1), and initialise the arena on first use, so static
+  constructors are covered. `PortArenaMEM1Lo/Hi` and `PortArenaMEM2Lo/Hi` give the bounds the
+  Phase 7 `OSGetMEM*Arena*` will return.
+- **M1, `include/port/resptr.h` (Wii) and `port/host/include/port/resptr.h` (host).**
+
+  | Name | Wii | Host C++ | Host C |
+  |---|---|---|---|
+  | `RES_PTR(T)` | `T*` | `port::res_ptr<T>`: one `be_u32`, 4 bytes, alignment 4, trivially copyable | `res_ptr_c` |
+  | read | the member | implicit `operator T*()`, `->`, `[]` through the decoded pointer; `RES_PTR_GET(slot)` | `RES_PTR_GET(slot)` |
+  | write | `slot = p` | `slot = p` (`operator=(T*)` stores `port_vaddr(p)` big-endian); `RES_PTR_SET` | `RES_PTR_SET(slot, p)` |
+  | `slot != 0`, `== NULL` | pointer test | compares the raw u32, so it also works on an unrelocated offset | `RES_PTR_RAW(slot) != 0` |
+  | `RES_PTR_RAW(slot)` | `reinterpret_cast<u32>(slot)` / `(u32)(slot)` | `slot.raw()`: the u32 in host order (offset before relocation, address after) | same |
+  | `PORT_PTR_TO_U32(p)` | `reinterpret_cast<u32>(p)` / `(u32)(p)` | `port_vaddr(p)`; for a `res_ptr` argument its `raw()` | `port_vaddr(p)` |
+  | `PORT_U32_TO_PTR(T, v)` | `reinterpret_cast<T>(v)` / `(T)(v)` | `reinterpret_cast<T>(port_hptr(v))` | `(T)port_hptr(v)` |
+  | `PORT_STORE_PTR32(slot, p)` | `slot = PORT_PTR_TO_U32(p)` | same | same |
+  | `PORT_RES_PTR_WRAPPED` | 0 | 1 | 1 |
+
+  A relocated file in host memory is the Wii image of that file: every slot holds the
+  big-endian address the Wii would have stored, for a buffer at the same emulated address.
+- **ResFont.** `Rebuild` calls `ResolveOffset<T>(slot, pHeader)` on each slot. On the host the
+  overload in `ut_ResFont.cpp` stores `pBase + (s32)slot.raw()` through `operator=`. All readers
+  in `ut_ResFontBase.cpp` compile unchanged. The second load of an `RFNU` buffer finds FINF and
+  reads the slots as addresses, exactly as on the Wii.
+- **Warnings.** `-Werror=int-to-pointer-cast` (C and C++) and `-Werror=pointer-to-int-cast` (C)
+  make every narrowing cast between pointers and integers a build error; in C++
+  `reinterpret_cast<u32>(ptr)` already is one on LP64. Together with the layout checks (§7) these
+  are the checklist for the remaining `POINTERS.md` sites.
+
+## 6. `wchar_t` and BMG text
+
+- **16-bit `wchar_t`.** Everything in the host build, decomp and host code alike, is compiled with
+  `-fshort-wchar -include port/wide.h`. `port/wide.h` `static_assert`s `sizeof(wchar_t) == 2`
+  (C and C++), includes the C library's `<wchar.h>`/`<cwchar>` first so their declarations are
+  seen under the real names, declares `port_wcslen`, `port_wcscpy`, `port_wcsncpy`,
+  `port_wcscmp`, `port_wcschr`, `port_wmemcpy` and `port_wmemchr`, and `#define`s the plain names
+  to them. The definitions are the decompiled `src/MSL_C/wstring.c` and `wmem.c`, compiled
+  unmodified with `-DPORT_WIDE_IMPL` (which skips the libc include, so the macros rename the MSL
+  definitions) and `-idirafter include/MSL` (for `<internal/wstring.h>`). `swprintf` and
+  `vswprintf` (`src/MSL_C/wprintf.c`) are not routed yet: they need the MSL locale tables and
+  `__num2dec`; add them with the first unit that formats text. Never pass a `wchar_t` string to a
+  libc wide function.
+- **BMG text byte order.** `PortSwapBmgText(void*)` (`src/host_text.cpp`, declared in
+  `port/host.h`) swaps the DAT1 text of a loaded BMG to host order once. It follows each INF1
+  entry's string, swaps code units, swaps the `0x001A` tag mark, leaves the tag's length, group,
+  id and parameter bytes as in the file, and marks what it has done so shared strings are
+  swapped once. `EGG::MsgRes::analyzeTag` reads the length byte directly (unchanged) and group
+  and id with `port_load_be32` on the host. Call it after loading and before constructing
+  `RPSysMessage`; the Phase 7 loader will call it where the game creates `RPSysMessage`
+  (for example `RPTnkLyt`, `RPDucHud`, `RPBomLyt`, `RPPnpGame`, `RPHkyGame`).
+  BRLYT `txt1` strings need the same treatment when lyt is brought up.
+
+## 7. Layout checks
+
+`tests/layout_asserts.cpp` (`test_layout`) holds `static_assert(sizeof(...))` and
+`offsetof(...)` checks, taken from the `// at 0xNN` comments in the headers, for every struct
+moved to `be_*`/`RES_PTR` so far: `BinaryFileHeader`, `BinaryBlockHeader`, `CharWidths`,
+`FontTextureGlyph`, `FontWidth`, `FontCodeMap`, `FontInformation`, the `EGG::MsgRes` block
+structs (checked from a derived class because they are protected), and `RPSysMessage::Entry`. It
+also checks that DAT1 text elements are 2 bytes. The checks run when the file compiles, in both
+the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrapper types.
+
+## 8. Next steps
+
+- `POINTERS.md` step 3: TPL (shadow `TPL.h` with `RES_PTR`/`be_*`, a host `TPL.c`, and
+  `lyt_texMap.cpp:33` → `PORT_PTR_TO_U32`), then the layouts.
 - Move the next loaders onto `be_*` as they are brought up. Each needs the type declarations, a
-  small number of C `BE_GET`s, and a `check_matching.py` run:
+  small number of C `BE_GET`s, a `layout_asserts.cpp` block and a `check_matching.py` run:
   - TPL headers (C)
   - `lyt::res::*`
   - `g3d::Res*Data`
   - `ef` headers
-  - BMG `INF1`/`MID1`
   - `snd` file structs
-- Use `RES_PTR(T)` for in-file pointer slots (`POINTERS.md`).
+- Route `swprintf`/`vswprintf` to `src/MSL_C/wprintf.c` (§6) when the first caller is built.
 - Replace `src/host_sdk.cpp` with the Phase 7 OS/DVD/heap layer: real threads, message queues
   that block, and MEM heaps (the decomp's `src/revolution/MEM` could compile as-is once the OS
-  layer exists).
+  layer exists), carved from the M0 arena.

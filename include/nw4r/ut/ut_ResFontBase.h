@@ -4,6 +4,8 @@
 
 #include <nw4r/ut/ut_Font.h>
 
+#include <port/resptr.h>
+
 namespace nw4r {
 namespace ut {
 
@@ -18,41 +20,41 @@ struct FontTextureGlyph {
     u8 cellHeight;   // at 0x1
     s8 baselinePos;  // at 0x2
     u8 maxCharWidth; // at 0x3
-    u32 sheetSize;   // at 0x4
-    u16 sheetNum;    // at 0x8
-    u16 sheetFormat; // at 0xA
-    u16 sheetRow;    // at 0xC
-    u16 sheetLine;   // at 0xE
-    u16 sheetWidth;  // at 0x10
-    u16 sheetHeight; // at 0x12
-    u8* sheetImage;  // at 0x14
+    be_u32 sheetSize;        // at 0x4
+    be_u16 sheetNum;         // at 0x8
+    be_u16 sheetFormat;      // at 0xA
+    be_u16 sheetRow;         // at 0xC
+    be_u16 sheetLine;        // at 0xE
+    be_u16 sheetWidth;       // at 0x10
+    be_u16 sheetHeight;      // at 0x12
+    RES_PTR(u8) sheetImage;  // at 0x14
 };
 
 struct FontWidth {
-    u16 indexBegin;          // at 0x0
-    u16 indexEnd;            // at 0x2
-    FontWidth* pNext;        // at 0x4
+    be_u16 indexBegin;          // at 0x0
+    be_u16 indexEnd;            // at 0x2
+    RES_PTR(FontWidth) pNext;   // at 0x4
     CharWidths widthTable[]; // at 0x8
 };
 
 struct FontCodeMap {
-    u16 ccodeBegin;     // at 0x0
-    u16 ccodeEnd;       // at 0x2
-    u16 mappingMethod;  // at 0x4
-    u16 reserved;       // at 0x6
-    FontCodeMap* pNext; // at 0x8
-    u16 mapInfo[];      // at 0xC
+    be_u16 ccodeBegin;          // at 0x0
+    be_u16 ccodeEnd;            // at 0x2
+    be_u16 mappingMethod;       // at 0x4
+    be_u16 reserved;            // at 0x6
+    RES_PTR(FontCodeMap) pNext; // at 0x8
+    be_u16 mapInfo[];           // at 0xC
 };
 
 struct FontInformation {
     u8 fontType;              // at 0x0
     s8 linefeed;              // at 0x1
-    u16 alterCharIndex;       // at 0x2
+    be_u16 alterCharIndex;    // at 0x2
     CharWidths defaultWidth;  // at 0x4
     u8 encoding;              // at 0x7
-    FontTextureGlyph* pGlyph; // at 0x8
-    FontWidth* pWidth;        // at 0xC
-    FontCodeMap* pMap;        // at 0x10
+    RES_PTR(FontTextureGlyph) pGlyph; // at 0x8
+    RES_PTR(FontWidth) pWidth;        // at 0xC
+    RES_PTR(FontCodeMap) pMap;        // at 0x10
     u8 height;                // at 0x14
     u8 width;                 // at 0x15
     u8 ascent;                // at 0x16

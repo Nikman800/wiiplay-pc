@@ -41,7 +41,12 @@ private:
     }
 
     template <typename T> void StepStrm(int offset) {
+#if defined(PORT_HOST)
+        // GCC rejects a cast as the left operand of +=.
+        mCharStrm = static_cast<const T*>(mCharStrm) + offset;
+#else
         static_cast<const T*>(mCharStrm) += offset;
+#endif
     }
 
 private:

@@ -32,6 +32,14 @@ TOUCHED = [
     "include/nw4r/ut/ut_algorithm.h",
     "src/revolution/ARC/arc.c",
     "src/egg/core/eggDvdFile.cpp",
+    "include/port/resptr.h",
+    "include/nw4r/ut/ut_ResFontBase.h",
+    "include/nw4r/ut/ut_CharStrmReader.h",
+    "src/nw4r/ut/ut_ResFont.cpp",
+    "src/nw4r/ut/ut_ResFontBase.cpp",
+    "include/egg/util/eggMsgRes.h",
+    "src/egg/util/eggMsgRes.cpp",
+    "include/Pack/RPKernel/RPSysMessage.h",
 ]
 
 
