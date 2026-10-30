@@ -29,4 +29,4 @@ Exact stderr:
 Known gaps:
 - MMSC has an empty SetBinaryInner in the current decompilation, so its record layout is validated against the declared structure rather than loader field access.
 - Some reserved or loader-unused bytes are retained in decoded results as unparsed padding/unknown fields; this includes EGG padding and selected fields marked [L] in the decompiled headers.
-- Duck, Tank enemy, and Find Mii table values are decoded structurally, but the parser does not independently verify all game-logic ranges because the decompiled loaders generally copy the values without validation.
+- Duck and Find Mii table values are decoded structurally, but the parser does not independently verify all game-logic ranges because the decompiled loaders generally copy the values without validation.

@@ -111,10 +111,57 @@ The loader copies the complete file into a private buffer and indexes `cells[y *
 | Offset | Type | Meaning |
 |---:|---|---|
 | `0x0000` | `s32` | `lives` |
-| `0x0004` | `s32[10][0x2A]` | One `0xA8` enemy parameter record per tank type |
+| `0x0004` | `0xA8[10]` | One enemy parameter record per tank type (fields below) |
 | `0x0694` | `s32[100][0x16]` | 100 stage records |
 
-Each stage record is `0x58`: `bonus[2]`, `enemyTypes[2][8]`, and `variants[2][2]`. (`src/Pack/RPParty/RPTnkScene/RPTnkGameManager.cpp:29-39`) The resource manager exposes the archive buffer directly; game code reads it in place. No field is an offset or pointer.
+Each `0xA8` enemy record contains 42 big-endian 32-bit words. The type pattern comes from the complete plain-type views: `RPTnkPlayerParams` (`src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:21-64`) and `AttackEnemyParamsData` (`src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:63-69`). Named AI destinations are defined in `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:317-336`; the field loads are in `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:512-538`. `RPTnkTank::SpawnEnemy` reads `stealth` (`src/Pack/RPParty/RPTnkScene/RPTnkTank.cpp:446-460`), and `RPTnkPlayerController::Reset` reads the player-named fields (`src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:128-145`).
+
+| Record offset | Type | Field | Direct source evidence |
+|---:|---|---|---|
+| `0x00` | `s32` | `stealth` | `src/Pack/RPParty/RPTnkScene/RPTnkTank.cpp:25,459` |
+| `0x04` | `f32` | `mMineClearDist` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:63,532`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:331` |
+| `0x08` | `s32` | `maxMines` (`mMineMax`) | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:25,144`; `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:530`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:329` |
+| `0x0C` | `s32` | `mMineIntervalMax` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:535`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:334` |
+| `0x10` | `s32` | `mMineIntervalMin` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:534`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:333` |
+| `0x14` | `f32` | `mMineEnemyDist` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:533`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:332` |
+| `0x18` | `f32` | `mMineChanceNearBlock` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:537`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:336` |
+| `0x1C` | `f32` | `mMineChance` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:536`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:335` |
+| `0x20` | `s32` | `mFireUnk74` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:529`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:328` |
+| `0x24` | `s32` | `mFireUnk78` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:531`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:330` |
+| `0x28` | `f32` | `acceleration` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:33,133` |
+| `0x2C` | `f32` | `friction` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:34,134` |
+| `0x30` | `f32` | `unk30` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:35` |
+| `0x34` | `s32` | `unk34` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:36` |
+| `0x38` | `s32` | `unk38` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:37` |
+| `0x3C` | `f32` | `unk3C` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:38` |
+| `0x40` | `f32` | `unk40` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:39` |
+| `0x44` | `f32` | `unk44` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:40` |
+| `0x48` | `f32` | `unk48` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:41` |
+| `0x4C` | `s32` | `unk4C` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:42` |
+| `0x50` | `f32` | `unk50` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:43` |
+| `0x54` | `s32` | `unk54` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:44` |
+| `0x58` | `f32` | `maxSpeed` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:45,135` |
+| `0x5C` | `f32` | `inputMin` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:46,131` |
+| `0x60` | `f32` | `inputMax` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:47,132` |
+| `0x64` | `f32` | `turnSpeed` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:48,137` |
+| `0x68` | `f32` | `moveAngle` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:49,136` |
+| `0x6C` | `s32` | `unk6C` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:50` |
+| `0x70` | `f32` | `mAimAngle` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:520`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:319` |
+| `0x74` | `s32` | `maxShells` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:52,139`; `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:516` |
+| `0x78` | `f32` | `mSelfAngle` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:525`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:324` |
+| `0x7C` | `f32` | `mAllyAngle` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:527`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:326` |
+| `0x80` | `f32` | `mPlayerAngle` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:526`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:325` |
+| `0x84` | `s32` | `shellBounces` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:56,140`; `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:517` |
+| `0x88` | `s32` | `mFireIntervalMax` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:524`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:323` |
+| `0x8C` | `s32` | `mFireIntervalMin` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:523`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:322` |
+| `0x90` | `s32` | `fireCooldown` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:59,138`; `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:515` |
+| `0x94` | `f32` | `shellSpeed` | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:60,141`; `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:518` |
+| `0x98` | `f32` | `mAimStep` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:521`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:320` |
+| `0x9C` | `s32` | `mAimTime` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:522`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:321` |
+| `0xA0` | `f32` | `mAllyDist` | `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:528`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:327` |
+| `0xA4` | `s32` | `fireMoveDelay` (`mMineUnk78`) | `src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp:64,142`; `src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp:519`; `include/Pack/RPParty/RPTnkScene/RPTnkAi.h:318` |
+
+Each stage record is `0x58`: `bonus[2]`, `enemyTypes[2][8]`, and `variants[2][2]`. (`src/Pack/RPParty/RPTnkScene/RPTnkGameManager.cpp:32-40`) The resource manager exposes the archive buffer directly; game code reads it in place. No field is an offset or pointer.
 
 ### Pose Mii question parameters
 

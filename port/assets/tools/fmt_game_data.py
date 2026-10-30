@@ -567,12 +567,32 @@ def parse_tnk_map(data: bytes, players: int, stage: int, tv_mode: int) -> dict[s
 
 
 def parse_tnk_game_param(data: bytes) -> dict[str, Any]:
-    # TnkGameParam/TnkStageParam, src/Pack/RPParty/RPTnkScene/RPTnkGameManager.cpp:29-39.
+    # TnkGameParam/TnkStageParam, src/Pack/RPParty/RPTnkScene/RPTnkGameManager.cpp:31-40.
+    # Enemy fields are the plain-type views in RPTnkTank.cpp:25-45,
+    # RPTnkAi_4.cpp:63-96 and RPTnkPlayerController.cpp:21-85.
     expected_size = TABLE_SPECS["TnkGameParam"]
     if len(data) != expected_size:
         raise FormatError(f"TnkGameParam: file size {len(data):#x}, expected {expected_size:#x}")
     stage_record_size = 0x58
     lives = unpack(data, 0, ">i", "TnkGameParam lives")[0]
+    enemy_fields = (
+        ("stealth", "s32"), ("mMineClearDist", "f32"), ("maxMines", "s32"),
+        ("mMineIntervalMax", "s32"), ("mMineIntervalMin", "s32"),
+        ("mMineEnemyDist", "f32"), ("mMineChanceNearBlock", "f32"), ("mMineChance", "f32"),
+        ("mFireUnk74", "s32"), ("mFireUnk78", "s32"), ("acceleration", "f32"),
+        ("friction", "f32"), ("unk30", "f32"), ("unk34", "s32"), ("unk38", "s32"),
+        ("unk3C", "f32"), ("unk40", "f32"), ("unk44", "f32"), ("unk48", "f32"),
+        ("unk4C", "s32"), ("unk50", "f32"), ("unk54", "s32"), ("maxSpeed", "f32"),
+        ("inputMin", "f32"), ("inputMax", "f32"), ("turnSpeed", "f32"), ("moveAngle", "f32"),
+        ("unk6C", "s32"), ("mAimAngle", "f32"), ("maxShells", "s32"), ("mSelfAngle", "f32"),
+        ("mAllyAngle", "f32"), ("mPlayerAngle", "f32"), ("shellBounces", "s32"),
+        ("mFireIntervalMax", "s32"), ("mFireIntervalMin", "s32"), ("fireCooldown", "s32"),
+        ("shellSpeed", "f32"), ("mAimStep", "f32"), ("mAimTime", "s32"),
+        ("mAllyDist", "f32"), ("fireMoveDelay", "s32"),
+    )
+    enemies = []
+    for index in range(10):
+        enemies.append(section_table(data, enemy_fields, 4 + index * 0xA8))
     stage_offset = 4 + 10 * 0xA8
     stages = []
     for index in range(100):
@@ -584,7 +604,11 @@ def parse_tnk_game_param(data: bytes) -> dict[str, Any]:
             ("variants[0][0]", "s32"), ("variants[0][1]", "s32"),
             ("variants[1][0]", "s32"), ("variants[1][1]", "s32"),
         ), offset))
-    return {"format": "TnkGameParam", "size": len(data), "lives": lives, "enemyCount": 10, "stageCount": 100, "stages": stages}
+    return {
+        "format": "TnkGameParam", "size": len(data), "lives": lives,
+        "enemyCount": len(enemies), "stageCount": len(stages),
+        "enemies": enemies, "stages": stages,
+    }
 
 
 def parse_bom_question_param(data: bytes) -> dict[str, Any]:
