@@ -1,0 +1,22 @@
+Command run:
+
+python3 port/assets/tools/fmt_layout.py --check ~/wii-play/extracted/files
+
+Exit status:
+
+0
+
+Exact output:
+
+BRLYT: files=140 errors=0 versions=8=140 counts=bnd1=121,fnl1=104,gre1=15,grp1=347,grs1=15,lyt1=140,mat1=139,pae1=1511,pan1=1499,pas1=1511,pic1=1611,txl1=119,txt1=756,wnd1=133
+BRLAN: files=604 errors=0 versions=8=604 counts=animationContents=7124,keys=32000,pai1=604,targets=19624
+TPL: files=471 errors=0 versions=2142000=471 counts=CLUTHeaders=0,descriptors=472,textureHeaders=472
+
+Validation also run:
+
+python3 -m py_compile port/assets/tools/fmt_layout.py
+
+Known gaps:
+
+- Structure only: the parser does not decode GX image pixels or palettes, render UTF-16BE text, or resolve archive-resource names to their external BRFNT/TPL files.
+- Some shipped TXL1 blocks store their referenced NUL string outside the declared TXL1 size. The game resolves the name without a block-end check (src/nw4r/lyt/lyt_material.cpp:318-320); the parser preserves that base while rejecting any string that leaves the complete file or lacks NUL termination.
