@@ -231,6 +231,8 @@ TOUCHED = [
     "src/nw4r/ef/ef_effect.cpp",
     "src/nw4r/ef/drawstrategy/ef_drawstrategyimpl.cpp",
     "include/nw4r/ef/ef_memorymanagertmp.h",
+    # Phase 7 g3d scene runtime (HOST_BUILD.md §20)
+    "src/nw4r/g3d/g3d_workmem.cpp",
 ]
 
 

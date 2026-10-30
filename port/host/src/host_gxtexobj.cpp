@@ -1,6 +1,7 @@
 /**
  * Host GXInitTexObj / GXInitTexObjCI / GXInitTexObjLOD / GXInitTlutObj / GXGetTexBufferSize
- * (port/docs/HOST_BUILD.md §11, POINTERS.md g3d-2).
+ * (port/docs/HOST_BUILD.md §11, POINTERS.md g3d-2), and the GXGetTexObj* readers that
+ * g3d's PAT0 application uses (§20).
  *
  * Contract: a GXTexObj (0x20) and a GXTlutObj (0xC) keep the Wii size and
  * layout (GXTexObjImpl / GXTlutObjImpl in include/revolution/GX/GXInternal.h)
@@ -58,6 +59,14 @@ inline u32 BitSet(u32 field, u32 pos, u32 size, u32 value) {
     u32 mask = (size >= 32 ? 0xFFFFFFFF : ((1u << size) - 1)) << shift;
     return (field & ~mask) | ((value << shift) & mask);
 }
+
+// GX_BITGET: the `size` bits at pos..pos+size-1, counting from the most significant bit.
+inline u32 BitGet(u32 field, u32 pos, u32 size) {
+    return field >> (32 - pos - size) & ((1u << size) - 1);
+}
+
+// GXTexture.c's HW2GXFiltConv.
+const u8 HW2GXFiltConv[8] = {0, 2, 4, 0, 1, 3, 5, 0};
 
 inline bool IsCIFmt(GXTexFmt fmt) {
     return fmt == GX_TF_C4 || fmt == GX_TF_C8 || fmt == GX_TF_C14X2;
@@ -191,6 +200,40 @@ void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt, GXTexFilter mag_filt,
 
     t->mode0 = mode0;
     t->mode1 = mode1;
+}
+
+// The readers below are those of src/revolution/GX/GXTexture.c, on the big-endian words.
+u16 GXGetTexObjWidth(const GXTexObj* obj) {
+    return BitGet(reinterpret_cast<const HostTexObj*>(obj)->image0, 22, 10) + 1;
+}
+
+u16 GXGetTexObjHeight(const GXTexObj* obj) {
+    return BitGet(reinterpret_cast<const HostTexObj*>(obj)->image0, 12, 10) + 1;
+}
+
+GXTexWrapMode GXGetTexObjWrapS(GXTexObj* obj) {
+    return static_cast<GXTexWrapMode>(BitGet(reinterpret_cast<HostTexObj*>(obj)->mode0, 30, 2));
+}
+
+GXTexWrapMode GXGetTexObjWrapT(GXTexObj* obj) {
+    return static_cast<GXTexWrapMode>(BitGet(reinterpret_cast<HostTexObj*>(obj)->mode0, 28, 2));
+}
+
+void GXGetTexObjLODAll(const GXTexObj* obj, GXTexFilter* min_filt, GXTexFilter* mag_filt,
+                       f32* min_lod, f32* max_lod, f32* lod_bias, GXBool* bias_clamp,
+                       GXBool* do_edge_lod, GXAnisotropy* max_aniso) {
+    const HostTexObj* t = reinterpret_cast<const HostTexObj*>(obj);
+    u32 mode0 = t->mode0, mode1 = t->mode1;
+
+    *min_filt = static_cast<GXTexFilter>(HW2GXFiltConv[BitGet(mode0, 24, 3)]);
+    *mag_filt = static_cast<GXTexFilter>(BitGet(mode0, 27, 1));
+    *min_lod = BitGet(mode1, 24, 8) / 16.0f;
+    *max_lod = BitGet(mode1, 16, 8) / 16.0f;
+    s16 tmp = static_cast<s16>(BitGet(mode0, 15, 8));
+    *lod_bias = static_cast<s8>(tmp) / 32.0f;
+    *bias_clamp = BitGet(mode0, 10, 1);
+    *do_edge_lod = !BitGet(mode0, 23, 1);
+    *max_aniso = static_cast<GXAnisotropy>(BitGet(mode0, 11, 2));
 }
 
 void GXInitTexObjTlut(GXTexObj* obj, u32 tlut) {

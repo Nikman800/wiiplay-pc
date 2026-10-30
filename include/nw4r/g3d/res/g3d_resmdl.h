@@ -86,7 +86,7 @@ public:
     }
 
     s32 GetNodeIDFromMtxID(u32 id) const {
-        const s32* pArray = reinterpret_cast<const s32*>(
+        const be_s32* pArray = reinterpret_cast<const be_s32*>(
             reinterpret_cast<const u8*>(&ref()) + ref().toMtxIDToNodeID +
             sizeof(ResMtxIDToNodeIDData));
 

@@ -8,7 +8,8 @@
  * matrix functions are plain C++ versions of the paired-single assembly in
  * src/revolution/MTX/mtx.c. MEMAllocFromAllocator / MEMFreeToAllocator are
  * the two dispatch functions of src/revolution/MEM/mem_allocator.c (the rest
- * of that file needs the MEM heaps).
+ * of that file needs the MEM heaps); they are weak, so a harness that links
+ * mem_allocator.c itself (mdl_harness, docs/HOST_BUILD.md §20) gets the real ones.
  */
 #include <types.h>
 
@@ -22,11 +23,11 @@
 extern "C" {
 
 /* MEM */
-void* MEMAllocFromAllocator(MEMAllocator* allocator, u32 size) {
+__attribute__((weak)) void* MEMAllocFromAllocator(MEMAllocator* allocator, u32 size) {
     return allocator->funcs->allocFunc(allocator, size);
 }
 
-void MEMFreeToAllocator(MEMAllocator* allocator, void* block) {
+__attribute__((weak)) void MEMFreeToAllocator(MEMAllocator* allocator, void* block) {
     allocator->funcs->freeFunc(allocator, block);
 }
 
@@ -83,6 +84,9 @@ void PSMTXRotRad(Mtx m, char axis, f32 rad) {
 
 /* GX: no-ops until the Phase 7 GX layer */
 void GXBegin(GXPrimitive, GXVtxFmt, u16) {}
+/* ScnRoot::CalcView invalidates the GPU's vertex cache before the view
+ * matrices are computed: nothing to invalidate on the host. */
+void GXInvalidateVtxCache(void) {}
 void GXClearVtxDesc(void) {}
 void GXLoadPosMtxImm(const Mtx, u32) {}
 void GXLoadTexMtxImm(const Mtx, u32, GXMtxType) {}

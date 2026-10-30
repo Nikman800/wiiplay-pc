@@ -22,7 +22,7 @@ union {
 } // namespace
 
 math::VEC3* GetScaleTemporary() {
-    return static_cast<math::VEC3*>(sTemp.tmpScale);
+    return static_cast<math::VEC3*>(&sTemp.tmpScale[0]);
 }
 
 u32* GetMtxIDTemporary() {
@@ -34,11 +34,11 @@ MdlZ* GetMdlZTemporary() {
 }
 
 math::MTX34* GetSkinningMtxTemporary() {
-    return static_cast<math::MTX34*>(sTemp.skinningMtx);
+    return static_cast<math::MTX34*>(&sTemp.skinningMtx[0]);
 }
 
 math::MTX34* GetBillboardMtxTemporary() {
-    return static_cast<math::MTX34*>(sTemp.bbMtx);
+    return static_cast<math::MTX34*>(&sTemp.bbMtx[0]);
 }
 
 ShpAnmResultBuf* GetShpAnmResultBufTemporary() {

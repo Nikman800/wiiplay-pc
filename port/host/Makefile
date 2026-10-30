@@ -478,3 +478,35 @@ particles: $(OUT)/ptcl_harness
 	python3 $(HOST)/tests/test_particles.py --harness $(OUT)/ptcl_harness --disc $(DISC) \
 	    --compare $(PTCL_OTHER)
 test: particles
+
+# --- nw4r::g3d scene / model runtime (Phase 7; docs/HOST_BUILD.md §20) --------
+# ScnRoot / ScnMdl / ScnMdlSimple with CalcWorld / CalcMaterial / CalcView, the
+# AnmObj units and the DCC world-matrix rules, on an EGG::ExpHeap allocator as
+# the game sets it up. mdl_harness builds every model on the disc, applies every
+# compatible animation and prints the world, view and material results
+# (tests/test_scene.py). Draw paths are linked; their GX and FIFO calls are
+# src/host_gfx_stubs.c entries that abort if reached.
+MDL_SRCS := $(addprefix src/nw4r/g3d/,g3d_scnroot.cpp g3d_scnobj.cpp g3d_scnmdl.cpp \
+    g3d_scnmdlsmpl.cpp g3d_scnproc.cpp g3d_calcworld.cpp g3d_calcview.cpp g3d_calcvtx.cpp \
+    g3d_calcmaterial.cpp g3d_anmobj.cpp g3d_anmchr.cpp g3d_anmclr.cpp g3d_anmtexsrt.cpp \
+    g3d_anmtexpat.cpp g3d_anmvis.cpp g3d_anmshp.cpp g3d_anmscn.cpp g3d_obj.cpp g3d_basic.cpp \
+    g3d_dcc.cpp g3d_maya.cpp g3d_xsi.cpp g3d_3dsmax.cpp g3d_workmem.cpp g3d_camera.cpp \
+    g3d_light.cpp g3d_fog.cpp g3d_state.cpp g3d_draw.cpp g3d_draw1mat1shp.cpp g3d_init.cpp) \
+    src/nw4r/math/math_geometry.cpp src/nw4r/ut/ut_LockedCache.cpp \
+    src/revolution/MEM/mem_expHeap.c src/revolution/MEM/mem_heapCommon.c \
+    src/revolution/MEM/mem_list.c src/revolution/MEM/mem_allocator.c
+MDL_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(MDL_SRCS)) $(OUT)/host/src/host_gfx_stubs.c.o \
+    $(OUT)/host/src/host_g3d.cpp.o $(OUT)/host/src/host_gxlight.cpp.o
+$(MDL_OBJS): CXXFLAGS += $(ANIM_FP)
+
+$(OUT)/mdl_harness: $(HOST)/tests/mdl_harness.cpp $(HOST)/tests/disc_walk.h $(MDL_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(MDL_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: scene
+all: $(OUT)/mdl_harness
+# --compare: the other build's harness, if it has been built, must print the same.
+MDL_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/mdl_harness
+scene: $(OUT)/mdl_harness
+	python3 $(HOST)/tests/test_scene.py --harness $(OUT)/mdl_harness --disc $(DISC) \
+	    --compare $(MDL_OTHER)
+test: scene

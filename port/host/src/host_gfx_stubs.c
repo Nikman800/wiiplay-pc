@@ -34,6 +34,14 @@ static void PortStubHit(const char* pName) {
         PortStubHit(readable);                                                     \
     }
 
+/* Weak: harnesses that link the real unit (mdl_harness links g3d_camera.cpp and
+ * g3d_obj.cpp, docs/HOST_BUILD.md §20) get the real function. */
+#define PORT_STUB_MANGLED_WEAK(id, mangled, readable)                              \
+    void port_stub_##id(void) __asm__(mangled) __attribute__((weak));              \
+    void port_stub_##id(void) {                                                    \
+        PortStubHit(readable);                                                     \
+    }
+
 /* GX (src/revolution/GX is not built on the host; Phase 7 replaces it). */
 PORT_STUB(GXCopyTex)
 PORT_STUB(GXGetProjectionv)
@@ -65,6 +73,38 @@ PORT_STUB(GXSetCoPlanar)
 PORT_STUB(GXSetLineWidth)
 PORT_STUB(GXSetPointSize)
 PORT_STUB(GXSetZCompLoc)
+/* The nw4r::g3d draw paths, lights and fog (mdl_harness, docs/HOST_BUILD.md §20). */
+PORT_STUB(GXLoadLightObjImm)
+PORT_STUB(GXLoadNrmMtxImm)
+PORT_STUB(GXLoadNrmMtxIndx3x3)
+PORT_STUB(GXLoadPosMtxIndx)
+PORT_STUB(GXSetFogRangeAdj)
+PORT_STUB(PPCSync)
+/* g3d's direct FIFO writes (platform/g3d_gpu.cpp writes the GX FIFO; not built). */
+PORT_STUB_MANGLED(gd_tex33, "_ZN4nw4r3g3d4fifo18GDLoadTexMtxImm3x3ERKNS_4math5MTX33Ej",
+                  "g3d::fifo::GDLoadTexMtxImm3x3")
+PORT_STUB_MANGLED(gd_reset, "_ZN4nw4r3g3d4fifo17GDResetCurrentMtxEv", "g3d::fifo::GDResetCurrentMtx")
+PORT_STUB_MANGLED(gd_cull, "_ZN4nw4r3g3d4fifo13GDSetCullModeE11_GXCullMode",
+                  "g3d::fifo::GDSetCullMode")
+PORT_STUB_MANGLED(gd_cur, "_ZN4nw4r3g3d4fifo15GDSetCurrentMtxEPKj", "g3d::fifo::GDSetCurrentMtx")
+PORT_STUB_MANGLED(gd_gen2, "_ZN4nw4r3g3d4fifo13GDSetGenMode2Ehhhh11_GXCullMode",
+                  "g3d::fifo::GDSetGenMode2")
+PORT_STUB_MANGLED(gd_ind, "_ZN4nw4r3g3d4fifo14GDSetIndTexMtxEjRKNS_4math5MTX34E",
+                  "g3d::fifo::GDSetIndTexMtx")
+PORT_STUB_MANGLED(gd_scale2,
+                  "_ZN4nw4r3g3d4fifo19GDSetTexCoordScale2E13_GXTexCoordIDthhthh",
+                  "g3d::fifo::GDSetTexCoordScale2")
+/* The locked cache: ut_LockedCache.cpp is linked, but the game never enables it
+ * (RPGrpRenderer calls g3d::G3dInit(false)), so LC::Lock fails and g3d takes its
+ * main-memory paths, on the Wii as here. */
+PORT_STUB(LCEnable)
+PORT_STUB(LCDisable)
+PORT_STUB(LCLoadBlocks)
+PORT_STUB(LCStoreBlocks)
+PORT_STUB(LCStoreData)
+PORT_STUB(LCQueueLength)
+PORT_STUB(LCQueueWait)
+PORT_STUB(OSYieldThread)
 
 /* OSRegisterVersion records a library's version banner (nw4r::ef's
  * EffectSystem constructor, a static initialiser): nothing to do on the host. */
@@ -76,19 +116,19 @@ void OSRegisterVersion(const char* pVersion) {
 /* Game code in units that do not build on the host yet. */
 PORT_STUB(Bom_shuffleArray)
 
-/* nw4r::g3d scene objects (not built on the host yet). */
-PORT_STUB_MANGLED(cam_ortho, "_ZN4nw4r3g3d6Camera8SetOrthoEffffff", "g3d::Camera::SetOrtho")
-PORT_STUB_MANGLED(cam_persp, "_ZN4nw4r3g3d6Camera14SetPerspectiveEffff",
+/* nw4r::g3d scene objects (built only for mdl_harness, which links the real ones). */
+PORT_STUB_MANGLED_WEAK(cam_ortho, "_ZN4nw4r3g3d6Camera8SetOrthoEffffff", "g3d::Camera::SetOrtho")
+PORT_STUB_MANGLED_WEAK(cam_persp, "_ZN4nw4r3g3d6Camera14SetPerspectiveEffff",
                   "g3d::Camera::SetPerspective")
-PORT_STUB_MANGLED(cam_proj, "_ZN4nw4r3g3d6Camera24SetProjectionMtxDirectlyEPKNS_4math5MTX44E",
+PORT_STUB_MANGLED_WEAK(cam_proj, "_ZN4nw4r3g3d6Camera24SetProjectionMtxDirectlyEPKNS_4math5MTX44E",
                   "g3d::Camera::SetProjectionMtxDirectly")
-PORT_STUB_MANGLED(cam_sbo, "_ZN4nw4r3g3d6Camera19SetScissorBoxOffsetEii",
+PORT_STUB_MANGLED_WEAK(cam_sbo, "_ZN4nw4r3g3d6Camera19SetScissorBoxOffsetEii",
                   "g3d::Camera::SetScissorBoxOffset")
-PORT_STUB_MANGLED(cam_sc, "_ZN4nw4r3g3d6Camera10SetScissorEjjjj", "g3d::Camera::SetScissor")
-PORT_STUB_MANGLED(cam_vp, "_ZN4nw4r3g3d6Camera11SetViewportEffff", "g3d::Camera::SetViewport")
-PORT_STUB_MANGLED(cam_vpz, "_ZN4nw4r3g3d6Camera17SetViewportZRangeEff",
+PORT_STUB_MANGLED_WEAK(cam_sc, "_ZN4nw4r3g3d6Camera10SetScissorEjjjj", "g3d::Camera::SetScissor")
+PORT_STUB_MANGLED_WEAK(cam_vp, "_ZN4nw4r3g3d6Camera11SetViewportEffff", "g3d::Camera::SetViewport")
+PORT_STUB_MANGLED_WEAK(cam_vpz, "_ZN4nw4r3g3d6Camera17SetViewportZRangeEff",
                   "g3d::Camera::SetViewportZRange")
-PORT_STUB_MANGLED(obj_destroy, "_ZN4nw4r3g3d6G3dObj7DestroyEv", "g3d::G3dObj::Destroy")
+PORT_STUB_MANGLED_WEAK(obj_destroy, "_ZN4nw4r3g3d6G3dObj7DestroyEv", "g3d::G3dObj::Destroy")
 
 /* Data the kept code refers to (.bss on the Wii). */
 void* port_stub_bom_game_manager __asm__("_ZN16RPBomGameManager9sInstanceE") = 0;

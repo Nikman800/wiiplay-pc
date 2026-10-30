@@ -499,6 +499,7 @@ check in §2 confirms all of them.
 | `include/nw4r/ef/ef_res_animcurve.h`, `src/nw4r/ef/ef_particlemanager.cpp` | §18: the field parameter blocks (`FieldGravityParam`, `FieldRandomParam`, `FieldSpinParam`, `FieldMagnetParam`, `FieldNewtonParam`, `FieldVortexParam`) move from the `.cpp` into the header with `be_f32` / `be_u16` / `BE_MATH(VEC3)` members; `Calc`'s local copies of the last four are `NW4R_EF_FIELD_VALUE(T)` (the type itself on the Wii, a host-order `T##Value` on the host). |
 | `include/nw4r/ut/ut_algorithm.h`, `src/nw4r/math/math_types.cpp`, `math_arithmetic.cpp`, `src/nw4r/g3d/platform/g3d_cpu.cpp`, `g3d_fog.cpp`, `g3d_calcview.cpp`, `g3d_calcworld.cpp`, `g3d_calcvtx.cpp`, `src/revolution/MTX/vec.c`, `quat.c`, `mtx.c`, `mtxvec.c`, `src/Pack/RPParty/RPTnkScene/RPTnkBlock.cpp`, `RPHkyScene/RPHkyPaddle.cpp` | §18: every remaining paired-single / asm block is opened with `ASM_PS(name)` (files that do not get the fallback from a header define `ASM_PS(name)` as `ASM` themselves); the CodeWarrior `asm` functions (`MTX34InvTranspose`, `GetModelLocalAxisY2/3`, `PSMTXIdentity`, `PSMTXCopy`, `PSMTXConcat`, `PSMTXConcatArray`, `PSMTXMultVec`, `PSVECAdd`, `PSVECDotProduct`, `PSVECCrossProduct`) get a host body under `#if defined(PORT_HOST)`. |
 | `src/Pack/RPGraphics/RPGrpModelRfl.cpp`, `src/Pack/RPSystem/RPSysPauseMgr.cpp`, `src/Pack/RPParty/RPCowScene/RPCowKakasiGroup.cpp` | §18: the `asm volatile { }` scheduling blocks have their C under `#if defined(PORT_HOST)`; `RPCowKakasiGroup::OnActivate`'s asm body is `#if !defined(PORT_HOST)` and its C++ equivalent (formerly `#if 0`) is the host form. |
+| `include/nw4r/g3d/res/g3d_resmdl.h`, `src/nw4r/g3d/g3d_workmem.cpp` | §20: `ResMdlInfo::GetNodeIDFromMtxID` reads the matrix-to-node table as `be_s32`; the work-memory accessors take `&sTemp.x[0]` (GCC rejects `static_cast` from a base-class array to a derived pointer). Type tokens / the same address. |
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
 
@@ -1804,3 +1805,143 @@ particle to one frame of the emission model) produced 2233 errors.
   inheritance flags) are exercised only through whatever the emitters set themselves.
 - `RPSysEffectCreator` / `RPSysEffectMgr` compile on the host but are not linked (they
   reach the scene and archive managers); the harness repeats their few lines of set-up.
+
+## 20. The nw4r::g3d scene runtime on the host: every model built and calculated
+
+The g3d scene and model runtime links and runs on the host, without drawing: `ScnRoot`,
+`ScnGroup`, `ScnMdl`, `ScnMdlSimple`, `CalcWorld` / `CalcSkinning`, `CalcMaterial` /
+`CalcMaterialDirectly`, `CalcView`, the `AnmObj` units (CHR, CLR, SRT, PAT, VIS, SHP and their
+blend / override forms), the DCC world-matrix rules (standard, Maya, Softimage, 3ds Max) and the
+camera, light and fog objects. `mdl_harness` builds every model on the disc (177 MDL0 in 132
+BRRES) the way the game does, applies every compatible animation at a set of frames and prints
+the world, view and normal matrices and the material results; `test_scene.py` recomputes them
+from the file bytes. 64- and 32-bit output is byte-identical. The matching build is unchanged:
+`check_matching.py` compiles the 974 units that depend on a touched file, all identical
+(2026-10-30).
+
+### Changes to the decomp sources
+
+Two, both type tokens or the same address on the Wii:
+
+| File | Change | Why |
+|---|---|---|
+| `include/nw4r/g3d/res/g3d_resmdl.h` | `ResMdlInfo::GetNodeIDFromMtxID` reads the matrix-ID-to-node table through `const be_s32*` | File data. `CalcView` looks up every view matrix's node; the native read gave node IDs like 0x01000000 and `GetResNode` crashed. |
+| `src/nw4r/g3d/g3d_workmem.cpp` | `GetScaleTemporary`, `GetSkinningMtxTemporary`, `GetBillboardMtxTemporary` cast `&sTemp.x[0]` instead of the array | GCC does not apply the array-to-pointer conversion before a `static_cast` from `_VEC3[]` / `_MTX34[]` to the derived `VEC3*` / `MTX34*`; CodeWarrior does. |
+
+`check_matching.py`'s list of touched files has `g3d_workmem.cpp` (`g3d_resmdl.h` was already
+there).
+
+### What is linked, and what is stubbed
+
+`MDL_SRCS` in the Makefile: the g3d scene units (`g3d_scnroot`, `g3d_scnobj`, `g3d_scnmdl`,
+`g3d_scnmdlsmpl`, `g3d_scnproc`), the calc units (`g3d_calcworld`, `g3d_calcview`,
+`g3d_calcvtx`, `g3d_calcmaterial`), the `AnmObj` units (`g3d_anmobj`, `g3d_anmchr`,
+`g3d_anmclr`, `g3d_anmtexsrt`, `g3d_anmtexpat`, `g3d_anmvis`, `g3d_anmshp`, `g3d_anmscn`),
+`g3d_obj`, the DCC units (`g3d_basic`, `g3d_dcc`, `g3d_maya`, `g3d_xsi`, `g3d_3dsmax`),
+`g3d_workmem`, `g3d_camera`, `g3d_light`, `g3d_fog`, and the draw units `g3d_state`, `g3d_draw`,
+`g3d_draw1mat1shp`, `g3d_init` (the `DRAW_OPA` / `DRAW_XLU` procs reference them); with
+`math_geometry.cpp` (bounding volumes), `ut_LockedCache.cpp` and the MEM expanded heap and
+allocator (`mem_expHeap.c`, `mem_heapCommon.c`, `mem_list.c`, `mem_allocator.c`). On `-m32`
+they are built with `ANIM_FP` (SSE), as in §17 and §19. `AnmScnRes` (the `AnmScn` subclass
+that would animate a `ScnRoot` from a SCN0) is not in Wii Play: the game reads SCN0 through
+`ResAnmScn` in EGG's light manager (§17), so `g3d_anmscn.cpp` is linked but unreachable. Its
+`GetLightSetting` stores an ambient colour through a native `u32*`, which would swap the
+bytes on the host; nothing reaches it.
+
+Host files:
+
+| File | What |
+|---|---|
+| `src/host_g3d.cpp` | **New.** `AnmObj::Release`: declared, never defined in the decomp, and absent from the Wii binary (no symbol, no `AnmObj` vtable in `symbols.txt`): every concrete animation object overrides it. GCC emits a vtable next to the first non-inline virtual function, so the `AnmObj` constructor's vtable needs a definition. It aborts if called. |
+| `src/host_gxlight.cpp` | **New.** The CPU half of `src/revolution/GX/GXLight.c` (`GXInitLight*`, `GXGetLightPos` / `Dir`, `GXInitSpecularDir`): they only fill in a `GXLightObj`, which is runtime data (native words). `G3DState`'s static light state calls them at start-up. `GXLoadLightObjImm` (the GPU half) aborts. |
+| `src/host_gxtexobj.cpp` | `GXGetTexObjWidth` / `Height` / `WrapS` / `WrapT` / `LODAll`, as in `GXTexture.c`, on the big-endian words: `ApplyTexPatAnmResult` re-initialises the texture object with the old wrap and LOD settings. |
+| `src/host_gx.cpp` | `GXInvalidateVtxCache` is a no-op (`ScnRoot::CalcView` calls it before computing the view matrices; nothing to invalidate). `MEMAllocFromAllocator` / `MEMFreeToAllocator` are weak, so a harness that links `mem_allocator.c` gets the real ones. |
+| `src/host_gfx_stubs.c` | Aborting entries for the GX calls of the draw, light and fog paths (`GXLoadNrmMtxImm`, `GXLoadNrmMtxIndx3x3`, `GXLoadPosMtxIndx`, `GXLoadLightObjImm`, `GXSetFogRangeAdj`, `PPCSync`), g3d's direct FIFO writes (`fifo::GDSetGenMode2`, `GDSetCullMode`, `GDSetTexCoordScale2`, `GDSetIndTexMtx`, `GDResetCurrentMtx`, `GDSetCurrentMtx`, `GDLoadTexMtxImm3x3`; `platform/g3d_gpu.cpp` writes the GX FIFO and is not built) and the locked-cache SDK (`LCEnable` ... `LCQueueWait`, `OSYieldThread`). The `g3d::Camera` setters and `G3dObj::Destroy` entries are weak now (`PORT_STUB_MANGLED_WEAK`), so `mdl_harness` gets the real ones and the data harnesses keep their stubs. |
+
+The locked cache: the game calls `g3d::G3dInit(false)` (`RPGrpRenderer`), so `ut::LC::Lock`
+fails on the Wii too and `ScnMdlSimple` / `CalcView` take their main-memory paths; the harness
+calls `ut::LC::Disable()` (the locked-cache part of `G3dInit`) and the LC SDK entries are never
+reached.
+
+### The harness
+
+`tests/mdl_harness.cpp` follows the game's set-up:
+
+- the allocator: `RPGrpModelManager::BecomeCurrent` hands the scene heap's
+  `EGG::Allocator(heap)` (align 32) to `RPGrpModel` and `RPGrpModelScene`. `EGG::Heap` is the
+  host's M0 stand-in (`src/host_sdk.cpp`), so the harness builds what `EGG::ExpHeap::create` and
+  the allocator build underneath: a MEM expanded heap (32 MB) and
+  `MEMInitAllocatorForExpHeap(allocator, heap, 32)`. After teardown the heap must be empty;
+- `RPGrpModelScene`: `ScnRoot::Construct(allocator, 0x400, 0x400, 16, 8)`; camera 0 at
+  (30, 120, 400) looking at (0, 40, 0) through `Camera::SetPosition` / `SetPosture`
+  (look-at), current;
+- `RPGrpModelG3D` (`G3D_ConstructScnObj`): `ScnMdlSimple::Construct(allocator, mdl, 1)` (the
+  game's model for buffer option 0), and next to it
+  `ScnMdl::Construct(allocator, mdl, ANM_MATCLR | ANM_TEXSRT | ANM_TEXPAT, 1)`, a model with
+  material buffers; one of the two is in the root at a time;
+- `RPGrpModelAnmG3D`: CHR through an `AnmObjChrBlend` of 8 with the `AnmObjChrRes` attached at
+  slot 0, weight 1; CLR / SRT / PAT as `AnmObj*Res` set on the model directly (what the game
+  does when a model has one animation of the kind); every `AnmObj*Res` constructed with
+  `cache = false` and bound;
+- per frame: `SetFrame`, then `ScnRoot::CalcWorld`, `CalcMaterial`, `CalcVtx`, `CalcView`.
+
+Animations tried on a model: those of its own BRRES, then those of every BRRES without models
+in the same archive (the animation files); an animation is applied when its `Bind` succeeds.
+Frames: 0, 1.5, `int(n/3) + 0.25`, `int(2n/3)`, `n - 1`. With two or more CHR0 the first two
+are also blended 0.5 / 0.5 (frames 1.5 and 2.25). CHR runs on the `ScnMdlSimple`, and its
+world matrices and attributes must equal the `ScnMdl`'s; material runs on the `ScnMdl` (copied
+buffers) and again on the `ScnMdlSimple` (`CalcMaterialDirectly` writes into the resource,
+which the harness restores after each frame), and the printed results must agree.
+
+Output per run: every position/normal matrix (`W`: matrix ID, attribute, 12 floats), every
+view matrix (`V`) and its normal matrix (`N`, if the model has them); for material runs every
+material's channel colours, TEV registers 1-3 and konst colours (`C`), texture SRTs, flags and
+mode (`T`, the matrices that exist) or texture maps (`P`: the bound texture's name and
+`image0`). 177 models, 288 animations, 1652 runs, 48000 lines; 0.1 s.
+
+### What the test models, and what it only regression-checks
+
+`test_scene.py` locates the records with `fmt_brres_model.py` / `fmt_brres_anim.py` and takes
+the animation results from `test_anims.py`'s f32 model (§17). It models the host's arithmetic:
+the paired-single forms (`port/ps_forms.h`) fuse `ps_madd` and friends (one rounding) and round
+everything else to single precision; the fused steps are computed with an exact single-precision
+fma (double product, sum rounded to odd, then to single).
+
+| Check | Model | Coverage |
+|---|---|---|
+| Coverage | every MDL0 on the disc built; the runs (kind, animation file, name, frame) in the harness's order, from the binding rule (a CHR0 node or CLR0 / SRT0 / PAT0 material named like one of the model's) | 177 models, 1652 runs |
+| World matrices | `CalcWorld`: NodeTree byte code; per node the CHR0 result (play policy applied) or `ResNode::CalcChrAnmResult`; `CalcWorldMtx_Basic` and `CalcWorldMtx_Maya_SSC_Apply` with the attribute rules; the final per-matrix scale; `CalcSkinning` (EVPMTX: world x inverse bind matrix; WEIGHT: fused weighted sum); `MTX34Mult` / `Scale` / `Trans` as their paired-single forms; bit for bit, attributes included | 14462 `W` lines |
+| View matrices | `PSMTXConcatArray` (or `PSMTXConcat` for one matrix) of the printed camera matrix and the world matrix; bit for bit | 14462 `V` lines |
+| Normal matrices | uniform scale all the way up: the view matrix's 3x3, bit for bit; otherwise the double-precision inverse transpose within 1e-5 of each row's largest element (`MTX34InvTranspose` divides through `fres` and two Newton steps); a singular 3x3 (zero-scaled nodes) must leave the normal matrix as it was | 13527 exact, 811 within tolerance, 12 singular |
+| Camera | `C_MTXLookAt` against a double-precision look-at, within 1e-5 | 1 |
+| CLR0 | `ApplyClrAnmResult`: `(old & mask) \| rgba` into the channel colours and the TEV / konst display lists (an empty register reads as opaque black), printed through the S10 getter | 1150 `C` lines (215 runs) |
+| SRT0 | `ApplyTexSrtAnmResult`: the animated matrices' SRT, flag nibble and mode | 365 `T` lines (115 runs) |
+| PAT0 | `ApplyTexPatAnmResult`: the animated maps take the frame's texture (name and `image0` from the TEX0 header), the others keep the texture `ResMat::Bind` gave them | 140 `P` lines (90 runs) |
+| Determinism, 64/32 | the harness twice, and the other build's harness (`--compare`; `make test` passes the 32-bit one if it is built, `make M32=1 test` the 64-bit one): byte-identical | all output |
+
+World-matrix rules the disc reaches (counted by the test): standard with an unscaled parent
+(identity, translation-only and full SRT), standard with a scaled parent (identity and
+translation-only), Maya segment scale compensation with an unscaled parent (all three), the
+final scale (884 matrices) and skinning (7 models with NodeMix, 1323 weighted matrices). Not on
+the disc: billboards, `MTXDUP`, the Softimage rule (no model uses it), Maya compensation under
+a scaled parent, VIS0 and SHP0 (so `CalcVtx` has no shape animation to apply). Regression only:
+the two-animation CHR blend (35 runs), the indirect texture matrices of SRT0 (not printed), and
+everything not printed (texture matrices for environment mapping, bounding volumes).
+
+A mutation check while writing the test (multiply-add not fused; the standard rule's scaled-parent
+branches dropped) produced 16286 and 84 errors.
+
+### Still open
+
+- Drawing: `DRAW_OPA` / `DRAW_XLU`, `G3DState` and the FIFO writes are linked but abort;
+  Phase 7's GX layer.
+- Cross-archive pairs: 44 CHR0 (the avatar and hand animations of the Party, Pnp, Wly and Fsh
+  archives) bind to models in other archives (`Common/Kokeshi`, the Mii models through
+  `ScnRfl`); the harness only tries animation files of the model's own archive. Their readers
+  are covered by §17.
+- The game's `RPGrpModel*` layer is not linked; the harness repeats the few g3d calls it
+  makes. `RPGrpModel.cpp` and `RPGrpModelManager.cpp` compile on the host;
+  `RPGrpModelImplement.cpp` and `RPGrpModelAnmImplement.cpp` do not yet (GCC wants
+  `template<>` on the `RPGrpModelAnmG3D` member specialisations and rejects specialisations
+  after the first use, both of which CodeWarrior accepts).
+- `ScnRfl` (Mii models) is compiled (§16) but not built or calculated.
