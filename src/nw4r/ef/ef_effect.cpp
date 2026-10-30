@@ -81,12 +81,12 @@ Emitter* Effect::CreateEmitter(EmitterResource* pResource, u8 drawWeight,
 
     Emitter* pEmitter = mManagerES->GetMemoryManager()->AllocEmitter();
     if (pEmitter == NULL) {
-        return false;
+        return NULL;
     }
 
     if (!pEmitter->Initialize(this, pResource, drawWeight)) {
         mManagerES->GetMemoryManager()->FreeEmitter(pEmitter);
-        return false;
+        return NULL;
     }
 
     mActivityList.ToActive(pEmitter);

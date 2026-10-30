@@ -43,8 +43,7 @@ public:
     }
 
     virtual void AssignObjectID(void* pObj) {
-        static_cast< ::nw4r::ef::LinkedObject*>(pObj)->mObjectID +=
-            OBJECT_ID_BASE;
+        static_cast<T*>(pObj)->mObjectID += OBJECT_ID_BASE;
     } // at 0x8
 
     // Not implemented for Particle

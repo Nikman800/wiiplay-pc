@@ -448,3 +448,33 @@ all: $(OUT)/test_polyline $(KOKESHI3_OBJS)
 unit: polyline-unit
 polyline-unit: $(OUT)/test_polyline $(KOKESHI3_OBJS)
 	$(OUT)/test_polyline
+
+# --- nw4r::ef runtime (Phase 7; docs/HOST_BUILD.md §19) -----------------------
+# EffectSystem / Effect / Emitter / ParticleManager / Particle, the emit forms and
+# the game's RPSysParticleManager and RPSysEffectMemoryManager, linked with the
+# resource units into ptcl_harness, which creates every emitter on the disc and
+# steps it (tests/test_particles.py). The draw strategies are linked (the
+# builder hands them out in ParticleManager::Initialize); their GX calls are
+# src/host_gfx_stubs.c entries that abort if reached.
+PTCL_SRCS := $(addprefix src/nw4r/ef/,ef_effectsystem.cpp ef_effect.cpp ef_emitter.cpp \
+    ef_particlemanager.cpp ef_particle.cpp ef_emitterform.cpp ef_creationqueue.cpp \
+    ef_draworder.cpp ef_handle.cpp ef_util.cpp) \
+    $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/nw4r/ef/emform/*.cpp))) \
+    $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/nw4r/ef/drawstrategy/*.cpp))) \
+    src/Pack/RPKernel/RPSysParticleManager.cpp
+PTCL_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(PTCL_SRCS)) $(OUT)/host/src/host_gfx_stubs.c.o
+# On -m32, single-precision SSE arithmetic as in §17 (x87 would round differently);
+# host_mtx.cpp too (PSMTXInverse, reached through MTX34Inv in every Calc).
+$(PTCL_OBJS) $(OUT)/host/src/host_mtx.cpp.o: CXXFLAGS += $(ANIM_FP)
+
+$(OUT)/ptcl_harness: $(HOST)/tests/ptcl_harness.cpp $(HOST)/tests/disc_walk.h $(PTCL_OBJS) $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(PTCL_OBJS) $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: particles
+all: $(OUT)/ptcl_harness
+# --compare: the other build's harness, if it has been built, must print the same.
+PTCL_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/ptcl_harness
+particles: $(OUT)/ptcl_harness
+	python3 $(HOST)/tests/test_particles.py --harness $(OUT)/ptcl_harness --disc $(DISC) \
+	    --compare $(PTCL_OTHER)
+test: particles

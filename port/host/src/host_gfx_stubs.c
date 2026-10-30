@@ -1,12 +1,14 @@
 /**
  * Stand-ins for the GX, g3d and game symbols that the EGG light, light-map and
- * bloom objects and the game table loaders reference but that are not built
- * on the host yet (port/docs/HOST_BUILD.md §14). data_harness links them with
- * --gc-sections, so only what the kept code references is listed.
+ * bloom objects, the game table loaders and the nw4r::ef draw strategies
+ * reference but that are not built on the host yet (port/docs/HOST_BUILD.md
+ * §14, §19). The harnesses link them with --gc-sections, so only what the kept
+ * code references is listed.
  *
  * Everything here aborts with its name if called: drawing, capture and the
- * game's scene singletons are Phase 7 work, and nothing on the load path
- * reaches them. The exception is data (zero-initialised, as in .bss).
+ * game's scene singletons are Phase 7 work, and nothing on the load or calc
+ * paths reaches them. The exceptions are data (zero-initialised, as in .bss)
+ * and OSRegisterVersion.
  * PSVECMag and C_MTXOrtho come from src/revolution/MTX (docs/HOST_BUILD.md §18).
  *
  * C++ symbols are given by their (Itanium) mangled names, which are the same
@@ -53,6 +55,23 @@ PORT_STUB(GXSetTexCopyDst)
 PORT_STUB(GXSetTexCopySrc)
 PORT_STUB(GXSetViewport)
 PORT_STUB(GXSetZMode)
+/* The nw4r::ef draw strategies (ptcl_harness, docs/HOST_BUILD.md §19). */
+PORT_STUB(GXEnableTexOffsets)
+PORT_STUB(GXGetVtxAttrFmt)
+PORT_STUB(GXGetVtxDesc)
+PORT_STUB(GXSetChanAmbColor)
+PORT_STUB(GXSetClipMode)
+PORT_STUB(GXSetCoPlanar)
+PORT_STUB(GXSetLineWidth)
+PORT_STUB(GXSetPointSize)
+PORT_STUB(GXSetZCompLoc)
+
+/* OSRegisterVersion records a library's version banner (nw4r::ef's
+ * EffectSystem constructor, a static initialiser): nothing to do on the host. */
+void OSRegisterVersion(const char* pVersion);
+void OSRegisterVersion(const char* pVersion) {
+    (void)pVersion;
+}
 
 /* Game code in units that do not build on the host yet. */
 PORT_STUB(Bom_shuffleArray)

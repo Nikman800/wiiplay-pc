@@ -1691,10 +1691,116 @@ These touch processor or chipset state. The host does not build them; what it do
 
 - `ParticleManager::Calc` itself (and `Emitter`, `Particle`) compiles on the host but does
   not link yet, so the field forces are not evaluated against a model; the parameter blocks
-  are.
+  are. (Done in §19.)
 - The MTX functions in `src/host_mtx.cpp` are reference math, not the Wii's rounding.
 - Bit-exact `fres` / `frsqrte` (Dolphin's tables) if console-exact floats are ever needed.
 - `g3d_calcview.cpp`, `g3d_calcvtx.cpp`, `g3d_calcworld.cpp`, `g3d_fog.cpp` and the game
   units with host forms compile on the host; they are linked as the g3d runtime and game code
   are brought up (the game units still have unrelated host errors, e.g. `RPTnkBlock.cpp`'s
   anonymous union, `RPHkyPaddle.cpp`'s address of a temporary).
+
+## 19. The nw4r::ef runtime on the host: every emitter created and stepped
+
+The particle runtime links and runs on the host: `EffectSystem`, `Effect`, `Emitter`,
+`ParticleManager` (`Calc` with its field forces), `Particle`, the emit forms, `CreationQueue`
+and the curve evaluator, with the game's own `RPSysParticleManager` and
+`RPSysEffectMemoryManager`. `ptcl_harness` creates every emitter of every BREFF on the disc
+(373) as an effect through the real `EffectSystem` API and steps it 60 frames;
+`test_particles.py` checks the result against independent models where practical and for
+determinism otherwise. 64- and 32-bit output is byte-identical. The matching build is
+unchanged: `check_matching.py` compiles the 974 units that depend on a touched file, all
+identical (2026-10-30).
+
+### Changes to the decomp sources
+
+Three, all natural C++ that compiles to the same objects on the Wii:
+
+| File | Change | Why |
+|---|---|---|
+| `include/nw4r/ef/ef_memorymanagertmp.h` | `AssignObjectID` casts `void*` to `T*`, not to `LinkedObject*` | `LinkedObject` has no virtual functions and `ReferencedObject` adds the first, so under the Itanium ABI the vtable pointer comes first and `LinkedObject` sits at offset 8 (4 on `-m32`) of `Effect` / `Emitter` / `ParticleManager` / `Particle`. CodeWarrior puts the vtable pointer after the base's members, so the base is at offset 0 on the Wii and the `void*` cast happened to work. On the host it added 0x10000 to the free-list link instead of the object ID, and the next allocation returned a pointer into the middle of the pool. |
+| `src/nw4r/ef/ef_effect.cpp` | `CreateEmitter` returns `NULL`, not `false`, on failure | GCC rejects `bool` to pointer. |
+| `src/nw4r/ef/drawstrategy/ef_drawstrategyimpl.cpp` | `#if PORT_BE_WRAPPED`: copy `mIndTexOffsetMtx` (`be_f32[2][3]`) into a float matrix for `GXSetIndTexMtx` | Draw path only; it lets the draw strategies compile so the real `DrawStrategyBuilder` can be linked. |
+
+`check_matching.py`'s list of touched files has the three files.
+
+### What is linked, and what is stubbed
+
+`PTCL_SRCS` in the Makefile: every `src/nw4r/ef` unit except the resource units already in
+`EF_OBJS`, all emit forms, all draw strategies and the builder, and
+`src/Pack/RPKernel/RPSysParticleManager.cpp`. `ParticleManager::Initialize` asks the
+`DrawStrategyBuilder` for a strategy and keeps the pointer; nothing on the calc path calls
+it. The GX functions the strategies reference (`GXEnableTexOffsets`, `GXGetVtxAttrFmt`,
+`GXGetVtxDesc`, `GXSetChanAmbColor`, `GXSetClipMode`, `GXSetCoPlanar`, `GXSetLineWidth`,
+`GXSetPointSize`, `GXSetZCompLoc`, besides those already there) are `PORT_STUB` entries in
+`src/host_gfx_stubs.c` that abort with their name if called. `OSRegisterVersion` (the
+`EffectSystem` constructor, a static initialiser, registers the library banner) is a no-op
+there.
+
+On `-m32` the ef runtime objects and `src/host_mtx.cpp` (`PSMTXInverse`, which `MTX34Inv`
+reaches in every `ParticleManager::Calc` and `Emitter::CalcEmission`) are built with
+`ANIM_FP` (SSE), as the curve evaluator already was (§17). With x87 arithmetic 25821 output
+lines differed from the 64-bit build, and still 4595 with only `host_mtx.cpp` left on x87
+(last-bit differences, e.g. positions near zero after a matrix inverse).
+
+### The harness
+
+`tests/ptcl_harness.cpp` follows the game's set-up:
+
+- `RPSysSystem`'s `EffectArg` (100 effects, 250 emitters, 250 particle managers, 1500
+  particles) and `RPSysEffectMgr::createMemoryManager`: `RPSysEffectMemoryManager` on a
+  work buffer of `CalcMemorySize`, handed to `EffectSystem::SetMemoryManager` with
+  `RPSysEffectDefine::MAX_GROUP_ID`;
+- `RPSysEffectCreator::setEffectResource` / `resetEffectResource`: the cursor and static
+  pairs stay registered, each scene pair is registered, run and removed;
+- `RPSysEffectCreator::createEffect`: the group ID from the creator's base
+  (`drawScene << 7`), draw group 0 and the userdata flags, then
+  `EffectSystem::CreateEffect(name, groupID, 0)`; one effect at a time;
+- `RPSysEffectCreator::update`: `EffectSystem::Calc(groupID, false)` once a frame, the root
+  matrix left at the identity (what `RPSysEffect::update` sets without a transform);
+- `RPSysEffect::kill` at the end (`RetireEmitterAll`, `RetireParticleAll`, then
+  `RetireEffect` and one more `Calc` to collect), after which every pool must be empty.
+
+`EffectSystem::mRandom` (it seeds emitters whose `randomSeed` is 0) is reseeded before each
+`CreateEffect`, with 0x1234 or the second argument, so every effect is deterministic.
+Output: per frame the emitter count, the root emitter's tick, live and new particles of the
+root emitter's resource and of all managers; at frames 1-5, 10, 11, 20, 21, 40, 41 and 60
+every live particle (object ID, resource, tick, life, seed, position, velocity, momentum,
+size, scale, rotation as float bits, the four colours). 47690 particle lines, at most 260
+live particles at once, 0.2 s.
+
+### What the test models, and what it only regression-checks
+
+`test_particles.py` decodes the BREFFs itself (`fmt_effect.py` for the emitter and track
+offsets, its own `EmitterDesc` reads) and reuses `test_efcurves.py`'s f32 curve model.
+
+Modelled:
+
+| Check | Model | Coverage |
+|---|---|---|
+| Coverage | one effect per emitter of each of the 13 BREFFs, each name resolved to its own `EmitterResource`, group ID from the userdata flags, pools empty after teardown | 373 effects |
+| Emission | `Emitter::CalcEmitter` / `CalcEmission` / `Emission` simulated from `emitEmitStart`, `emitLife` (or `MAX_LIFE`), `emitEmitInterval`, `emitEmit` with f32 accumulation and the first-emission rule: the emitter's tick and the particles created each frame | 280 emitters with deterministic emission (no emission or interval randomness, no LOD, no emit-past, no equal-division flag, no emission curve); 4619 particles over 60 frames |
+| Lifetime | life = `ptclLife` (at least 1), or within `EmitterForm::CalcLife`'s range when `ptclLifeRandom` is set; tick in [1, life]; one tick per frame with life and seed unchanged; retired exactly when tick reaches life; new P lines agree with the F counts | all 47690 particle lines, 26045 one-frame steps |
+| Motion and fields | from each selected frame to the next: gravity power from the field's curve (or the block's `power`) times the decoded direction, into velocity (type 0) or position (type 1); speed field adds `(speed - 1) * velocity`; then `velocity += addVel`, `position += addPos * momentum`, `position += velocity * momentum`, all f32; bit for bit | 5487 particle steps (2256 gravity, 2138 speed evaluations), for effects with one emitter, no emitter rotation or scale and no other motion fields or TIMING-flagged ones (the field matrices are then the identity) |
+| Seed independence | an emitter with a non-zero `randomSeed` never reads the system random, so another system seed must not change its effect (particle object IDs aside: pool slots depend on what earlier effects freed) | 9 effects unchanged, 357 changed |
+
+Regression only (not modelled): initial positions and velocities (the emit forms and their
+use of the emitter random), sizes, colours, rotations and texture curves as applied to
+particles (the curves themselves are bit-exact in §17), random / spin / magnet fields and
+TIMING-flagged tracks, child emitters and particles, emit-past and LOD. These are covered by
+determinism: the same seed twice gives identical output, and the test runs the other
+build's harness (`--compare`; `make test` passes the 32-bit one if it is built, and
+`make M32=1 test` the 64-bit one) and requires byte-identical output.
+
+A mutation check while writing the test (dropping the gravity direction, adding one
+particle to one frame of the emission model) produced 2233 errors.
+
+### Still open
+
+- Drawing: the strategies are linked but their GX calls abort; Phase 7's GX layer.
+- No model yet for the emit forms (initial position and velocity per form), the random,
+  spin and magnet fields (the disc has no newton or vortex), child emitters, emit-past and
+  the LOD ratio; they are regression-checked only.
+- The effects run with an identity root matrix; transformed effects (`SetRootMtx`,
+  inheritance flags) are exercised only through whatever the emitters set themselves.
+- `RPSysEffectCreator` / `RPSysEffectMgr` compile on the host but are not linked (they
+  reach the scene and archive managers); the harness repeats their few lines of set-up.

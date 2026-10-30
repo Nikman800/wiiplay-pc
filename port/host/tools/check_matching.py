@@ -228,6 +228,9 @@ TOUCHED = [
     "src/Pack/RPGraphics/RPGrpModelRfl.cpp",
     "src/Pack/RPSystem/RPSysPauseMgr.cpp",
     "src/Pack/RPParty/RPCowScene/RPCowKakasiGroup.cpp",
+    "src/nw4r/ef/ef_effect.cpp",
+    "src/nw4r/ef/drawstrategy/ef_drawstrategyimpl.cpp",
+    "include/nw4r/ef/ef_memorymanagertmp.h",
 ]
 
 

@@ -137,8 +137,19 @@ void DrawStrategyImpl::InitTev(const EmitterDrawSetting& rSetting,
                          static_cast<GXTexMapID>(mTexmapMap[TEX_LAYER_IND]));
 
         GXSetIndTexCoordScale(GX_INDTEXSTAGE0, GX_ITS_1, GX_ITS_1);
+#if PORT_BE_WRAPPED
+        // Host: the resource matrix is big-endian (be_f32); GX takes floats.
+        f32 indTexOffsetMtx[2][3];
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < 3; j++) {
+                indTexOffsetMtx[i][j] = rSetting.mIndTexOffsetMtx[i][j];
+            }
+        }
+        GXSetIndTexMtx(GX_ITM_0, indTexOffsetMtx, rSetting.mIndTexScaleExp);
+#else
         GXSetIndTexMtx(GX_ITM_0, rSetting.mIndTexOffsetMtx,
                        rSetting.mIndTexScaleExp);
+#endif
 
         GXSetTevIndirect(
             static_cast<GXTevStageID>(rSetting.mIndirectTargetStage),
