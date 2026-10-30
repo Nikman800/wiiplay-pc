@@ -15,6 +15,9 @@
  *     reschedule to the end of the "interrupt", as on the Wii.
  *   - PortOSIdle() is the main thread waiting for the next retrace: every
  *     ready thread runs, whatever its priority, until all of them block.
+ *   - Devices (PortOSAddDevice: the DVD drive and NAND of HOST_BUILD.md
+ *     §22) finish their queued commands when every thread is blocked or the
+ *     main thread idles, and call their callbacks in interrupt context.
  *
  * Threads get their own host stacks (the decomp's stacks are sized for the
  * PowerPC); the stack the game passes is only recorded. The main thread is
@@ -35,7 +38,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <ucontext.h>
-#include <vector>
 
 namespace {
 
@@ -59,7 +61,33 @@ struct HostThread {
 
 OSThread sMainOSThread;
 HostThread sMain;
-std::vector<HostThread*> sThreads; // creation order, sMain first
+// Creation order, sMain first. Plain malloc storage: when the real EGG heap
+// is linked (HOST_BUILD.md §22) operator new allocates from the game's heaps,
+// which may not exist yet (or not be current) when a thread is created.
+struct ThreadList {
+    HostThread** items;
+    size_t count;
+    size_t capacity;
+
+    size_t size() const {
+        return count;
+    }
+    HostThread* operator[](size_t i) const {
+        return items[i];
+    }
+    void push_back(HostThread* t) {
+        if (count == capacity) {
+            capacity = capacity == 0 ? 16 : capacity * 2;
+            items = static_cast<HostThread**>(std::realloc(items, capacity * sizeof(*items)));
+            if (items == NULL) {
+                std::fprintf(stderr, "host_thread: out of memory\n");
+                std::abort();
+            }
+        }
+        items[count++] = t;
+    }
+};
+ThreadList sThreads;
 HostThread* sCurrent = NULL;
 int sInterruptDepth = 0;
 bool sReschedulePending = false;
@@ -109,24 +137,55 @@ HostThread* BestReady(const HostThread* skip) {
     return best;
 }
 
+OSSwitchThreadCallback sSwitchCallback = NULL;
+
 void SwitchTo(HostThread* next) {
     if (next == sCurrent) {
         return;
     }
     HostThread* prev = sCurrent;
+    if (sSwitchCallback != NULL) {
+        // EGG::Thread::switchThreadCallback: onExit / onEnter of EGG threads.
+        sSwitchCallback(prev->os, next->os);
+    }
     sCurrent = next;
     if (swapcontext(&prev->ctx, &next->ctx) != 0) {
         Fail("swapcontext failed");
     }
 }
 
+// Devices (PortOSAddDevice): the DVD drive and the NAND of HOST_BUILD.md §22.
+const int MAX_DEVICES = 8;
+PortOSDeviceFunc sDevices[MAX_DEVICES];
+int sDeviceCount = 0;
+
+// Every thread is blocked (or the main thread idles): the hardware gets to
+// finish what it was asked to do. Each device completes its pending work and
+// calls its callbacks in interrupt context; the caller picks the next thread.
+bool RunDevices() {
+    bool any = false;
+    sInterruptDepth++;
+    for (int i = 0; i < sDeviceCount; i++) {
+        if (sDevices[i]() != 0) {
+            any = true;
+        }
+    }
+    sInterruptDepth--;
+    if (sInterruptDepth == 0) {
+        sReschedulePending = false;
+    }
+    return any;
+}
+
 // The current thread can no longer run: switch to the best ready thread.
 void Block(const void* key) {
     sCurrent->state = ST_WAITING;
     sCurrent->waitKey = key;
-    HostThread* next = BestReady(NULL);
-    if (next == NULL) {
-        Fail("deadlock: every thread is blocked");
+    HostThread* next;
+    while ((next = BestReady(NULL)) == NULL) {
+        if (!RunDevices()) {
+            Fail("deadlock: every thread is blocked");
+        }
     }
     SwitchTo(next);
 }
@@ -193,14 +252,30 @@ void PortOSIdle(void) {
     if (sCurrent != &sMain) {
         Fail("PortOSIdle: only the main thread idles");
     }
-    // The main thread waits; everything ready runs until it blocks.
+    // The main thread waits; everything ready runs until it blocks, and the
+    // devices finish their pending work (which may wake threads again).
     for (;;) {
         HostThread* next = BestReady(&sMain);
         if (next == NULL) {
-            return;
+            if (!RunDevices()) {
+                return;
+            }
+            continue;
         }
         SwitchTo(next);
     }
+}
+
+void PortOSAddDevice(PortOSDeviceFunc func) {
+    for (int i = 0; i < sDeviceCount; i++) {
+        if (sDevices[i] == func) {
+            return;
+        }
+    }
+    if (sDeviceCount == MAX_DEVICES) {
+        Fail("PortOSAddDevice: too many devices");
+    }
+    sDevices[sDeviceCount++] = func;
 }
 
 /* Threads */
@@ -217,7 +292,10 @@ BOOL OSCreateThread(OSThread* thread, OSThreadFunc func, void* funcArg, void* st
 
     HostThread* t = Find(thread);
     if (t == NULL) {
-        t = new HostThread();
+        t = static_cast<HostThread*>(std::calloc(1, sizeof(HostThread)));
+        if (t == NULL) {
+            Fail("OSCreateThread: out of memory");
+        }
         sThreads.push_back(t);
     } else if (t->state != ST_DONE) {
         Fail("OSCreateThread: the thread is still running");
@@ -266,6 +344,32 @@ BOOL OSJoinThread(OSThread* thread, void* val) {
         *static_cast<void**>(val) = t->result;
     }
     return TRUE;
+}
+
+OSSwitchThreadCallback OSSetSwitchThreadCallback(OSSwitchThreadCallback callback) {
+    OSSwitchThreadCallback old = sSwitchCallback;
+    sSwitchCallback = callback;
+    return old;
+}
+
+// The thread never runs again; whoever joins it gets NULL.
+void OSCancelThread(OSThread* thread) {
+    HostThread* t = Find(thread);
+    if (t == NULL || t->state == ST_DONE) {
+        return;
+    }
+    if (t == sCurrent) {
+        Fail("OSCancelThread: a thread cancelling itself");
+    }
+    t->state = ST_DONE;
+    t->result = NULL;
+    Wake(thread);
+}
+
+// Nothing to release: a finished thread's host stack is reused by the next
+// OSCreateThread of the same OSThread.
+void OSDetachThread(OSThread* thread) {
+    (void)thread;
 }
 
 BOOL OSIsThreadTerminated(OSThread* thread) {

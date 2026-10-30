@@ -61,6 +61,10 @@ void* PortArenaAlloc(size_t size, int align);
 void PortArenaFree(void* p);
 /** Bytes currently allocated (including headers and padding). */
 size_t PortArenaUsed(void);
+/* Takes [lo, hi) out of the allocator for good (the OS arenas of the Phase 7
+ * platform layer, HOST_BUILD.md §22). Returns 0 unless the whole range was
+ * free. */
+int PortArenaReserve(void* lo, void* hi);
 
 /** Lo/hi bounds of the arenas, as OSGetMEM1ArenaLo/Hi etc. would return. */
 void* PortArenaMEM1Lo(void);

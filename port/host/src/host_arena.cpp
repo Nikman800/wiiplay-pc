@@ -194,6 +194,46 @@ void PortArenaFree(void* p) {
     Fail("free of a corrupt block");
 }
 
+int PortArenaReserve(void* lo, void* hi) {
+    PortArenaInit();
+    u8* l = static_cast<u8*>(lo);
+    u8* h = static_cast<u8*>(hi);
+    if (l >= h) {
+        return 0;
+    }
+    for (Region& r : sRegions) {
+        if (l < r.lo || h > r.hi) {
+            continue;
+        }
+        FreeBlock** link = &r.free;
+        for (FreeBlock* b = r.free; b != NULL; link = &b->next, b = b->next) {
+            u8* start = reinterpret_cast<u8*>(b);
+            u8* end = start + b->size;
+            if (l < start || h > end) {
+                continue;
+            }
+            // Keep the pieces before and after the range as free blocks
+            // (a piece too small for a block header is dropped).
+            FreeBlock* next = b->next;
+            if (static_cast<size_t>(end - h) >= kMinFree) {
+                FreeBlock* tail = reinterpret_cast<FreeBlock*>(h);
+                tail->size = static_cast<size_t>(end - h);
+                tail->next = next;
+                next = tail;
+            }
+            if (static_cast<size_t>(l - start) >= kMinFree) {
+                b->size = static_cast<size_t>(l - start);
+                b->next = next;
+            } else {
+                *link = next;
+            }
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
 size_t PortArenaUsed(void) {
     return sUsed;
 }

@@ -40,6 +40,13 @@ check, init and bind, no drawing yet).
   real `nw4r::snd` players, threads and AXFX effects on a software model of the AX DSP, and
   every voice's decoded samples, sample-rate conversion, envelope and mix are bit-exact against
   an independent model (§21).
+- The game boots its memory and storage the way it does on the Wii (§22): the real EGG heap
+  stack (`ExpHeap`, `FrmHeap`, `Allocator` over the decomp's MEM heaps) over MEM1/MEM2 arenas
+  in M0, the decomp's DVD file system (`dvdfs.c`) on a host drive backed by the extracted
+  disc and its `sys/fst.bin`, a NAND directory and an SC config file. On it the game's own
+  `RPSysResourceManager` loads every scene's archives byte-identically to `wiiarc.py`, and
+  `RPSysSaveDataMgr` writes `RPParty.dat` and `banner.bin` (big-endian, as on the Wii) on its
+  NAND task thread and loads them back.
 
 `POINTERS.md` steps 0 to 7 are implemented: M0 (emulated Wii addresses for all host heap memory),
 `RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, ResFont (§5 to §7 below), TPL
@@ -103,7 +110,13 @@ anm_harness: 132 BRRES, 222 animations, 59010 results; 0 errors (pointer size 8)
 test_anims: 132 BRRES; AMB 1134, CAM 399, CHR 54684, CLR 1008, LIT 1008, PAT 231, SRT 546; 0 errors
 ef_harness: 206736 curve evaluations, 2286 child creation requests
 test_efcurves: 206736 evaluations (U8 71154, F32 100536, Texture 3186, Child 15045, Rotate 16815), 2286 child requests; 0 errors
+sys_harness: 5 heaps; FST 59 files 67 directories (sys/fst.bin and the tree agree); resources: 24 cached, 27 expanded, 384 archive files; save written, reloaded and reloaded by a second run; SC defaults and config, compared with host32
+errors: 0
+OK
 ```
+
+(The other targets' summaries are in their sections. `sys_harness` counts 6 heaps on `-m32`,
+where the assert heap fits, §22.)
 
 The number of changed bytes depends on the emulated addresses the arena hands out, so it
 differs slightly between the 64-bit and `-m32` builds (48690 there; 6774 changed runs for
@@ -122,6 +135,7 @@ differs slightly between the 64-bit and `-m32` builds (48690 there; 6774 changed
 | `data` | `data_harness` + `tests/test_data.py` (§14: `.plight`, `.plmap`, `.pblm`, game tables) |
 | `anims` | `anm_harness` + `tests/test_anims.py` (§17: every g3d animation evaluated by the real readers) |
 | `efcurves` | `ef_harness --curves` + `tests/test_efcurves.py` (§17: every BREFF curve through `ef_animcurve.cpp`) |
+| `platform` | `sys_harness` + `tests/test_sys.py` (§22: EGG heaps, DVD, NAND / save, SC; saves go to `SYS_SCRATCH`, default `$TMPDIR/wiiplay-sys-host64` (or `host32`; `/tmp` without `TMPDIR`), outside the repository: the banner holds the disc's images) |
 
 The harnesses take well under a second each. The Python reference walks take about 13 s
 (archives, which hashes every file), 3 s (resources) and 3 s (layouts). Nothing is written to disk except the
@@ -244,6 +258,9 @@ These are deliberately minimal and synchronous. The Phase 7 platform layer repla
   - mutexes are no-ops; message queues are single-threaded ring buffers
   - `OSGetCurrentThread` returns a static thread
   - `OSReport` prints to stderr; `OSPanic` aborts
+The DVD and EGG heap stand-ins below are weak: a program that links the platform layer of
+§22 (`dvdfs.c` with `src/host_dvd.cpp`, the real `eggHeap.cpp` and friends) gets those.
+
 - **DVD**:
   - paths resolve against the disc root
   - an entry number indexes a table of opened paths
@@ -505,6 +522,7 @@ check in §2 confirms all of them.
 | `src/Pack/RPGraphics/RPGrpModelRfl.cpp`, `src/Pack/RPSystem/RPSysPauseMgr.cpp`, `src/Pack/RPParty/RPCowScene/RPCowKakasiGroup.cpp` | §18: the `asm volatile { }` scheduling blocks have their C under `#if defined(PORT_HOST)`; `RPCowKakasiGroup::OnActivate`'s asm body is `#if !defined(PORT_HOST)` and its C++ equivalent (formerly `#if 0`) is the host form. |
 | `include/nw4r/g3d/res/g3d_resmdl.h`, `src/nw4r/g3d/g3d_workmem.cpp` | §20: `ResMdlInfo::GetNodeIDFromMtxID` reads the matrix-to-node table as `be_s32`; the work-memory accessors take `&sTemp.x[0]` (GCC rejects `static_cast` from a base-class array to a derived pointer). Type tokens / the same address. |
 | `src/nw4r/snd/snd_WaveFile.cpp`, `snd_AxManager.cpp`, `src/revolution/AX/AXVPB.c` | §21: `ReadWaveParam` copies the file's `AdpcmInfo` into the runtime `ChannelParam` through `be_u16` under `#if PORT_BE_WRAPPED` (the Wii line is the original struct copy); `AxManager::Init` puts the DSP's zero buffer on the M0 arena under `#if defined(PORT_HOST)`; `AXSetVoiceAddr`'s `gain` / `pred_scale` word is `GAIN_WORD(0x0800)` / `GAIN_WORD(0x0100)` (Wii: `0x08000000` / `0x01000000`, the same constants). |
+| `src/revolution/DVD/dvdfs.c`, `src/egg/core/eggStream.cpp`, `src/Pack/RPSystem/RPSysSaveData.cpp`, `include/revolution/NAND/nand.h`, `src/Pack/RPKernel/RPSysSystem.cpp`, `include/port/be.h` | §22: `entryToPath` reads the name through `DVDNodeGetName` (the bitfield is little-endian-ordered on the host); `EGG::Stream`'s binary reads go through `be_*` locals and its writes through `BE_STORED(T, value)` (new macro, `(v)` on the Wii); the save checksum reads `be_u16`; `NANDBanner`'s `magic`, `flags`, `iconSpeed` are `be_u32` / `be_u16`; `RPSysSystem::initialize` rounds through `uintptr_t` instead of `u32` (64-bit compile only; on the Wii both are `unsigned long`). |
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
 
@@ -2126,3 +2144,213 @@ Menu's included: the 14 `.brstm` files on the disc are unreferenced, so the game
 - EGG heaps on the host: `AudioFx` gets no heap, so the effects are created by the harness;
   `RPSndAudioMgr` itself is not linked (it needs the RP scene layer).
 - `OSGetTick` / `OSGetTime` count calls; nothing in the sound path depends on their rate yet.
+
+## 22. The OS / storage platform layer: EGG heaps, DVD, NAND and saves, SC
+
+The game's memory and storage code runs on the host the way it runs on the Wii. The real EGG
+heap stack (`EGG::Heap`, `ExpHeap`, `FrmHeap`, `Allocator`, the disposers) over the decomp's
+MEM heaps and `OSAlloc` / `OSArena` manages MEM1 / MEM2 arenas inside M0; the decomp's DVD file
+system (`dvdfs.c`, `dvdqueue.c`) runs on a host drive backed by the extracted disc; NAND is a
+host directory and SC a small config file. On this layer `sys_harness` boots the way
+`RPSysSystem` does and runs the game's own `RPSysResourceManager` (every scene's archives,
+byte-identical to `wiiarc.py`) and `RPSysSaveDataMgr` (the save and banner files written on the
+NAND task thread, read back, and found again by a second run). 64- and 32-bit output is the
+same apart from heap addresses, and the save files are byte-identical. The matching build is
+unchanged: `check_matching.py` compiles the 974 units that depend on a touched file, all
+identical (2026-10-30).
+
+### Changes to the decomp sources
+
+Six, each the same object on the Wii (checked one by one as well):
+
+| File | Change | Why |
+|---|---|---|
+| `src/revolution/DVD/dvdfs.c` | `entryToPath` reads the name offset with `DVDNodeGetName(FstStart[entrynum])` (as `DVDConvertPathToEntrynum` already does) instead of the `name:24` bitfield | The FST words are in host order on the host; GCC puts a `u32` bitfield's first member in the low bits on little-endian, so `.name` read the wrong 24 bits. |
+| `src/egg/core/eggStream.cpp` | Binary `read_u16` / `s16` / `u32` / `s32` / `float` read into `be_*` locals; the writes pass `&BE_STORED(T, value)`; `#include <port/be.h>` takes the place of a blank line | The save file is a file: `RPSysSaveData` streams it through `EGG::RamStream`, which copied native bytes. The line count stays the same because `DECOMP_FORCEACTIVE` puts `__LINE__` into symbol names (an earlier `#if` block changed `eggStream_cpp214` to `219` and broke the match). |
+| `include/port/be.h` (Wii) and `port/host/include/port/be.h` | New `BE_STORED(T, v)`: `(v)` on the Wii; on the host a big-endian temporary that lives until the end of the full expression (`port::be_stored`) | For code that writes a value's bytes out. |
+| `src/Pack/RPSystem/RPSysSaveData.cpp` | `calcCrc` reads the buffer as `const be_u16*` | The checksum is over big-endian halfwords; the host now computes the Wii's value. |
+| `include/revolution/NAND/nand.h` | `NANDBanner::magic`, `flags`, `iconSpeed` are `be_u32` / `be_u16` | `banner.bin` is written straight from the struct (`RPSysSaveDataMgr::initBanner` sets the icon speed through it). The title strings stay `wchar_t`; the host `NANDInitBanner` stores them as UTF-16BE. |
+| `src/Pack/RPKernel/RPSysSystem.cpp` | `initialize` rounds the arena bounds through `reinterpret_cast<uintptr_t>` instead of `<u32>` (4 lines) | 64-bit compile error; `uintptr_t` is MSL's `unsigned long`, i.e. `u32`, on the Wii. `initialize` itself is not run on the host yet (its second half sets up GX / VI). |
+
+`check_matching.py`'s list of touched files has all six (`be.h` was there).
+
+### The platform layer
+
+| File | What |
+|---|---|
+| `src/host_os.cpp` | **New.** `PortOSInit`: the boot information at 0x80000000 (host layout; `physMemSize` is at 0x28 in both) and the arenas through the decomp's `OSSetMEM1ArenaLo` etc. (`OSArena.c`). The arena ranges are taken out of the host allocator (`PortArenaReserve`, new in `host_arena.cpp`), so arena memory and `PortArenaAlloc` memory never overlap. Weak `OSDisableInterrupts` / `OSRestoreInterrupts` / `OSEnableInterrupts`. |
+| `src/host_dvd.cpp` | **New.** The drive under `dvdfs.c`: `PortDVDSetDisc`, `DVDInit`, `DVDReadAbsAsyncPrio`, `DVDCheckDiskAsync`, `DVDCancel` / `DVDCancelAsync`, `DVDGetCommandBlockStatus`, `DVDGetDriveStatus`, `DVDGetCurrentDiskID`, `__DVDLayoutFormat`. |
+| `src/host_nand.cpp` | **New.** NAND over a directory: `PortNANDSetRoot`, `NANDInit`, open / read / write / seek / length / close and their async and private / safe forms, create / delete / type / status / move / check, home and current directory, `NANDInitBanner`. |
+| `src/host_sc.cpp` | **New.** `PortSCLoadConfig` and the `SCGet*` / `SCSet*` the game and its libraries call. |
+| `src/host_thread.cpp` | Devices (`PortOSAddDevice`): when every thread is blocked, or the main thread idles in `PortOSIdle`, each device finishes its queued work and calls its callbacks in interrupt context. `OSSetSwitchThreadCallback` (EGG's `Thread::switchThreadCallback` runs on every switch), `OSCancelThread`, `OSDetachThread`. The thread table is plain `malloc` memory now: with the real `eggHeap.cpp` linked, `operator new` is `EGG::Heap::alloc` and there may be no heap yet. |
+| `src/host_sdk.cpp` | The DVD functions, `EGG::Heap::alloc` / `free` / `findContainHeap` / `sCurrentHeap` and the global `operator new` / `delete` stand-ins are weak; the sized deletes forward to the unsized ones (which are EGG's when it is linked). The older harnesses keep using them. |
+| `include/port/host.h` | `PortOSInit`, `PortDVDSetDisc`, `PortDVDGetFst`, `PortNANDSetRoot`, `PortSCLoadConfig`, `PortOSAddDevice`. |
+
+Start-up order, before the game's own init (`RPSysSystem::initialize`: `DVDInit`, the heaps):
+`PortOSInit()`, `PortDVDSetDisc(files, fst)`, `PortNANDSetRoot(dir)`, `PortSCLoadConfig(path)`.
+All paths are arguments; nothing in the layer has a built-in path.
+
+### Memory
+
+| Range | What |
+|---|---|
+| 0x80000000 - 0x80003100 | OS globals (never allocated; the boot information) |
+| 0x80003100 - 0x80500000 | stands for the DOL (the game's code and data end near 0x8044C000); host allocator |
+| 0x80500000 - FST | MEM1 arena: OSInitAlloc's heap table, then the MEM1 root heap (19.0 MB) |
+| FST - 0x81800000 | the FST (3212 bytes), placed by `PortDVDSetDisc` as the apploader does |
+| 0x90000000 - 0x90000800 | reserved, as on the Wii |
+| 0x90000800 - 0x933E0000 | MEM2 arena: the MEM2 root heap (51.9 MB; under 64 MB, so no debug heap) |
+| 0x933E0000 - 0x94000000 | IOS's part of MEM2; host allocator |
+
+`EGG::ConfigurationData::initMemory` (the decomp's EGG system code, run on the game's own
+`RPSysSystem::sConfigData` with the 0x600000 system heap `RPSysSystem::initialize` uses) builds the
+root heaps and the system heap and hands the whole arenas to them, exactly as on the Wii;
+`RPSysSystem::setup`'s heaps follow (the 24 MiB resource `FrmHeap` and the 0x100-byte assert heap
+from MEM2, the 0x80000 reserve heap from MEM1).
+
+The heaps' bookkeeping is host-sized: `EGG::ExpHeap` is 104 bytes and `MEMiHeapHead` 120 on
+64-bit (about half on `-m32`), and every MEM block header has two pointers. Two consequences:
+
+- `RPSysSystem::setup`'s assert heap (`ExpHeap::create(0x100, ...)`) does not fit on 64-bit and
+  `create` returns NULL; `setup` would call `disableAllocation` on it. It fits on `-m32`.
+  The real boot needs a decision here (a host size for that one heap, or skipping it).
+- Heaps the game sizes tightly lose more to headers than on the Wii. Nothing on the paths tested
+  here runs out, but the scenes' heap budgets are untested.
+
+### DVD
+
+- **FST.** `sys/fst.bin` next to the `files/` directory (Dolphin's "Extract Entire Disc" and wit
+  both produce this layout), or a given path. If there is none, the FST is built from the tree
+  in the mastering tools' order: each directory's entries sorted by name compared as upper case,
+  files and directories mixed, depth first. `test_sys.py` checks that this gives the disc's entry
+  numbers for all 126 paths (59 files, 67 directories); a case-sensitive sort already moves 125.
+- **Reads.** `dvdfs.c` turns a file read into `DVDReadAbsAsyncPrio(offset in words)`. The drive
+  finds the extracted file whose FST extent contains the disc address and reads it; bytes past
+  the end of the file are zero (the disc would return whatever follows).
+- **Timing.** A command waits in the decomp's priority queue until the CPU waits: when every
+  thread is blocked (`DVDReadPrio`'s `OSSleepThread`, `EGG::DvdFile::sync`'s message queue) or
+  the main thread idles. Then the drive completes all queued commands in queue order and calls
+  their callbacks in interrupt context, so the woken threads run afterwards, as on the Wii. A
+  callback is never called before the call that queued it returns. Busy-polling
+  `DVDGetCommandBlockStatus` without waiting would not see progress (nothing in the game does).
+- **Cancel.** A waiting command is taken off the queue, its callback gets
+  `DVD_RESULT_CANCELED` and the cancel callback `DVD_RESULT_GOOD`; a finished one only gets the
+  cancel callback. `DVDCheckDiskAsync` completes with TRUE (the disc is always there).
+
+### NAND and the save files
+
+A NAND path maps to `<root><path>`; relative paths are relative to the title's home directory,
+`/title/00010000/52484145/data` (from the disc ID), which `PortNANDSetRoot` creates with `/tmp`.
+`.` and `..` components are refused. Results follow the SDK: `NANDOpen` does not truncate,
+`NANDCreate` of an existing file is `NAND_RESULT_EXISTS`, missing files are
+`NAND_RESULT_NOEXISTS`, `NANDMove` moves a file into a directory, `NANDCheck` always has room.
+Async calls do the work at once and deliver the callback when the NAND device runs (the same
+rule as the DVD). `NANDPrivateSafeOpenAsync` / `NANDSafeCloseAsync` are a plain open and close.
+
+The game's save path runs unmodified: `RPSysSaveDataMgr::CreateInstance` on the MEM2 root heap,
+`initBanner` (the title and subtitle are `party_message.bmg` messages 1001 / 1002, the images
+`banner.tpl`'s two textures), then `existPackFileAsync`, `existNandMemoryAsync`,
+`createPackFileAsync`, `loadAsync` and `saveAsync`, each a request to the NAND
+`EGG::TaskThread` (`RPSysSystem::createFromSystemHeap`'s, priority 18), finished the way
+`RPSysScene::updateNandEndMessage` does once a frame. The files it writes:
+
+- `RPParty.dat`, 32768 bytes: `RPPT`, `0000`, the system data, 100 players, the checksum, all
+  big-endian through `EGG::Stream` (20644 bytes; the rest is the heap buffer's content).
+- `banner.bin`, 29344 bytes (`NAND_BANNER_SIZE(1)`): `WIBN`, flags 0, icon speed 2, the UTF-16BE
+  title and subtitle, the 192x64 banner and one 48x48 icon frame.
+
+Both have the Wii's layout, so a save from Dolphin's NAND (`title/00010000/52484145/data`)
+should load unchanged (not tried yet: no such save is at hand).
+
+### SC
+
+`PortSCLoadConfig(path)` reads `key = value` lines (`#` comments): `language` (`jp en de fr es
+it nl zh-s zh-t kr` or 0-9), `aspect` (`4:3`, `16:9`), `progressive`, `eurgb60`, `sound`
+(`mono stereo surround`), `sensorbar` (`bottom top`), `sensitivity` (1-5), `rumble`, `speaker`
+(0-127), `screensaver`, `offset` (-32..32). Defaults: English, 4:3, interlaced, 60 Hz, stereo,
+sensor bar below, sensitivity 3, rumble on, speaker 85, screen saver on. 4:3 because no
+aspect-ratio choice is recorded in the port's docs; 16:9 is one line. A bad line is an error
+(the harness exits with status 2). `SCFlushAsync` keeps changes in memory. The decomp's
+`scapi.c` / `scsystem.c` are not used: they parse SYSCONF from the NAND with native reads.
+
+### What is linked, and what is stubbed
+
+`SYS_SRCS` in the Makefile: `eggHeap`, `eggExpHeap`, `eggFrmHeap`, `eggAllocator`, `eggStream`,
+`eggThread`, `eggTaskThread`, `eggSystem`, `eggScene`, `eggSceneManager`; the MEM expanded and
+frame heaps, `mem_allocator.c`; `OSArena.c`, `OSAlloc.c`; `dvdfs.c`, `dvdqueue.c`;
+`RPSysResourceManager`, `RPSysSaveDataMgr`, `RPSysSaveData`, the party / sports data units,
+`RPSysSceneCreator`, `RPSysProjectLocal`, `RPSysSystem`, `RPSysSystem_2`, `RPSysFile`,
+`IRPSysHostIOSocket`; with `RPSysMessage` (`tests/rpsysmessage_unit.cpp`), linked with
+`--gc-sections`. `PACK_PARTY` is now defined for the whole host build, as for the game's units in
+the matching build (no unit linked before depended on it).
+
+`tests/sys_host.c` has what the kept code references but the harness never reaches, each
+aborting with its name: the scene classes `RPSysSceneCreator::create` builds (it is virtual, so
+its vtable keeps it; the scene vtables are zero placeholders), the system window and controller
+calls on the save manager's error paths, `OSReturnToMenu` / `OSShutdownSystem` and two VI calls.
+`VFIsAvailable` answers "no VF", so `RPSysSaveDataMgr`'s constructor skips `VFInitEx`.
+
+### The harness
+
+`tests/sys_harness.cpp` follows the game's start-up: the platform calls, then
+`EGG::BaseSystem::configure(&RPSysSystem::sConfigData)`, `DVDInit`, `NANDInit`, `SCInit`,
+`initMemory`, `EGG::Thread::initialize` with the main thread wrapped, `EGG::DvdFile::initialize`,
+the MEM2 root heap current; `RPSysSystem::create` and the parts of `setup` /
+`createFromSystemHeap` the tested code reads (the resource / assert / reserve heaps,
+`RPSysSceneCreator`, `RPSysProjectLocal`, `setupLocalSettings`, `RPSysResourceManager`, the NAND
+and DVD task threads and their end queue). Private members are set through explicit template
+instantiation (which may name them), so no header changes for the test. `RPSysSceneMgr` /
+`RPSysScene` are not linked yet: the harness defines `getCurrentSceneRP` (an `EGG::Scene` built
+on a scene heap) and `isNandAccessEnable` (true). `RPSysConfigData::mDisplay` is a zeroed
+stand-in (the `RPSysSystem` constructor sets its frame rate). The message archive's BMG text is
+swapped once with `PortSwapBmgText` (§6) before `initBanner` reads it.
+
+```
+sys_harness --disc FILES --nand DIR [--sc FILE] [--fst PATH | --fst-tree] [--list PATHS]
+            [--sections heap,dvd,res,save,sc] [--save-values SEED]
+```
+
+Sections: **heap** (arena bounds, the heap tree, expanded-heap allocations at nine alignments
+head and tail, frees through `EGG::Heap::free` / `MEMFindContainHeap` and directly, the frame
+heap from both ends, `EGG::Allocator` and `MEMAllocFromAllocator`, `operator new[]` on the
+current heap, placement new on a heap, a disposer run by `destroy`); **dvd** (every path of the
+list: `DVDConvertPathToEntrynum`, `DVDOpen` and `DVDFastOpen`, `DVDReadPrio` in 32 KB chunks
+hashed; failing, case-insensitive and `..` lookups; three async reads, one cancelled; a
+blocking message-queue wait; a read from a second thread); **res** (`LoadCacheArchives`,
+`LoadMessageArchive`, `LoadFontArchive`, `LoadKokeshiArchive`, `LoadStaticCommonArchive` /
+`LoadStaticLocalArchive`, then for each of the 11 scenes `LoadGameCommonArchive` /
+`LoadGameLocalArchive` on a scene heap, which is then destroyed and must take its files out of
+the list; every `RPSysFile` of the cache and file lists is printed with every file of its archive);
+**save** (above, with seeded values); **sc** (every getter, `setupLocalSettings`).
+
+### What the test checks
+
+`tests/test_sys.py` (`make platform`, part of `make test`; about 30 s) wipes and uses a
+scratch directory (`SYS_SCRATCH`) for the path list, the NAND directories and the configs:
+
+| Check | Model | Coverage |
+|---|---|---|
+| Heaps | the arenas fully handed to the root heaps; root heaps inside their arenas; each child heap inside its parent with the requested block size and kind; the MEM2 root heap current; the harness's allocation checks | 5 heaps (6 on `-m32`, with the assert heap) |
+| FST | `sys/fst.bin` parsed in the test: every path's entry number; files' sizes and FNV-1a against the extracted files; directories refuse `DVDFastOpen` | 126 paths |
+| FST from the tree | `--fst-tree` must give the same entry numbers | 126 paths |
+| Async | status WAITING before the CPU waits, no callback before; cancel first, then the reads in order; the bytes; the blocking wait; the other thread's read | 1 scenario each |
+| Resources | cached files as read from the disc rounded to 32 bytes; expanded archives as `wiiarc.yaz0`; each archive's files, sizes and FNV-1a as `wiiarc.u8` lists them, in order; `GetMessageResource`; `IsExist` | 24 cached, 27 expanded, 384 archive files |
+| Save | the steps on a fresh NAND (exist, memory, create, load, save, reload) and on the same NAND again (exist, load, save, reload); `RPParty.dat` decoded in the test, every printed value and the checksum; `banner.bin` header, text against `fmt_text_font.bmg_messages`, images against `banner.tpl`; the second run loads the first run's save; `/tmp` empty after the move | 2 runs |
+| SC | the defaults; a config with every key; a bad value fails | 3 runs |
+| 64 / 32 | `--compare`: the other build's lines (heap addresses aside) and save files byte-identical | all but the heap lines |
+
+A mutation check while writing the test (the tree FST sorted case-sensitively) produced 125
+errors.
+
+### Still open
+
+- The rest of `RPSysSystem::initialize` / `setup` (GraphicsFifo, video, XFB, display, the
+  exception handler, the scene manager): with the GX / VI layer.
+- The assert heap on 64-bit (above); heap budgets with 64-bit headers in real scenes.
+- `RPSysSceneMgr` / `RPSysScene` (the harness stands in for the two calls the save code makes).
+- The older harnesses keep their arena allocators; `audio_harness` could now use real EGG heaps
+  for `AudioFx` (§21) by linking this layer.
+- The Mii database on the NAND (`/shared2/menu/FaceLib/RFL_DB.dat`, `RPSysKokeshiManager`'s
+  private NAND calls) and loading a save taken from Dolphin.
+- `EGG::UnitHeap` is not in Wii Play (no `eggUnitHeap.cpp`, no MEM unit heap in the binary).
+- The BMG swap for the message archive belongs in the Phase 7 loader (§6).

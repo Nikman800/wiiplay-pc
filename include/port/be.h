@@ -29,6 +29,8 @@
 
 #define BE_GET(field) (field)
 #define BE_SET(field, value) ((field) = (value))
+// A value as a file stores it (C++ only; on the host a big-endian temporary).
+#define BE_STORED(T, v) (v)
 
 // Byte i (0 = most significant) of a size-byte integer seen through a union.
 #define BE_BYTE(i, size) i

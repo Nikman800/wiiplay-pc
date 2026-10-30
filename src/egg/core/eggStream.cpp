@@ -3,7 +3,7 @@
 
 #include <egg/core.h>
 #include <egg/prim.h>
-
+#include <port/be.h>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -81,7 +81,7 @@ void Stream::write_s8(s8 value) {
 }
 
 u16 Stream::read_u16() {
-    u16 value;
+    be_u16 value;
     int number;
 
     if (isTextMode()) {
@@ -102,12 +102,12 @@ void Stream::write_u16(u16 value) {
     if (isTextMode()) {
         printf("%d ", value);
     } else {
-        _write(&value, sizeof(u16));
+        _write(&BE_STORED(u16, value), sizeof(u16));
     }
 }
 
 s16 Stream::read_s16() {
-    s16 value;
+    be_s16 value;
     int number;
 
     if (isTextMode()) {
@@ -127,12 +127,12 @@ void Stream::write_s16(s16 value) {
     if (isTextMode()) {
         printf("%d ", value);
     } else {
-        _write(&value, sizeof(s16));
+        _write(&BE_STORED(s16, value), sizeof(s16));
     }
 }
 
 u32 Stream::read_u32() {
-    u32 value;
+    be_u32 value;
     int number;
 
     if (isTextMode()) {
@@ -152,12 +152,12 @@ void Stream::write_u32(u32 value) {
     if (isTextMode()) {
         printf("%d ", value);
     } else {
-        _write(&value, sizeof(u32));
+        _write(&BE_STORED(u32, value), sizeof(u32));
     }
 }
 
 s32 Stream::read_s32() {
-    s32 value;
+    be_s32 value;
     int number;
 
     if (isTextMode()) {
@@ -177,7 +177,7 @@ void Stream::write_s32(s32 value) {
     if (isTextMode()) {
         printf("%d ", value);
     } else {
-        _write(&value, sizeof(s32));
+        _write(&BE_STORED(s32, value), sizeof(s32));
     }
 }
 
@@ -187,7 +187,7 @@ DECOMP_FORCEACTIVE(eggStream_cpp,
                   "%08x ");
 
 f32 Stream::read_float() {
-    f32 value;
+    be_f32 value;
     f32 number;
 
     if (isTextMode()) {
@@ -207,7 +207,7 @@ void Stream::write_float(f32 value) {
     if (isTextMode()) {
         printf("%f ", value);
     } else {
-        _write(&value, sizeof(f32));
+        _write(&BE_STORED(f32, value), sizeof(f32));
     }
 }
 

@@ -38,7 +38,7 @@ INCLUDES := -I$(HOST)/include -I$(REPO)/include $(addprefix -idirafter ,$(BTE_DI
             $(addprefix -idirafter ,$(EGG_DIRS)) -idirafter $(REPO)/include/nw4r -idirafter $(REPO)/include/Pack
 
 DEFINES := -DPORT_HOST=1 -DNONMATCHING -DREVOLUTION -DNDEBUG=1 \
-           -DVERSION_RHAE01 -DVERSION_RHAE01_01
+           -DVERSION_RHAE01 -DVERSION_RHAE01_01 -DPACK_PARTY
 
 WARN := -Wall -Wno-unknown-pragmas -Wno-unused-function -Wno-unused-variable \
         -Wno-unused-but-set-variable -Wno-sign-compare -Wno-parentheses
@@ -545,3 +545,42 @@ audio: $(OUT)/audio_harness
 	python3 $(HOST)/tests/test_audio.py --harness $(OUT)/audio_harness --disc $(DISC) \
 	    --compare $(AUDIO_OTHER)
 test: audio
+
+# --- OS / storage platform layer (Phase 7; docs/HOST_BUILD.md §22) -------------
+# The real EGG heaps (Heap / ExpHeap / FrmHeap / Allocator) over the decomp's MEM
+# heaps and OSAlloc / OSArena, inside the M0 arenas (src/host_os.cpp); the DVD
+# file system (dvdfs.c, dvdqueue.c) on the host drive (src/host_dvd.cpp); NAND
+# (src/host_nand.cpp) and SC (src/host_sc.cpp); and the game's RPSysSystem,
+# RPSysResourceManager and RPSysSaveDataMgr on top. sys_harness boots the way the
+# game does and runs them (tests/test_sys.py). Test saves go to a scratch NAND
+# directory (SYS_SCRATCH, wiped by each run), never into the repository or the
+# disc: the banner file holds the disc's banner images.
+SYS_SRCS := $(addprefix src/egg/core/,eggHeap.cpp eggExpHeap.cpp eggFrmHeap.cpp eggAllocator.cpp \
+    eggStream.cpp eggThread.cpp eggTaskThread.cpp eggSystem.cpp eggScene.cpp eggSceneManager.cpp) \
+    $(addprefix src/revolution/MEM/,mem_expHeap.c mem_frameHeap.c mem_heapCommon.c mem_list.c \
+    mem_allocator.c) \
+    src/revolution/OS/OSArena.c src/revolution/OS/OSAlloc.c \
+    src/revolution/DVD/dvdfs.c src/revolution/DVD/dvdqueue.c \
+    $(addprefix src/Pack/RPSystem/,RPSysResourceManager.cpp RPSysSaveDataMgr.cpp RPSysSaveData.cpp \
+    RPPartyPlayerData.cpp RPPartySystemData.cpp RPSportsPlayerData.cpp RPSysSceneCreator.cpp \
+    RPSysProjectLocal.cpp) \
+    $(addprefix src/Pack/RPKernel/,RPSysSystem.cpp RPSysSystem_2.cpp RPSysFile.cpp \
+    IRPSysHostIOSocket.cpp)
+SYS_HOST_SRCS := src/host_os.cpp src/host_dvd.cpp src/host_nand.cpp src/host_sc.cpp \
+    src/host_thread.cpp src/host_os_clock.c
+SYS_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(SYS_SRCS)) \
+    $(patsubst %,$(OUT)/host/%.o,$(SYS_HOST_SRCS)) $(OUT)/tests/sys_host.c.o \
+    $(OUT)/tests/rpsysmessage_unit.cpp.o
+
+$(OUT)/sys_harness: $(HOST)/tests/sys_harness.cpp $(SYS_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(SYS_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+SYS_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-sys-$(notdir $(OUT))
+.PHONY: platform
+all: $(OUT)/sys_harness
+# --compare: the other build's harness, if it has been built, must print the same.
+SYS_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/sys_harness
+platform: $(OUT)/sys_harness
+	python3 $(HOST)/tests/test_sys.py --harness $(OUT)/sys_harness --disc $(DISC) \
+	    --scratch $(SYS_SCRATCH) --compare $(SYS_OTHER)
+test: platform

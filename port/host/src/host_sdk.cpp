@@ -15,6 +15,11 @@
  *   EGG    Heap::alloc/free and the global/heap operator new/delete
  *          allocate from the M0 arena (host_arena.cpp, port/arena.h);
  *          Heap::findContainHeap returns NULL, Heap::sCurrentHeap is NULL
+ *
+ * The DVD and EGG heap definitions are weak: a program that links the
+ * Phase 7 platform layer (HOST_BUILD.md §22: the decomp's dvdfs.c with
+ * src/host_dvd.cpp, and the real eggHeap.cpp / eggExpHeap.cpp / MEM heaps)
+ * gets those instead.
  *   VI/DC  no-ops
  */
 
@@ -147,7 +152,7 @@ void VIWaitForRetrace(void) {}
  * DVD
  ******************************************************************************/
 
-s32 DVDConvertPathToEntrynum(const char* path) {
+__attribute__((weak)) s32 DVDConvertPathToEntrynum(const char* path) {
     std::string rel = path;
     while (!rel.empty() && rel[0] == '/') {
         rel.erase(0, 1);
@@ -169,7 +174,7 @@ s32 DVDConvertPathToEntrynum(const char* path) {
     return static_cast<s32>(sEntries.size() - 1);
 }
 
-BOOL DVDFastOpen(s32 entrynum, DVDFileInfo* info) {
+__attribute__((weak)) BOOL DVDFastOpen(s32 entrynum, DVDFileInfo* info) {
     if (entrynum < 0 || static_cast<size_t>(entrynum) >= sEntries.size()) {
         return FALSE;
     }
@@ -187,11 +192,11 @@ BOOL DVDFastOpen(s32 entrynum, DVDFileInfo* info) {
     return TRUE;
 }
 
-BOOL DVDOpen(const char* path, DVDFileInfo* info) {
+__attribute__((weak)) BOOL DVDOpen(const char* path, DVDFileInfo* info) {
     return DVDFastOpen(DVDConvertPathToEntrynum(path), info);
 }
 
-BOOL DVDClose(DVDFileInfo* info) {
+__attribute__((weak)) BOOL DVDClose(DVDFileInfo* info) {
     if (info->block.userData != NULL) {
         std::fclose(static_cast<FILE*>(info->block.userData));
         info->block.userData = NULL;
@@ -199,7 +204,7 @@ BOOL DVDClose(DVDFileInfo* info) {
     return TRUE;
 }
 
-s32 DVDReadPrio(DVDFileInfo* info, void* dst, s32 size, s32 offset,
+__attribute__((weak)) s32 DVDReadPrio(DVDFileInfo* info, void* dst, s32 size, s32 offset,
                 s32 prio) {
     (void)prio;
     FILE* f = static_cast<FILE*>(info->block.userData);
@@ -217,7 +222,7 @@ s32 DVDReadPrio(DVDFileInfo* info, void* dst, s32 size, s32 offset,
     return size;
 }
 
-BOOL DVDReadAsyncPrio(DVDFileInfo* info, void* dst, s32 size, s32 offset,
+__attribute__((weak)) BOOL DVDReadAsyncPrio(DVDFileInfo* info, void* dst, s32 size, s32 offset,
                       DVDAsyncCallback callback, s32 prio) {
     s32 result = DVDReadPrio(info, dst, size, offset, prio);
     if (callback != NULL) {
@@ -226,7 +231,7 @@ BOOL DVDReadAsyncPrio(DVDFileInfo* info, void* dst, s32 size, s32 offset,
     return TRUE;
 }
 
-s32 DVDGetCommandBlockStatus(const DVDCommandBlock* block) {
+__attribute__((weak)) s32 DVDGetCommandBlockStatus(const DVDCommandBlock* block) {
     (void)block;
     return 0; // DVD_STATE_END
 }
@@ -260,51 +265,53 @@ void HostFree(void* p) {
 
 namespace EGG {
 
-void* Heap::alloc(u32 size, int align, Heap* pHeap) {
+__attribute__((weak)) void* Heap::alloc(u32 size, int align, Heap* pHeap) {
     (void)pHeap;
     return HostAlloc(size, align);
 }
 
-void Heap::free(void* pBlock, Heap* pHeap) {
+__attribute__((weak)) void Heap::free(void* pBlock, Heap* pHeap) {
     (void)pHeap;
     HostFree(pBlock);
 }
 
-Heap* Heap::findContainHeap(const void* pBlock) {
+__attribute__((weak)) Heap* Heap::findContainHeap(const void* pBlock) {
     (void)pBlock;
     return NULL;
 }
 
 // No heaps on the host yet: Heap::getCurrentHeap() is NULL, and the heap
 // operator new below ignores the heap.
-Heap* Heap::sCurrentHeap = NULL;
+__attribute__((weak)) Heap* Heap::sCurrentHeap = NULL;
 
 } // namespace EGG
 
-void* operator new(size_t size) {
+__attribute__((weak)) void* operator new(size_t size) {
     return HostAlloc(size, 4);
 }
-void* operator new(size_t size, EGG::Heap* pHeap, int align) {
+__attribute__((weak)) void* operator new(size_t size, EGG::Heap* pHeap, int align) {
     return EGG::Heap::alloc(static_cast<u32>(size), align, pHeap);
 }
-void* operator new[](size_t size) {
+__attribute__((weak)) void* operator new[](size_t size) {
     return HostAlloc(size, 4);
 }
-void* operator new[](size_t size, int align) {
+__attribute__((weak)) void* operator new[](size_t size, int align) {
     return HostAlloc(size, align);
 }
-void* operator new[](size_t size, EGG::Heap* pHeap, int align) {
+__attribute__((weak)) void* operator new[](size_t size, EGG::Heap* pHeap, int align) {
     return EGG::Heap::alloc(static_cast<u32>(size), align, pHeap);
 }
-void operator delete(void* pBlock) noexcept {
+__attribute__((weak)) void operator delete(void* pBlock) noexcept {
     HostFree(pBlock);
 }
-void operator delete[](void* pBlock) noexcept {
+__attribute__((weak)) void operator delete[](void* pBlock) noexcept {
     HostFree(pBlock);
 }
+// Sized deletes forward to the unsized ones, which are the real EGG ones
+// (Heap::free) when eggHeap.cpp is linked.
 void operator delete(void* pBlock, size_t) noexcept {
-    HostFree(pBlock);
+    ::operator delete(pBlock);
 }
 void operator delete[](void* pBlock, size_t) noexcept {
-    HostFree(pBlock);
+    ::operator delete[](pBlock);
 }

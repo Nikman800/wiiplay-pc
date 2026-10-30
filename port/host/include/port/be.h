@@ -233,6 +233,13 @@ template <typename T, typename S> inline T be_get(const be<T, S>& f) {
 }
 inline u32 be_get(const be24& f) { return f.get(); }
 
+// BE_STORED(T, v): v as a file stores it, in a temporary that lives until the
+// end of the full expression, for code that writes a value's bytes out
+// (EGG::Stream::write_u32 and friends, HOST_BUILD.md §22).
+template <typename T> inline be<T>& be_stored(be<T>&& v) {
+    return v;
+}
+
 } // namespace port
 
 typedef port::be<u16> be_u16;
@@ -248,6 +255,7 @@ typedef port::be24 be_u24;
 
 #define BE_GET(field) (port::be_get(field))
 #define BE_SET(field, value) ((field) = (value))
+#define BE_STORED(T, v) (port::be_stored(port::be<T>(v)))
 
 #define PORT_BE_CHECK(T, P)                                                    \
     static_assert(sizeof(T) == sizeof(P) && alignof(T) == alignof(P) &&        \

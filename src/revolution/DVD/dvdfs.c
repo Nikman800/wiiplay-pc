@@ -276,7 +276,7 @@ static u32 entryToPath(s32 entrynum, char* string, u32 maxlen) {
         return 0;
     }
 
-    name = FstStringStart + FstStart[entrynum].name;
+    name = FstStringStart + DVDNodeGetName(FstStart[entrynum]);
 
     written = entryToPath(FstStart[entrynum].folder.parent, string, maxlen);
     if (written == maxlen) {

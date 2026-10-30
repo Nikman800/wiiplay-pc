@@ -16,6 +16,22 @@ extern "C" {
 /** Directory that DVD paths resolve against (the extracted disc's files/). */
 void PortHostSetDiscRoot(const char* pRoot);
 
+/* Phase 7 platform layer (HOST_BUILD.md §22). Call in this order, before the
+ * game's own init (RPSysSystem::initialize / DVDInit / NANDInit / SCInit):
+ *
+ *   PortOSInit          boot information, MEM1/MEM2 arenas in M0
+ *   PortDVDSetDisc      the extracted disc: its files/ directory and the FST
+ *                       (NULL: files/../sys/fst.bin, or built from the tree
+ *                       when that is missing; ""  forces the tree); returns 1
+ *                       when the FST was built from the tree
+ *   PortNANDSetRoot     the directory that stands for the NAND
+ *   PortSCLoadConfig    system settings (NULL: the defaults) */
+void PortOSInit(void);
+int PortDVDSetDisc(const char* filesRoot, const char* fstPath);
+const void* PortDVDGetFst(u32* size, int* fromTree);
+int PortNANDSetRoot(const char* root);
+int PortSCLoadConfig(const char* path);
+
 /**
  * Swaps the UTF-16BE text of a loaded BMG (MESGbmg1, 16-bit encoding) to host
  * byte order in place. Tag payloads stay big-endian (EGG::MsgRes::analyzeTag
@@ -34,6 +50,11 @@ int PortSwapBmgText(void* pBmg);
 void PortOSEnterInterrupt(void);
 void PortOSLeaveInterrupt(void);
 void PortOSIdle(void);
+/* A device (HOST_BUILD.md §22): finishes its pending commands, calling their
+ * callbacks, and returns nonzero if it did anything. Devices run when every
+ * thread is blocked and when the main thread idles (src/host_thread.cpp). */
+typedef int (*PortOSDeviceFunc)(void);
+void PortOSAddDevice(PortOSDeviceFunc func);
 
 /*
  * AX (src/host_ax.cpp, HOST_BUILD.md §21): the DSP as a software mixer.

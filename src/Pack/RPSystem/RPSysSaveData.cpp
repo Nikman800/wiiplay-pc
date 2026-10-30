@@ -3,6 +3,8 @@
 
 #include <revolution/OS.h>
 
+#include <port/be.h>
+
 /**
  * @brief Constructor
  */
@@ -234,7 +236,7 @@ u32 RPSysSaveData::getSaveFileSize() {
 inline u32 RPSysSaveData::calcCrc(const void* pData, u32 size) {
     u16 sum = 0;
     u16 isum = 0;
-    const u16* p = static_cast<const u16*>(pData);
+    const be_u16* p = static_cast<const be_u16*>(pData);
 
     for (int i = 0; i < size / sizeof(u16); i++, p++) {
         sum += *p;

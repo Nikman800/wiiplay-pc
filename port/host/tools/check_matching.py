@@ -236,6 +236,12 @@ TOUCHED = [
     # Phase 7 sound runtime and AX mixer (HOST_BUILD.md §21); snd_AxManager.cpp and
     # snd_WaveFile.cpp are already listed above.
     "src/revolution/AX/AXVPB.c",
+    # Phase 7 OS / storage platform layer (HOST_BUILD.md §22)
+    "src/revolution/DVD/dvdfs.c",
+    "src/egg/core/eggStream.cpp",
+    "src/Pack/RPSystem/RPSysSaveData.cpp",
+    "include/revolution/NAND/nand.h",
+    "src/Pack/RPKernel/RPSysSystem.cpp",
 ]
 
 
