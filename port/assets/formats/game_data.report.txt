@@ -1,0 +1,32 @@
+Command:
+python3 port/assets/tools/fmt_game_data.py --check ~/wii-play/extracted/files
+
+Exit status: 0
+
+Exact stdout:
+LGHT: parsed=17 errors=0 versions=1 counts=17x16
+LMAP: parsed=11 errors=0 versions=0 counts=11x2
+PBLM: parsed=4 errors=0 versions=0,1 counts=-
+MMSC: parsed=2 errors=0 versions=0 counts=2x6
+DucBalloonParam: parsed=1 errors=0 versions=- counts=1x47
+DucCanParam: parsed=1 errors=0 versions=- counts=1x184
+DucCircleMatoParam: parsed=1 errors=0 versions=- counts=1x80
+DucClayParam: parsed=1 errors=0 versions=- counts=1x121
+DucDuckParam: parsed=1 errors=0 versions=- counts=1x135
+DucUfoParam: parsed=1 errors=0 versions=- counts=1x298
+leveltable: parsed=1 errors=0 versions=- counts=1x13
+rallyleveluptable: parsed=1 errors=0 versions=- counts=1x217
+rallyleveluptable2: parsed=1 errors=0 versions=- counts=1x101
+wanted_1p_leveltable: parsed=1 errors=0 versions=- counts=1x99
+wanted_2p_leveltable: parsed=1 errors=0 versions=- counts=1x80
+TnkMapData: parsed=120 errors=0 versions=- counts=60x272,60x374
+TnkGameParam: parsed=1 errors=0 versions=- counts=1x100
+BomQuestionParam: parsed=1 errors=0 versions=- counts=1x250
+
+Exact stderr:
+(empty)
+
+Known gaps:
+- MMSC has an empty SetBinaryInner in the current decompilation, so its record layout is validated against the declared structure rather than loader field access.
+- Some reserved or loader-unused bytes are retained in decoded results as unparsed padding/unknown fields; this includes EGG padding and selected fields marked [L] in the decompiled headers.
+- Duck, Tank enemy, and Find Mii table values are decoded structurally, but the parser does not independently verify all game-logic ranges because the decompiled loaders generally copy the values without validation.
