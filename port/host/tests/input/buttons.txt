@@ -1,0 +1,49 @@
+# Buttons: each one, combinations, one-frame presses, long holds (repeat).
+0 connect
+0 mouse 304 228
+10 press A
+15 release A
+20 press B
+25 release B
+30 press 1
+35 release 1
+40 press 2
+45 release 2
+50 press PLUS
+55 release PLUS
+60 press MINUS
+65 release MINUS
+70 press HOME
+75 release HOME
+80 press UP
+85 release UP
+90 press DOWN
+95 release DOWN
+100 press LEFT
+105 release LEFT
+110 press RIGHT
+115 release RIGHT
+120 press A B
+123 release A
+126 press UP 1
+128 release B UP 1
+132 press A
+133 release A
+134 press A
+135 release A
+136 press A
+137 release A
+138 press A
+139 release A
+140 press A
+141 release A
+142 press A
+143 release A
+144 press B
+344 release B
+349 press RIGHT
+439 press DOWN
+499 release RIGHT DOWN
+509 press Z C
+514 release Z C
+end 519

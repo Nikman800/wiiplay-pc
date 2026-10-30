@@ -1,0 +1,34 @@
+# Nunchuk: attach, stick, Z / C, its tilt; a second remote; disconnects and
+# a reconnect (rumble, the connect sound, the speaker callbacks).
+0 connect
+0 mouse 304 228
+0 battery 1
+20 nunchuk 1
+40 stick 0.5 0
+44 stick 1 0
+48 stick -1 0
+52 stick 0 1
+56 stick 0 -1
+60 stick 0.3 -0.7
+64 stick 1 1
+68 stick 0.01 0.2
+72 stick -0.26 0.6
+76 stick 0 0
+80 press Z
+84 press C
+88 release Z C
+92 fsroll 40
+96 fspitch -30
+100 fsaccel 0 1.5 0
+104 fsaccel 0 0 0
+108 chan 1
+108 connect
+108 mouse 100 100
+138 chan 0
+138 nunchuk 0
+158 chan 1
+158 disconnect
+178 chan 0
+178 disconnect
+198 connect
+end 228

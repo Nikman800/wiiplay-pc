@@ -584,3 +584,43 @@ platform: $(OUT)/sys_harness
 	python3 $(HOST)/tests/test_sys.py --harness $(OUT)/sys_harness --disc $(DISC) \
 	    --scratch $(SYS_SCRATCH) --compare $(SYS_OTHER)
 test: platform
+
+# --- Input platform layer (Phase 7; docs/HOST_BUILD.md §23) --------------------
+# The host WPAD backend (src/host_wpad.cpp: four virtual remotes, 200 Hz
+# reports) under the decomp's KPAD (unmodified), EGG::CoreController and the
+# game's RPSysCoreController / RPSysCoreControllerMgr / RPSysPairingMgr; the
+# mapping layer (src/host_input.cpp: pointer -> sensor-bar dots by inverting
+# KPAD's math, tilt -> accelerometer counts, buttons, Nunchuk) fed by scripted
+# input. input_harness prints KPAD's status and the game's cursor per frame
+# (tests/test_input.py checks them against the model).
+INPUT_FP_SRCS := src/revolution/KPAD/KPAD.c src/egg/core/eggController.cpp \
+    $(addprefix src/Pack/RPKernel/,RPSysController.cpp RPSysControllerMgr.cpp RPSysPairingMgr.cpp) \
+    src/egg/gfxe/eggScreen.cpp src/egg/gfxe/eggFrustum.cpp src/Pack/RPGraphics/RPGrpScreen.cpp
+INPUT_SRCS := $(INPUT_FP_SRCS) \
+    $(addprefix src/egg/core/,eggHeap.cpp eggExpHeap.cpp eggFrmHeap.cpp eggAllocator.cpp eggSystem.cpp) \
+    $(addprefix src/revolution/MEM/,mem_expHeap.c mem_frameHeap.c mem_heapCommon.c mem_list.c \
+    mem_allocator.c) \
+    src/revolution/OS/OSArena.c src/revolution/OS/OSAlloc.c \
+    src/egg/math/eggVector.cpp src/egg/math/eggMatrix.cpp src/egg/math/eggMath.cpp \
+    src/Pack/RPKernel/IRPSysHostIOSocket.cpp
+INPUT_HOST_SRCS := src/host_wpad.cpp src/host_input.cpp src/host_os.cpp src/host_sc.cpp
+INPUT_FP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(INPUT_FP_SRCS)) \
+    $(OUT)/host/src/host_wpad.cpp.o $(OUT)/host/src/host_input.cpp.o $(OUT)/tests/input_host.cpp.o
+INPUT_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(INPUT_SRCS)) \
+    $(patsubst %,$(OUT)/host/%.o,$(INPUT_HOST_SRCS)) $(OUT)/tests/input_host.cpp.o
+# On -m32, single-precision SSE arithmetic as in §17: KPAD's float math must
+# round the same on both builds.
+$(INPUT_FP_OBJS): CXXFLAGS += $(ANIM_FP)
+$(INPUT_FP_OBJS): CFLAGS += $(ANIM_FP)
+
+$(OUT)/input_harness: $(HOST)/tests/input_harness.cpp $(INPUT_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(INPUT_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: input
+all: $(OUT)/input_harness
+# --compare: the other build's harness, if it has been built, must print the same.
+INPUT_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/input_harness
+input: $(OUT)/input_harness
+	python3 $(HOST)/tests/test_input.py --harness $(OUT)/input_harness \
+	    --scripts $(HOST)/tests/input --compare $(INPUT_OTHER)
+test: input

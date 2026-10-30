@@ -113,6 +113,12 @@ test_efcurves: 206736 evaluations (U8 71154, F32 100536, Texture 3186, Child 150
 sys_harness: 5 heaps; FST 59 files 67 directories (sys/fst.bin and the tree agree); resources: 24 cached, 27 expanded, 384 archive files; save written, reloaded and reloaded by a second run; SC defaults and config, compared with host32
 errors: 0
 OK
+test_input: 4 scripts x 2 modes, 5094 statuses checked
+  checked: Nunchuk 232, acc_vertical 2934, both dots out of view 20, button edges 100, buttons 5070, cursor vs mouse 399, events 16, motor changes 36, one dot out of view 12, pitched away 164, pointing away 20, pos exact 2738, pos within the play radius 1940, repeat flags 70
+  (the largest errors, see §23)
+  compared with host32: 5234 lines identical
+errors: 0
+OK
 ```
 
 (The other targets' summaries are in their sections. `sys_harness` counts 6 heaps on `-m32`,
@@ -136,6 +142,7 @@ differs slightly between the 64-bit and `-m32` builds (48690 there; 6774 changed
 | `anims` | `anm_harness` + `tests/test_anims.py` (§17: every g3d animation evaluated by the real readers) |
 | `efcurves` | `ef_harness --curves` + `tests/test_efcurves.py` (§17: every BREFF curve through `ef_animcurve.cpp`) |
 | `platform` | `sys_harness` + `tests/test_sys.py` (§22: EGG heaps, DVD, NAND / save, SC; saves go to `SYS_SCRATCH`, default `$TMPDIR/wiiplay-sys-host64` (or `host32`; `/tmp` without `TMPDIR`), outside the repository: the banner holds the disc's images) |
+| `input` | `input_harness` + `tests/test_input.py` (§23: the host WPAD backend under the real KPAD and the game's controller code, scripted input from `tests/input/`) |
 
 The harnesses take well under a second each. The Python reference walks take about 13 s
 (archives, which hashes every file), 3 s (resources) and 3 s (layouts). Nothing is written to disk except the
@@ -2354,3 +2361,210 @@ errors.
   private NAND calls) and loading a save taken from Dolphin.
 - `EGG::UnitHeap` is not in Wii Play (no `eggUnitHeap.cpp`, no MEM unit heap in the binary).
 - The BMG swap for the message archive belongs in the Phase 7 loader (§6).
+
+## 23. The input platform layer: a host WPAD under the real KPAD and the game's controller code
+
+Input follows the decision in `docs/PLAN.md` (mouse + gamepad first, real Wii Remotes later). The
+game's own read path runs unmodified: the decomp's KPAD (`src/revolution/KPAD/KPAD.c`, matching)
+and the game's controller classes sit on a host WPAD backend with four virtual remotes; a mapping
+layer turns a pointer position, buttons, a tilt and a stick into what a remote would report, so
+that KPAD's own math gives back the requested pointer position. No device I/O yet: tests feed a
+scripted input file, and `PortInputState` is the entry point a window backend (SDL) will fill.
+`check_matching.py`: no decomp file changed; 974 units depending on touched files, all identical
+(2026-10-30).
+
+### How the game reads input
+
+| Layer | Unit | What it does |
+|---|---|---|
+| WPAD | `WPAD.c`, `WPADHIDParser.c`, `WPADEncrypt.c`, `WPADMem.c` (decompiled) | Bluetooth (WUD / BTE) reports to `WPADStatus`: buttons, accelerometer counts minus the calibration zero, the camera's dots (y flipped, missing dots `x 0, y 767, size 0`). Replaced on the host (below). |
+| KPAD | `KPAD.c` (decompiled, linked unmodified) | `KPADiSamplingCallback` (WPAD's sampling callback, every report) buffers 16 reports and switches the DPD mode / data format for the device; `KPADRead` turns them into `KPADStatus`: buttons with repeat, acc in g, the pointer (`pos`), horizon, distance, `acc_vertical`, the Nunchuk stick and acc. Uses 13 WPAD calls: `WPADInit`, `GetStatus`, `Probe`, `Read`, `SetSamplingCallback`, `Get/SetDataFormat`, `ControlDpd`, `IsDpdEnabled`, `ControlMotor`, `GetAccGravityUnit`, `GetDpdSensitivity`, `GetSensorBarPosition`. |
+| EGG | `eggController.cpp` | `CoreControllerMgr` (WPAD allocator heap, `KPADInit`, connect callbacks, extension changes in `endFrame`), `CoreController::beginFrame` (`KPADRead` into 16 `CoreStatus`, the Nunchuk stick as buttons `1 << 16..19`, the posture matrix), `ControllerRumbleMgr` / `Unit` (rumble patterns, `WPADControlMotor`). |
+| Game | `RPSysController.cpp`, `RPSysControllerMgr.cpp`, `RPSysPairingMgr.cpp` | `RPSysCoreController::initialize` (sensor height, button repeat 1/1.5 s then 1/12 s, a rumble manager each), `applySetting` (sensor height 0.15 with the bar above the TV, -0.35 below), per frame the KPAD parameters from its stacks (pointer play radius 0.06, sensitivity 1; the others 0 / 1), DPD on / off, cursor auto-repeat, the extended acc filters. `RPSysCoreControllerMgr::beginFrame`: newly connected remotes are matched to controllers by channel or address (`WPADGetAddress`), rumble `"***-***---*"`, the connect sound; disconnects reset the player data. |
+| Cursor | `RPSysCursorDrawMgr::preUpdate` | `pos` clamped to -1..1, then `ConvertFromNormalCC(pos.x, -pos.y)` on the cursor screen (an `RPGrpScreen` in centre-canvas mode, `RPSysCommonObject`; 608 x 456 in 4:3). |
+
+Other WPAD users, not on this path yet: the remote speaker (`RPSndSpeakerMgr`,
+`nw4r::snd::RemoteSpeaker`: `WPADControlSpeaker`, `WPADSendStreamData`), the HOME Menu
+(`HBMController`, `HBMRemoteSpk`, `HBMBase`: info, motor, speaker, sync, disconnect) and RFL
+(`WPADReadFaceData`: Miis stored on a remote).
+
+### Files
+
+| File | What |
+|---|---|
+| `include/port/input.h` | **New.** The backend (`PortWPADRemote`, `PortWPADSetRemote`, `PortWPADSample`, `PortWPADRunFrame`, motor / speaker callbacks), the mapping layer (`PortInputConfig`, `PortInputState`, `PortInputToRemote`, `PortInputPointerFromWindow`, `PortInputDefaultBindings`) and the script reader. |
+| `src/host_wpad.cpp` | **New.** The WPAD library over four virtual remotes. |
+| `src/host_input.cpp` | **New.** The mapping layer and the script reader. |
+| `tests/input_harness.cpp`, `tests/input_host.cpp` | **New.** The harness; what it links but does not run (below). |
+| `tests/test_input.py`, `tests/input/*.txt` | **New.** The test and its four scripts. |
+| `Makefile` | `INPUT_*`, target `input` (part of `test`). |
+
+No decomp file changed.
+
+### The WPAD backend
+
+- **Reports.** `PortWPADRunFrame` makes the 200 Hz reports of one NTSC frame (1001/60000 s: 3 or 4,
+  from an exact integer accumulator; KPAD counts button repeat in 1/200 s). Each report
+  (`PortWPADSample`) first finishes the asynchronous commands queued since the last one (their
+  callbacks), then delivers connection changes (the connect callback, `WPAD_ERR_OK` or
+  `WPAD_ERR_NO_CONTROLLER`; on connect the data format is `WPAD_FMT_CORE_BTN`, DPD off, motor off)
+  and extension changes (the extension callback), then calls each connected channel's sampling
+  callback, which is KPAD's. They run on the calling thread, where the Wii runs them in the
+  Bluetooth interrupt; the game only sees them through KPAD's buffer.
+- **`WPADRead`** writes the status struct of the current format's family (`WPADStatus`,
+  `WPADFSStatus`, `WPADCLStatus`): buttons (Z / C only in an extension report from a Nunchuk), acc
+  only in an `_ACC` format, the dots only in a `_DPD` format with DPD enabled and the sensor bar
+  powered (else what the parser stores for a missing dot), the Nunchuk's stick and acc.
+- **Commands.** `WPADControlDpd`, `WPADGetInfoAsync` (battery, low battery at level 1 or below, DPD,
+  speaker, extension, LED `1 << chan`), `WPADControlSpeaker` (on / off / play; mute and unmute
+  are accepted), `WPADControlLed` succeed and call back at the next report. `WPADSetDataFormat`
+  applies from the next report. With KPAD this gives the same start-up as on the Wii: the first
+  report after a connect asks for DPD, the next ones switch the format to
+  `WPAD_FMT_CORE_BTN_ACC_DPD` (or the Nunchuk's).
+- **Calibration.** `WPADGetAccGravityUnit`: 106 counts per g for the remote and 204 for the
+  Nunchuk, the SDK's own defaults (`WPADHIDParser.c`, used when a remote's calibration block is
+  bad).
+- **Settings** from SC (§22): sensor bar position, pointer sensitivity (KPAD's
+  `kp_err_dist_max` = 1 + sensitivity), rumble on / off, speaker volume.
+- **Rumble**: `WPADControlMotor` (and `WPADEnableMotor`) call the host's motor callback when a
+  remote's motor turns on or off. **Speaker**: `WPADSendStreamData` hands each accepted packet to
+  the host's speaker callback while the speaker is on and playing (decoding the remote's 4-bit
+  ADPCM is the window backend's job).
+- **Pairing / addresses**: the virtual remotes are always paired (`WPADStart*Sync` succeed, a clear
+  device request reports done); `WPADGetAddress` gives `00:19:1D:50:4F:0n` for channel n-1 when
+  connected, zero otherwise. `WPADGetWorkMemorySize` is 0 (the game then uses its 1 MB minimum).
+
+### The mapping layer
+
+**Pointer.** KPAD maps the two dots p0, p1 (centre coordinates, -1..1 across the camera's 1024
+pixels) to
+
+```
+n    = (p1 - p0) / |p1 - p0|              horizon = (n.x, -n.y)
+dist = dist_vv1 / |p1 - p0|               dist_vv1 = 0.2 / 0.383864     (KPADSetObjInterval)
+pos  = (center_org - R * (p0 + p1) / 2) * dpd2pos_scale
+```
+
+with `center_org = (0, -level)` (`KPADSetSensorHeight(level)`), `R` the rotation that undoes the
+roll read from `n`, and `dpd2pos_scale = 1.25 / min(1, 0.75 - |level|)`. The mapping inverts this:
+for a wanted `pos` P, roll r and distance D the exact dots are `m -/+ (L/2) n` with
+`n = (cos r, -sin r)`, `L = dist_vv1 / D` and `m = R(-r) (center_org - P / dpd2pos_scale)`. The
+camera reports integer pixels (`x = c.x * 512 + 511.5`, `y = c.y * 512 + 383.5`), so the pixels
+are chosen: the pair's offset depends only on the roll and distance (rounded, or within two pixels
+of it with a length within 0.3 pixels), because KPAD drops a pair whose distance moves more than
+0.04 between reports (`kp_err_dist_speed`), and one pixel of spacing is more than that beyond 3 m;
+then of those offsets and the positions within three pixels of the exact first dot, the one for
+which KPAD's formulas (evaluated in `kpadFromDots`) give the position closest to P. Plain rounding
+is off by up to 0.003; a one-pixel tilt of the pair, which KPAD's roll correction turns into a
+small shift, gets most of that back (largest error over the tests 0.0042, 1.1 pixels on a
+608-pixel screen). Dots outside the camera's frame (0..1022 x 0..766) are not reported; KPAD then
+tracks one dot or loses the pointer, as with a real remote. The sensor level must be the one the
+game gives KPAD: `PortInputDefaultConfig` takes Wii Play's (`applySetting`) from the SC sensor bar
+position. Window pixels map to `pos` with `PortInputPointerFromWindow` (`2 px / width - 1`), which
+the game's cursor maps back to the same pixel.
+
+**Accelerometer.** At rest the sensor reads the up vector in the remote's axes. In KPAD's acc axes
+(`acc = (-accX, -accZ, accY) / counts per g`) a remote at roll r (clockwise as the player sees it,
+`horizon = (cos r, sin r)`) and pitch p (nose up) reads
+
+```
+acc = (-cos p sin r, -cos p cos r, sin p) + extra
+```
+
+(level: `(0, -1, 0)`); `acc_horizon` tends to `(cos r, sin r)`, matching the dots, and
+`acc_vertical` to `(cos p, -sin p)`; KPAD rejects the pointer when `acc_vertical.x <= 0.7`
+(pitched beyond about 45 degrees). Counts are `round(g * 106)`; the remote's Y and Z are even (the
+HID parser keeps 9 significant bits), raw values stay within 10 bits. The Nunchuk uses the same
+model with 204 counts per g, all 10 bits.
+
+**Nunchuk stick.** KPAD maps counts 15..71 to 0..1 per axis (`clamp_stick_cross`); a stick value v
+becomes `15 + round(|v| * 56)` counts (0 for v = 0), so KPAD reads v back to 1/56 and the
+gamepad's own dead zone is not doubled.
+
+**Buttons.** `PortInputState.buttons` holds `WPAD_BUTTON_*`; `PortInputButtonFromName` and
+`PortInputDefaultBindings` (left mouse button and Space: A; right button and Left Shift: B; `1`,
+`2`, `=` / keypad + for +, `-`, Escape for HOME, the arrows for the D-pad, Z, C; names as SDL
+gives them) are for the window backend. Z and C need the Nunchuk.
+
+### Scripted input
+
+A text file; `#` starts a comment. `window W H` (default 608 456) sets what `mouse` positions refer
+to, `end N` the number of frames. Every other line is `FRAME COMMAND ARGS`, in frame order, applied
+before that frame's reports, to channel 0 or the channel of the last `chan`: `chan N`, `connect`,
+`disconnect`, `nunchuk 0|1`, `battery 0-4`, `mouse PX PY`, `pointer X Y` (KPAD units),
+`offscreen`, `dist M`, `press NAMES`, `release NAMES`, `roll DEG`, `pitch DEG`, `accel X Y Z`
+(g, KPAD's axes), `stick X Y`, `fsroll DEG`, `fspitch DEG`, `fsaccel X Y Z`. Defaults: no remote
+connected, battery 4, distance 2 m, level.
+
+### The harness
+
+```
+input_harness --script FILE [--sc FILE] [--mode game|kpad]
+```
+
+`game` (default) boots the EGG heaps (`ConfigurationData::initMemory` on a configuration with no
+video), `RPGrpScreen::Initialize` with `RPGrpRenderer`'s limits (608 / 832 x 456) and the cursor
+screen as `RPSysCommonObject` makes it, then `RPSysCoreController::initialize`, `applySetting`,
+`initScene`, and each frame: script, mapping, `PortWPADRunFrame`,
+`RPSysCoreControllerMgr::beginFrame`, print, `endFrame`. `kpad` runs `KPADInit` /
+`KPADSetSensorHeight` / `KPADRead` alone (KPAD's default parameters: no smoothing, no repeat).
+Per frame and connected channel a `K` line has the newest `KPADStatus` (pos, horizon, dist, acc,
+acc_vertical, dpd_valid_fg, buttons, Nunchuk stick and acc, device type, format, number of
+reports and of samples read) and, in game mode, the cursor as `RPSysCursorDrawMgr::preUpdate`
+computes it; `M` lines are motor changes, `E` lines the calls into the stand-ins below, `S` lines
+self-checks of the WPAD calls KPAD does not make (info, speaker, gravity units, probe).
+
+Linked for real: `KPAD.c`, `eggController.cpp`, `RPSysController.cpp`, `RPSysControllerMgr.cpp`,
+`RPSysPairingMgr.cpp`, `eggScreen.cpp`, `eggFrustum.cpp`, `RPGrpScreen.cpp`, the EGG heap / math
+units, MEM, `OSArena` / `OSAlloc`, `host_os.cpp`, `host_sc.cpp`. `tests/input_host.cpp` has the
+rest: `RPSndStaticMgr::startSe`, `RPSndSpeakerMgr::setSpeakerOn/OffCallback` and
+`RPSysPlayerMgr::resetOldData` print `E` lines (their instances are zeroed stand-ins the printing
+functions do not read); `RPSysProjectLocal` has no instance (only the address search asks, and
+checks for NULL); the GX / g3d camera calls that `Frustum`'s and `Screen`'s vtables keep abort with
+their name. KPAD's float math, the mapping and the controller code are built with SSE on `-m32`,
+as in §17.
+
+### What the test checks
+
+`tests/test_input.py` (`make input`, part of `make test`; a few seconds) runs the four scripts
+(`pointer`: a 9 x 7 grid of window positions, then grids at rolls 40 and -30 and distances 1.2 and
+3.5 with ramps between, positions off the window and off the camera, the pointer away, small
+moves; `buttons`: every button, combinations, one-frame presses, long holds; `tilt`: roll and
+pitch ramps to +-90 / +-60 degrees, a combined tilt, accelerations on top of gravity beyond the
+clamps; `nunchuk`: attach, stick, Z / C, its tilt, a second remote, disconnects, a reconnect) in
+both modes and checks every status against a model computed from the script:
+
+| Check | Model | Tolerance (largest seen) |
+|---|---|---|
+| Pointer | `pos` against the script's position whenever KPAD tracks both dots and both are well inside KPAD's frame (KPAD mode always; game mode after a move beyond the 0.06 play radius, else within the play radius) | 0.0045 (0.0042) |
+| Cursor | `ConvertFromNormalCC` of the clamped `pos` on a 608 x 456 screen; back on the mouse pixel | 1e-3; 1.4 px (1.1 px) |
+| Tracking | `dpd_valid_fg` 2 when both dots are in view and the remote has settled (40 frames after a roll / distance / pitch change); 0 when pointing away, when both dots are out of view, when pitched beyond 50 degrees; never 2 with one dot out | exact |
+| Horizon, distance | `(cos r, sin r)`, D | 4.3 / 4.5 pixels over the dots' spacing (2.5, 0.73) |
+| Acc | the counts the mapping must produce, through KPAD's scale (f32), clamped at 3.4 g; and the unquantized model | 1e-6; one count (0.0094 g) |
+| `acc_vertical` | `(cos p, -sin p)` once settled | 0.02 (0.0093) |
+| Nunchuk | stick from the counts (1e-5), acc as above with 204 counts per g and the 2.1 g clamp; device type | exact |
+| Buttons | `read_kpad_button` / `calc_button_repeat` (repeat after 133 reports, then every 17 in game mode; none in KPAD mode) and EGG's stick buttons | exact |
+| Rumble | `ControllerRumbleUnit::calc` on `"***-***---*"` from each connect frame; motor off at disconnect | exact |
+| Events | connect: speaker on, connect sound (player = channel); disconnect: speaker off, player data reset | exact |
+| Reports | 3 or 4 a frame, `floor(200 * 1001 * (f + 1) / 60000)` in total | exact |
+| WPAD | the `S` lines | exact |
+| 64 / 32 | `--compare`: the other build prints the same | all 5234 lines |
+
+Mutation checks while writing the test: the dots' roll sign flipped (961 errors), the remote's Y /
+Z counts not even (956), the stick scale off by one count (16).
+
+### Still open
+
+- The window backend: SDL mouse / keyboard / gamepad into `PortInputState` (bindings above), the
+  motor callback to gamepad rumble, the speaker callback to an ADPCM decoder and the mixer, and
+  calling `PortWPADRunFrame` from the frame loop (or a VI-retrace device).
+- Per-game tilt bindings: which gamepad axes become roll / pitch / extra acceleration for games
+  held sideways (Charge!) or swung (Fishing, Laser Hockey's twist), and gyro input.
+- `WPADReadFaceData` / `WPADReadMemoryAsync` (Miis on a remote, RFL) and the Classic Controller
+  (Wii Play does not use it; the backend passes the device type only).
+- HOME Menu and speaker paths over this backend (`hbm_harness` and `audio_harness` keep their own
+  stand-ins).
+- `RPSysCursorDrawMgr` itself (it needs the renderer, layouts and effects); the harness repeats
+  its two lines.
+- Real Wii Remotes (Bluetooth HID into `PortWPADRemote`, or the decomp's own WPAD over a host
+  Bluetooth layer).

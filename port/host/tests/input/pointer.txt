@@ -1,0 +1,349 @@
+# Pointer round trip: a grid of window positions at three rolls and three
+# distances, ramps between them, positions off the window and off the camera,
+# the pointer away, small moves (the game's play radius).
+window 608 456
+0 connect
+0 mouse 304 228
+40 mouse 0 0
+42 mouse 76 0
+44 mouse 152 0
+46 mouse 228 0
+48 mouse 304 0
+50 mouse 379 0
+52 mouse 455 0
+54 mouse 531 0
+56 mouse 607 0
+58 mouse 0 76
+60 mouse 76 76
+62 mouse 152 76
+64 mouse 228 76
+66 mouse 304 76
+68 mouse 379 76
+70 mouse 455 76
+72 mouse 531 76
+74 mouse 607 76
+76 mouse 0 152
+78 mouse 76 152
+80 mouse 152 152
+82 mouse 228 152
+84 mouse 304 152
+86 mouse 379 152
+88 mouse 455 152
+90 mouse 531 152
+92 mouse 607 152
+94 mouse 0 228
+96 mouse 76 228
+98 mouse 152 228
+100 mouse 228 228
+102 mouse 304 228
+104 mouse 379 228
+106 mouse 455 228
+108 mouse 531 228
+110 mouse 607 228
+112 mouse 0 303
+114 mouse 76 303
+116 mouse 152 303
+118 mouse 228 303
+120 mouse 304 303
+122 mouse 379 303
+124 mouse 455 303
+126 mouse 531 303
+128 mouse 607 303
+130 mouse 0 379
+132 mouse 76 379
+134 mouse 152 379
+136 mouse 228 379
+138 mouse 304 379
+140 mouse 379 379
+142 mouse 455 379
+144 mouse 531 379
+146 mouse 607 379
+148 mouse 0 455
+150 mouse 76 455
+152 mouse 152 455
+154 mouse 228 455
+156 mouse 304 455
+158 mouse 379 455
+160 mouse 455 455
+162 mouse 531 455
+164 mouse 607 455
+166 roll 2.000
+167 roll 4.000
+168 roll 6.000
+169 roll 8.000
+170 roll 10.000
+171 roll 12.000
+172 roll 14.000
+173 roll 16.000
+174 roll 18.000
+175 roll 20.000
+176 roll 22.000
+177 roll 24.000
+178 roll 26.000
+179 roll 28.000
+180 roll 30.000
+181 roll 32.000
+182 roll 34.000
+183 roll 36.000
+184 roll 38.000
+185 roll 40.000
+226 mouse 0 0
+228 mouse 152 0
+230 mouse 304 0
+232 mouse 455 0
+234 mouse 607 0
+236 mouse 0 152
+238 mouse 152 152
+240 mouse 304 152
+242 mouse 455 152
+244 mouse 607 152
+246 mouse 0 303
+248 mouse 152 303
+250 mouse 304 303
+252 mouse 455 303
+254 mouse 607 303
+256 mouse 0 455
+258 mouse 152 455
+260 mouse 304 455
+262 mouse 455 455
+264 mouse 607 455
+266 roll 38.000
+267 roll 36.000
+268 roll 34.000
+269 roll 32.000
+270 roll 30.000
+271 roll 28.000
+272 roll 26.000
+273 roll 24.000
+274 roll 22.000
+275 roll 20.000
+276 roll 18.000
+277 roll 16.000
+278 roll 14.000
+279 roll 12.000
+280 roll 10.000
+281 roll 8.000
+282 roll 6.000
+283 roll 4.000
+284 roll 2.000
+285 roll 0.000
+286 roll -2.000
+287 roll -4.000
+288 roll -6.000
+289 roll -8.000
+290 roll -10.000
+291 roll -12.000
+292 roll -14.000
+293 roll -16.000
+294 roll -18.000
+295 roll -20.000
+296 roll -22.000
+297 roll -24.000
+298 roll -26.000
+299 roll -28.000
+300 roll -30.000
+341 mouse 0 0
+343 mouse 152 0
+345 mouse 304 0
+347 mouse 455 0
+349 mouse 607 0
+351 mouse 0 152
+353 mouse 152 152
+355 mouse 304 152
+357 mouse 455 152
+359 mouse 607 152
+361 mouse 0 303
+363 mouse 152 303
+365 mouse 304 303
+367 mouse 455 303
+369 mouse 607 303
+371 mouse 0 455
+373 mouse 152 455
+375 mouse 304 455
+377 mouse 455 455
+379 mouse 607 455
+381 roll -28.000
+382 roll -26.000
+383 roll -24.000
+384 roll -22.000
+385 roll -20.000
+386 roll -18.000
+387 roll -16.000
+388 roll -14.000
+389 roll -12.000
+390 roll -10.000
+391 roll -8.000
+392 roll -6.000
+393 roll -4.000
+394 roll -2.000
+395 roll 0.000
+416 dist 1.970
+417 dist 1.941
+418 dist 1.911
+419 dist 1.881
+420 dist 1.852
+421 dist 1.822
+422 dist 1.793
+423 dist 1.763
+424 dist 1.733
+425 dist 1.704
+426 dist 1.674
+427 dist 1.644
+428 dist 1.615
+429 dist 1.585
+430 dist 1.556
+431 dist 1.526
+432 dist 1.496
+433 dist 1.467
+434 dist 1.437
+435 dist 1.407
+436 dist 1.378
+437 dist 1.348
+438 dist 1.319
+439 dist 1.289
+440 dist 1.259
+441 dist 1.230
+442 dist 1.200
+483 mouse 0 0
+485 mouse 152 0
+487 mouse 304 0
+489 mouse 455 0
+491 mouse 607 0
+493 mouse 0 152
+495 mouse 152 152
+497 mouse 304 152
+499 mouse 455 152
+501 mouse 607 152
+503 mouse 0 303
+505 mouse 152 303
+507 mouse 304 303
+509 mouse 455 303
+511 mouse 607 303
+513 mouse 0 455
+515 mouse 152 455
+517 mouse 304 455
+519 mouse 455 455
+521 mouse 607 455
+523 dist 1.230
+524 dist 1.260
+525 dist 1.290
+526 dist 1.319
+527 dist 1.349
+528 dist 1.379
+529 dist 1.409
+530 dist 1.439
+531 dist 1.469
+532 dist 1.499
+533 dist 1.529
+534 dist 1.558
+535 dist 1.588
+536 dist 1.618
+537 dist 1.648
+538 dist 1.678
+539 dist 1.708
+540 dist 1.738
+541 dist 1.768
+542 dist 1.797
+543 dist 1.827
+544 dist 1.857
+545 dist 1.887
+546 dist 1.917
+547 dist 1.947
+548 dist 1.977
+549 dist 2.006
+550 dist 2.036
+551 dist 2.066
+552 dist 2.096
+553 dist 2.126
+554 dist 2.156
+555 dist 2.186
+556 dist 2.216
+557 dist 2.245
+558 dist 2.275
+559 dist 2.305
+560 dist 2.335
+561 dist 2.365
+562 dist 2.395
+563 dist 2.425
+564 dist 2.455
+565 dist 2.484
+566 dist 2.514
+567 dist 2.544
+568 dist 2.574
+569 dist 2.604
+570 dist 2.634
+571 dist 2.664
+572 dist 2.694
+573 dist 2.723
+574 dist 2.753
+575 dist 2.783
+576 dist 2.813
+577 dist 2.843
+578 dist 2.873
+579 dist 2.903
+580 dist 2.932
+581 dist 2.962
+582 dist 2.992
+583 dist 3.022
+584 dist 3.052
+585 dist 3.082
+586 dist 3.112
+587 dist 3.142
+588 dist 3.171
+589 dist 3.201
+590 dist 3.231
+591 dist 3.261
+592 dist 3.291
+593 dist 3.321
+594 dist 3.351
+595 dist 3.381
+596 dist 3.410
+597 dist 3.440
+598 dist 3.470
+599 dist 3.500
+640 mouse 0 0
+642 mouse 152 0
+644 mouse 304 0
+646 mouse 455 0
+648 mouse 607 0
+650 mouse 0 152
+652 mouse 152 152
+654 mouse 304 152
+656 mouse 455 152
+658 mouse 607 152
+660 mouse 0 303
+662 mouse 152 303
+664 mouse 304 303
+666 mouse 455 303
+668 mouse 607 303
+670 mouse 0 455
+672 mouse 152 455
+674 mouse 304 455
+676 mouse 455 455
+678 mouse 607 455
+680 mouse -300 228
+690 mouse -1500 228
+700 mouse 304 228
+730 offscreen
+740 mouse 200 300
+770 mouse 200 300
+771 mouse 203 298
+772 mouse 206 296
+773 mouse 209 294
+774 mouse 212 292
+775 mouse 215 290
+776 mouse 218 288
+777 mouse 221 286
+778 mouse 224 284
+779 mouse 227 282
+780 mouse 230 280
+781 mouse 233 278
+782 mouse 236 276
+783 mouse 239 274
+784 mouse 242 272
+785 mouse 245 270
+786 mouse 248 268
+787 mouse 251 266
+788 mouse 254 264
+789 mouse 257 262
+end 800
