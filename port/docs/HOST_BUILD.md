@@ -59,8 +59,11 @@ real EGG light, light-map and bloom objects, and the game tables.
 
 ## 1. Build and run
 
-Requirements: GCC/G++ (tested with 15.2), GNU make and Python 3. CMake is not needed. The
-32-bit cross-check also needs gcc-multilib and g++-multilib.
+Requirements: GCC/G++ (tested with 15.2), GNU make and Python 3. The 32-bit cross-check also
+needs gcc-multilib and g++-multilib. The 64-bit GX targets (`gx`, part of `make test`) also need
+CMake, Ninja (optional), network access on the first build, the X11/Wayland/audio development
+headers SDL3 builds against, and a Vulkan driver (lavapipe for the tests); `NO_GX=1` skips them
+(§25).
 
 ```sh
 cd port/host
@@ -2660,3 +2663,144 @@ stereo DSP-ADPCM, 80000 samples in 6 blocks of 14336, one-shot), 900 AX frames, 
   blocks) are not played by the test.
 - `StrmSound` / the `SoundArchivePlayer` stream path (`detail_OpenFileStream`, the stream sound
   pool) stay unexercised: no archive on the disc has a stream sound.
+
+## 25. Aurora: build, patches, headless test
+
+Aurora (MIT; GX on WebGPU via Dawn) is the graphics backend (docs/PLAN.md). Milestone 1 builds
+it from the submodule, isolates it behind a small C library, and renders a disc texture and a
+real material's display lists headless, checked against an independent model.
+
+### Layout
+
+| Path | What |
+|---|---|
+| `port/extern/aurora` | submodule: the fork, branch `wiiplay` (upstream `encounter/aurora` 505b5eb) plus the patches below |
+| `port/host/aurora/CMakeLists.txt` | builds Aurora as a subdirectory (Release, PIC, 64-bit only) and `libwiiplay_gx.so`; pins the unhashed downloads |
+| `port/host/aurora/wpgx.h`, `wpgx.cpp`, `wpgx.map` | the glue library's C API (`wpgx_*`) and its export list |
+| `port/host/tests/gx_harness.cpp` | the bring-up render (below) |
+| `port/host/tests/test_gx.py` | its checks |
+| `port/host/build/aurora/` | CMake build tree (ignored with the rest of `build/`) |
+
+### Build
+
+`make gx` (and `make test` on 64-bit) configures `build/aurora` once (stamp
+`build/aurora/.configured`, log `configure.log`) and then always hands the build to CMake, which
+rebuilds only what changed (`build.log`). The Makefile links `libwiiplay_gx.so` into the GX
+targets only (`gx_harness`, with an rpath to `build/aurora`); nothing else changes, and the
+matching build is untouched. `M32=1` prints `gx: skipped (the GX layer is 64-bit only)`;
+`NO_GX=1` skips it on 64-bit. `make clean` keeps `build/aurora` (`make distclean` removes it).
+
+What CMake builds: Aurora with GX only (DVD/nod, CARD, THP, RmlUi, examples off), Dawn from the
+prebuilt package, SDL3 from source (static), and the other dependencies Aurora fetches. PATH is
+not used to find packages, so a Python/conda environment on PATH cannot supply libraries (it
+did: its zstd/zlib). First build: about 8.5 minutes with 16 jobs (most of it SDL3, abseil,
+Dawn's headers, Aurora); `build/aurora` is about 390 MB, `libwiiplay_gx.so` 26.5 MB (Dawn and
+everything else linked statically; it needs only libc, libm and libz).
+
+**Pinned downloads.** Aurora fetches Dawn, SDL3, abseil and nlohmann_json without a hash.
+`FetchContent` keeps the first declaration of a name, so `port/host/aurora/CMakeLists.txt`
+declares them first with the same names and URLs plus `URL_HASH SHA256`, and forces the version
+variables to the hashed ones; no Aurora patch is needed. A submodule bump that changes a version
+fails at configure with a hash mismatch. (Dawn is pinned for linux-x86_64 only; other platforms
+get a warning.) Everything else Aurora fetches (fmt, xxHash, zlib-ng, libpng, Freetype, SQLite,
+zstd, Tracy, imgui, googletest) already carries a hash upstream.
+
+| Download | Version | SHA-256 |
+|---|---|---|
+| Dawn prebuilt `dawn-linux-x86_64.tar.gz` | v20260807.225922 | `2a4523426ab9b3a8970b4e151c3b005304ad37c2c01bcff80c78fffe486fc768` |
+| SDL3 source | release-3.4.10 | `0dc11d980ba17250200718fa4e28011da293f27ed92f92203afffe396811f307` |
+| abseil-cpp | 20240722.0 | `f50e5ac311a81382da7fa75b97310e4b9006474f9560ac46f54a9967f07d4ae3` |
+| nlohmann_json `json.tar.xz` | v3.12.0 | `42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa` |
+
+**Symbol isolation.** `libwiiplay_gx.so` exports only `wpgx_*` (`wpgx.map`,
+`--exclude-libs,ALL`, hidden visibility), so Aurora's `GX*`/`OS*`/`VI*` cannot clash with the
+decomp's revolution SDK in one process. The C++ runtime is linked statically and hidden too:
+the port's executables define `operator new`/`delete` (the game's heaps; the loader library's
+arena), and with a shared libstdc++ Aurora's allocations from its worker threads were routed
+there ("port arena: free of a corrupt block").
+
+### Aurora patches (submodule working tree, not committed yet)
+
+| # | Commit message | Files |
+|---|---|---|
+| 1 | `gfx: add aurora_read_framebuffer() for synchronous EFB readback` | `include/aurora/gfx.h`, `lib/gfx/framebuffer_readback.cpp` (new), `cmake/aurora_gx.cmake` |
+| 2 | `Add AuroraConfig.disableShaderCache` | `include/aurora/aurora.h`, `lib/gfx/pipeline_cache.cpp`, `lib/webgpu/gpu_cache.cpp` |
+| 3 | `Add AuroraConfig.pipelineCacheKey to discard pipelines cached by other builds` | `include/aurora/aurora.h`, `lib/gfx/pipeline_cache.cpp` |
+
+No patch was needed for the rest of the spike's list at 505b5eb:
+
+- **Headless**: upstream now has `AuroraConfig.surface.type = AURORA_SURFACE_HEADLESS` (no SDL
+  video, offscreen EFB); the spike's env-var patch is obsolete. Works on lavapipe.
+- **Synchronous pipelines**: upstream `AuroraSetDrawsBlocking(true)` makes draws wait for their
+  pipeline. Without it, the first frames skip draws (seen: `--async --frames 2` differs).
+- **Stale caches**: upstream already versions cached pipeline configs
+  (`GXPipelineConfigVersion`, size check, schema version); patch 3 adds an application key on
+  top, so our own pipeline changes cannot reuse old entries, and patch 2 turns the caches off
+  for tests. With `data_dir`, `userPath`/`cachePath`/`resourcesPath` all point into a directory
+  the caller chooses; nothing goes to `~/.local/share` (the test checks it).
+
+### The glue API (`wpgx.h`)
+
+`wpgx_init(&cfg)` (size, headless, `data_dir` (required), `disk_cache`, `cache_key`,
+`blocking_pipelines`, `allow_cpu_adapter`, `log_level`), `wpgx_begin_frame` /
+`wpgx_end_frame`, `wpgx_read_frame` (RGBA8, top row first), `wpgx_shutdown`,
+`wpgx_adapter_name`. Milestone 1 also has `wpgx_test_*` helpers that drive Aurora's own GX API
+(2D setup, `GXInitTexObj`/`GXLoadTexObj` with Wii-format texels, TEV REPLACE,
+`GXCallDisplayList`, a quad); from milestone 2 the game's GX calls reach Aurora through the
+FIFO instead and these stay for tests.
+
+### The test
+
+`gx_harness <disc> <out.rgba> <data-dir> [--frames N] [--window] [--async] [--disk-cache]
+[--cache-key N] [--log-level N]` loads `banner.tpl` (`TPLBind`/`TPLGet`) and
+`Common/RPFshScene/common.carc` → `G3D/fsh_lake.brres` (EGG DVD/Decomp, ARC,
+`ResFile::Init/Bind`), finds material `a_a_lake_mat_v` (2 TEV stages), and draws for 3 frames:
+the top quad is the 192x64 RGB5A3 image at exactly 3x (GX_NEAR) with TEV REPLACE, blended over
+the clear colour; the bottom quad has the same texture on maps 0 and 1 and the material's
+`ResMatPix`, `ResMatTevColor` and `ResTev` display lists (big-endian, from the BRRES) through
+`GXCallDisplayList`. It prints what it submitted and writes the frame read back with
+`aurora_read_framebuffer`.
+
+`test_gx.py` (run by `make gx` with `VK_ICD_FILENAMES` = lavapipe, `MESA_SHADER_CACHE_DISABLE`,
+scratch `GX_SCRATCH`, default `$TMPDIR/wiiplay-gx` or `/tmp/wiiplay-gx`; `--gpu` uses the real
+driver) checks:
+
+| Check | Result |
+|---|---|
+| Inputs | the texture parameters and the three display lists the harness found through our loaders are the bytes the script finds itself (TPL header; MDL0 material dictionary) |
+| Top quad | `gxtex.py` decode, GX_NEAR, SRCALPHA blend over the clear colour: 110592 pixels, max difference 0 |
+| Bottom quad | a TEV model fed by the BP commands of the display lists (BP mask register, tev orders, colour/alpha combiners, konst selections, colour and konst registers, swap tables, alpha compare, blend/z mode; anything else it meets is an error): 110592 pixels, max difference 0.47 (tolerance 2) |
+| Background | the clear colour, exact (86016 pixels) |
+| Caches | no files in the data directory without `--disk-cache`; with it, three runs (keys 1, 1, 2) give the same frame, and only the key change discards the cache |
+| Home | `~/.local/share/wiiplay` (and `Aurora`) unchanged |
+
+No image is stored in the repo; the expected frame is computed from the disc at test time.
+`make gx` also builds and runs Aurora's own `gx_fifo_tests` (googletest; FIFO encode/decode,
+display lists, readback; 232 tests, under a second).
+
+`gxtex.py` fix found by this test: 3/4/5/6-bit channels were widened by shifting
+(`v << 3`); the GX texture unit replicates the high bits (`v << 3 | v >> 2`), as Aurora and
+Dolphin do. RGB565, RGB5A3 and IA4 alpha now match the hardware (CMPR's interpolation is
+unchanged).
+
+Expected output:
+
+```
+gx_fifo_tests: [  PASSED  ] 232 tests.
+test_gx: 640x480 after 3 frames on llvmpipe (LLVM 21.1.8, 256 bits); inputs match the disc (banner.tpl 192x64 format 5, a_a_lake_mat_v: 2 TEV stages)
+  top: 110592 pixels, max diff 0.00
+  bottom: 110592 pixels, max diff 0.47, 0 of 12288 texels alpha-tested out
+  background: 86016 pixels, max diff 0.00
+  pipeline cache: 3 runs (key 1, 1, 2) same frame, key change discarded: [False, False, True]
+errors: 0
+OK
+```
+
+### Next (milestone 2)
+
+The game's own GX SDK as the encoder, Aurora as command processor and renderer: redirect
+WGPIPE writes into Aurora's FIFO; host `GXInit`/Fifo/Misc/FrameBuf on top of it; an address
+resolver from emulated Wii (physical/cached) addresses to host pointers for CP array bases
+(0xA0-0xAF, rejected by Aurora's command processor today), nested `CALL_DL` and texture/TLUT
+loads (`GXLoadTexObj`/`GXLoadTlut` words → a side table of texture data); target: the health
+screen layout drawn through `lyt`.

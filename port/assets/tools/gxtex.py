@@ -97,24 +97,35 @@ def _decode_palette(palette: bytes, palette_fmt: Any) -> list[tuple[int, int, in
     return colors
 
 
+def _expand(value: int, bits: int) -> int:
+    """Widen a channel to 8 bits by bit replication, as the GX texture unit does
+    (5 bits: v << 3 | v >> 2; 3 bits: v << 5 | v << 2 | v >> 1)."""
+    value <<= 8 - bits
+    out = 0
+    while value:
+        out |= value
+        value >>= bits
+    return out & 0xFF
+
+
 def _palette_color(name: str, word: int) -> tuple[int, int, int, int]:
     if name == "IA8":
         intensity = word >> 8
         return intensity, intensity, intensity, word & 0xFF
     if name == "RGB565":
-        r = ((word >> 11) & 0x1F) << 3
-        g = ((word >> 5) & 0x3F) << 2
-        b = (word & 0x1F) << 3
+        r = _expand((word >> 11) & 0x1F, 5)
+        g = _expand((word >> 5) & 0x3F, 6)
+        b = _expand(word & 0x1F, 5)
         return r, g, b, 255
     if word & 0x8000:
-        r = ((word >> 10) & 0x1F) << 3
-        g = ((word >> 5) & 0x1F) << 3
-        b = (word & 0x1F) << 3
+        r = _expand((word >> 10) & 0x1F, 5)
+        g = _expand((word >> 5) & 0x1F, 5)
+        b = _expand(word & 0x1F, 5)
         return r, g, b, 255
-    a = ((word >> 12) & 0x7) << 5
-    r = ((word >> 8) & 0xF) << 4
-    g = ((word >> 4) & 0xF) << 4
-    b = (word & 0xF) << 4
+    a = _expand((word >> 12) & 0x7, 3)
+    r = _expand((word >> 8) & 0xF, 4)
+    g = _expand((word >> 4) & 0xF, 4)
+    b = _expand(word & 0xF, 4)
     return r, g, b, a
 
 
@@ -131,7 +142,7 @@ def _texel(fmt: str, source: bytes, palette: list[tuple[int, int, int, int]], in
             value = source[index]
             intensity = value & 0xF
             intensity |= intensity << 4
-            return intensity, intensity, intensity, (value >> 4) << 4
+            return intensity, intensity, intensity, _expand(value >> 4, 4)
         value = (source[index >> 1] >> (4 if index & 1 == 0 else 0)) & 0xF
         value |= value << 4
         return value, value, value, 255

@@ -136,7 +136,7 @@ LIB := $(OUT)/libwiiplay_loader.a
 TESTS := $(OUT)/test_be $(OUT)/test_be_c $(OUT)/test_port $(OUT)/test_port_c \
          $(OUT)/test_layout $(OUT)/test_math
 
-.PHONY: all test unit archives resources layouts models clean
+.PHONY: all test unit archives resources layouts models clean distclean
 all: $(OUT)/arc_harness $(OUT)/res_harness $(OUT)/lyt_harness $(OUT)/g3d_harness $(TESTS) $(STEP4_OBJS)
 
 $(OUT)/decomp/%.c.o: $(REPO)/%.c
@@ -238,7 +238,12 @@ all: $(OUT)/anm_harness
 anims: $(OUT)/anm_harness
 	python3 $(HOST)/tests/test_anims.py --harness $(OUT)/anm_harness --disc $(DISC)
 
+# `clean` keeps the Aurora build (build/aurora: slow to rebuild, downloads);
+# `distclean` removes it too.
 clean:
+	rm -rf $(HOST)/build/host64 $(HOST)/build/host32
+
+distclean:
 	rm -rf $(HOST)/build
 
 -include $(shell find $(OUT) -name '*.d' 2>/dev/null)
@@ -649,3 +654,63 @@ input: $(OUT)/input_harness
 	python3 $(HOST)/tests/test_input.py --harness $(OUT)/input_harness \
 	    --scripts $(HOST)/tests/input --compare $(INPUT_OTHER)
 test: input
+
+# --- GX layer on Aurora (docs/HOST_BUILD.md §25) -------------------------------
+# 64-bit only (Dawn has no 32-bit builds): with M32=1 these targets are skipped.
+# CMake (port/host/aurora/CMakeLists.txt) builds Aurora and the glue library
+# libwiiplay_gx.so into build/aurora; only GX-layer targets link it. NO_GX=1
+# skips them on 64-bit too (no CMake, no downloads).
+ifneq ($(M32),1)
+ifneq ($(NO_GX),1)
+AURORA_BUILD := $(HOST)/build/aurora
+AURORA_STAMP := $(AURORA_BUILD)/.configured
+WPGX_LIB := $(AURORA_BUILD)/libwiiplay_gx.so
+CMAKE ?= cmake
+AURORA_GENERATOR := $(if $(shell command -v ninja 2>/dev/null),Ninja,Unix Makefiles)
+AURORA_JOBS ?= $(shell nproc 2>/dev/null || echo 4)
+GX_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-gx
+
+$(AURORA_STAMP): $(HOST)/aurora/CMakeLists.txt
+	@mkdir -p $(AURORA_BUILD)
+	@echo "cmake: configuring Aurora in $(AURORA_BUILD) (log: configure.log)"
+	@$(CMAKE) -G "$(AURORA_GENERATOR)" -S $(HOST)/aurora -B $(AURORA_BUILD) \
+	    -DCMAKE_BUILD_TYPE=Release > $(AURORA_BUILD)/configure.log 2>&1 \
+	    || { tail -30 $(AURORA_BUILD)/configure.log; exit 1; }
+	@touch $@
+
+# Always handed to CMake, which rebuilds only what changed (the library's
+# timestamp moves only when it is relinked).
+$(WPGX_LIB): $(AURORA_STAMP) FORCE
+	@$(CMAKE) --build $(AURORA_BUILD) --target wiiplay_gx -j $(AURORA_JOBS) > $(AURORA_BUILD)/build.log 2>&1 \
+	    || { grep -E "error|FAILED" $(AURORA_BUILD)/build.log | head -20; tail -5 $(AURORA_BUILD)/build.log; exit 1; }
+
+$(OUT)/gx_harness: $(HOST)/tests/gx_harness.cpp $(HOST)/tests/disc_walk.h $(HOST)/aurora/wpgx.h $(WPGX_LIB) $(LIB)
+	$(CXX) $(CXXFLAGS) -I$(HOST)/aurora -MMD $< $(LIB) -L$(AURORA_BUILD) -lwiiplay_gx \
+	    -Wl,-rpath,$(AURORA_BUILD) -o $@
+
+.PHONY: gx gx-aurora-tests FORCE
+FORCE:
+all: $(OUT)/gx_harness
+# Aurora's own GX FIFO encoder/decoder tests (googletest), from our build.
+gx-aurora-tests: $(AURORA_STAMP)
+	@$(CMAKE) --build $(AURORA_BUILD) --target gx_fifo_tests -j $(AURORA_JOBS) > $(AURORA_BUILD)/build_tests.log 2>&1 \
+	    || { grep -E "error|FAILED" $(AURORA_BUILD)/build_tests.log | head -20; exit 1; }
+	@$(AURORA_BUILD)/aurora/tests/gx_fifo_tests --gtest_brief=1 > $(AURORA_BUILD)/gx_fifo_tests.log 2>&1 \
+	    || { tail -30 $(AURORA_BUILD)/gx_fifo_tests.log; exit 1; }
+	@echo "gx_fifo_tests: $$(grep -E 'PASSED|tests ran' $(AURORA_BUILD)/gx_fifo_tests.log | tr '\n' ' ')"
+# The bring-up render on lavapipe (software Vulkan; --gpu for the real adapter).
+gx: $(OUT)/gx_harness gx-aurora-tests
+	python3 $(HOST)/tests/test_gx.py --harness $(OUT)/gx_harness --disc $(DISC) --scratch $(GX_SCRATCH)
+test: gx
+else
+.PHONY: gx gx-aurora-tests
+gx gx-aurora-tests:
+	@echo "$@: skipped (NO_GX=1)"
+test: gx
+endif
+else
+.PHONY: gx gx-aurora-tests
+gx gx-aurora-tests:
+	@echo "$@: skipped (the GX layer is 64-bit only)"
+test: gx
+endif

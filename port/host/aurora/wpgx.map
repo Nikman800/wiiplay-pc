@@ -1,0 +1,4 @@
+{
+  global: wpgx_*;
+  local: *;
+};
