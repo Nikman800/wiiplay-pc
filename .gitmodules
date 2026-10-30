@@ -1,0 +1,4 @@
+[submodule "port/extern/aurora"]
+	path = port/extern/aurora
+	url = https://github.com/Nikman800/aurora
+	branch = wiiplay
