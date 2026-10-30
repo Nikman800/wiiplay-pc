@@ -1,45 +1,53 @@
 #include <revolution/ARC.h>
 #include <revolution/OS/OSError.h>
 
+// PC port: on-disc fields are read through BE_GET (identity on the Wii)
+#include <port/be.h>
+
 #include <ctype.h>
 
 #define ARC_FILE_MAGIC 0x55AA382D
 
-#define ARCNodeIsFolder(node) ((node).packed_type_name & 0xFF000000)
-#define ARCNodeGetName(node) ((node).packed_type_name & 0x00FFFFFF)
+#define ARCNodeIsFolder(node) (BE_GET((node).packed_type_name) & 0xFF000000)
+#define ARCNodeGetName(node) (BE_GET((node).packed_type_name) & 0x00FFFFFF)
 
 typedef struct ARCNode {
     union {
         struct {
+#if PORT_BE_WRAPPED
+            u8 is_folder;
+            be_u24 name;
+#else
             u32 is_folder : 8;
             u32 name : 24;
+#endif
         };
-        u32 packed_type_name;
+        be_u32 packed_type_name;
     }; // at 0x0
 
     union {
         struct {
-            u32 offset;
-            u32 size;
+            be_u32 offset;
+            be_u32 size;
         } file;
 
         struct {
-            u32 parent;
-            u32 sibling_next;
+            be_u32 parent;
+            be_u32 sibling_next;
         } folder;
     }; // at 0x4
 } ARCNode;
 
 typedef struct ARCHeader {
-    u32 magic; // at 0x0
+    be_u32 magic; // at 0x0
 
     struct {
-        s32 offset; // at 0x4
-        s32 size;   // at 0x8
+        be_s32 offset; // at 0x4
+        be_s32 size;   // at 0x8
     } nodes;
 
     struct {
-        s32 offset; // at 0xC
+        be_s32 offset; // at 0xC
     } files;
 
     char UNK_0x10[0x10];
@@ -103,20 +111,20 @@ BOOL ARCInitHandle(void* bin, ARCHandle* handle) {
 
     // clang-format off
 #line 74
-    OS_ASSERT(header->magic == ARC_FILE_MAGIC, "ARCInitHandle: bad archive format");
+    OS_ASSERT(BE_GET(header->magic) == ARC_FILE_MAGIC, "ARCInitHandle: bad archive format");
     // clang-format on
 
     handle->archiveStartAddr = header;
 
-    nodes = (ARCNode*)((u8*)header + header->nodes.offset);
+    nodes = (ARCNode*)((u8*)header + BE_GET(header->nodes.offset));
     handle->FSTStart = nodes;
 
-    handle->fileStart = (u8*)header + header->files.offset;
+    handle->fileStart = (u8*)header + BE_GET(header->files.offset);
     // The right bound of the root node is the number of nodes
-    handle->entryNum = nodes[0].folder.sibling_next;
+    handle->entryNum = BE_GET(nodes[0].folder.sibling_next);
     // Strings exist directly after the last node.
     handle->FSTStringStart = (char*)(nodes + handle->entryNum);
-    handle->FSTLength = header->nodes.size;
+    handle->FSTLength = BE_GET(header->nodes.size);
     handle->currDir = 0;
 
     return TRUE;
@@ -142,8 +150,8 @@ BOOL ARCOpen(ARCHandle* handle, const char* path, ARCFileInfo* info) {
     }
 
     info->handle = handle;
-    info->startOffset = nodes[entrynum].file.offset;
-    info->length = nodes[entrynum].file.size;
+    info->startOffset = BE_GET(nodes[entrynum].file.offset);
+    info->length = BE_GET(nodes[entrynum].file.size);
     return TRUE;
 }
 
@@ -156,8 +164,8 @@ BOOL ARCFastOpen(ARCHandle* handle, s32 entrynum, ARCFileInfo* info) {
     }
 
     info->handle = handle;
-    info->startOffset = nodes[entrynum].file.offset;
-    info->length = nodes[entrynum].file.size;
+    info->startOffset = BE_GET(nodes[entrynum].file.offset);
+    info->length = BE_GET(nodes[entrynum].file.size);
 
     return TRUE;
 }
@@ -189,13 +197,13 @@ s32 ARCConvertPathToEntrynum(ARCHandle* handle, const char* path) {
             if (path[1] == '.') {
                 // Seek to parent ../
                 if (path[2] == '/') {
-                    it = nodes[it].folder.parent;
+                    it = BE_GET(nodes[it].folder.parent);
                     path += 3;
                     continue;
                 }
                 // Return parent folder immediately
                 if (path[2] == '\0') {
-                    return nodes[it].folder.parent;
+                    return BE_GET(nodes[it].folder.parent);
                 }
                 // Malformed: fall through, causing infinite loop
                 goto compare;
@@ -229,7 +237,7 @@ s32 ARCConvertPathToEntrynum(ARCHandle* handle, const char* path) {
         // Traverse all children of the parent.
         anchor = it;
         ++it;
-        while (it < nodes[anchor].folder.sibling_next) {
+        while (it < BE_GET(nodes[anchor].folder.sibling_next)) {
             while (TRUE) {
                 if (ARCNodeIsFolder(nodes[it]) ||
                     name_delimited_by_slash != TRUE) {
@@ -249,7 +257,7 @@ s32 ARCConvertPathToEntrynum(ARCHandle* handle, const char* path) {
                 }
 
                 if (ARCNodeIsFolder(nodes[it])) {
-                    it = nodes[it].folder.sibling_next;
+                    it = BE_GET(nodes[it].folder.sibling_next);
                     break;
                 }
 
@@ -282,10 +290,10 @@ static u32 entryToPath(ARCHandle* handle, u32 entrynum, char* string,
         return 0;
     }
 
-    name = ((char*)handle->FSTStringStart) + nodes[entrynum].name;
+    name = ((char*)handle->FSTStringStart) + BE_GET(nodes[entrynum].name);
 
     written =
-        entryToPath(handle, nodes[entrynum].folder.parent, string, maxlen);
+        entryToPath(handle, BE_GET(nodes[entrynum].folder.parent), string, maxlen);
     if (written == maxlen) {
         return written;
     }
@@ -335,7 +343,7 @@ BOOL ARCOpenDir(ARCHandle* handle, const char* path, ARCDir* dir) {
     dir->handle = handle;
     dir->entryNum = entrynum;
     dir->location = entrynum + 1;
-    dir->next = nodes[entrynum].folder.sibling_next;
+    dir->next = BE_GET(nodes[entrynum].folder.sibling_next);
     return TRUE;
 }
 
@@ -357,7 +365,7 @@ BOOL ARCReadDir(ARCDir* dir, ARCDirEntry* entry) {
         // All non-file entries are folders.
         // Collapse to one specific value.
         entry->isDir = ARCNodeIsFolder(nodes[it]) ? TRUE : FALSE;
-        entry->name = handle->FSTStringStart + nodes[it].name;
+        entry->name = handle->FSTStringStart + BE_GET(nodes[it].name);
 
         // skip '.' directories
         if (entry->name[0] == '.' && entry->name[1] == '\0') {
@@ -366,7 +374,7 @@ BOOL ARCReadDir(ARCDir* dir, ARCDirEntry* entry) {
         }
 
         dir->location =
-            ARCNodeIsFolder(nodes[it]) ? nodes[it].folder.sibling_next : it + 1;
+            ARCNodeIsFolder(nodes[it]) ? BE_GET(nodes[it].folder.sibling_next) : it + 1;
         return TRUE;
     }
 }

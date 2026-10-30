@@ -132,7 +132,12 @@ s32 DvdFile::sync() {
     mSyncThread = NULL;
     OSUnlockMutex(&mSyncMutex);
 
+#if defined(PORT_HOST)
+    // PC port: OSMessage is a 64-bit pointer on the host
+    return static_cast<s32>(reinterpret_cast<intptr_t>(buffer[0]));
+#else
     return reinterpret_cast<s32>(buffer[0]);
+#endif
 }
 
 void DvdFile::doneProcess(s32 result, DVDFileInfo* pFileInfo) {

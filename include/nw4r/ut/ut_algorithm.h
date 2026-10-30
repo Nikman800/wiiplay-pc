@@ -57,9 +57,16 @@ template <typename T> inline bool TestBit(T t, int pos) {
  * Pointer arithmetic
  *
  ******************************************************************************/
+#if defined(PORT_HOST)
+// PC port: pointer-sized integer, so offsets added to 64-bit addresses work
+inline uintptr_t GetIntPtr(const void* pPtr) {
+    return reinterpret_cast<uintptr_t>(pPtr);
+}
+#else
 inline u32 GetIntPtr(const void* pPtr) {
     return reinterpret_cast<u32>(pPtr);
 }
+#endif
 
 template <typename T>
 inline const void* AddOffsetToPtr(const void* pBase, T offset) {
