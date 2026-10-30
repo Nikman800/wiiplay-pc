@@ -20,6 +20,8 @@
 #define register
 #define ASM(...)
 #define ASM_VOLATILE(...)
+// Paired-single helpers for the ASM_PS host forms below.
+#include <port/ps_forms.h>
 #define DECLTYPE(x) decltype(x)
 #define DECL_ADDRESS(...) __attribute__((weak))
 #define FLEXIBLE_ARRAY(NAME) NAME[]
@@ -110,6 +112,111 @@ static inline long port_psq_quantize(float v, int scale, long lo, long hi) {
 #define PORT_PS_S7_8ToF32(...) (f = (f32) * (pPtr) / 256.0f);
 #define PORT_PS_S10_5ToF32(...) (f = (f32) * (pPtr) / 32.0f);
 #define PORT_PS_F32ToS10_5(...) (*(pPtr) = (s16)port_psq_quantize(f, 5, -0x8000, 0x7FFF));
+
+// Other CodeWarrior PowerPC intrinsics the decomp calls (HOST_BUILD.md §18).
+// __frsqrte / __fres are estimates on the Wii; here they are exact (port/ps.h).
+static inline double __frsqrte(double x) {
+    return (double)port_frsqrte((float)x);
+}
+static inline float __fres(float x) {
+    return port_fres(x);
+}
+static inline double __fabs(double x) {
+    return __builtin_fabs(x);
+}
+static inline double __fnabs(double x) {
+    return -__builtin_fabs(x);
+}
+static inline int __abs(int x) {
+    return x < 0 ? -x : x;
+}
+static inline unsigned int __cntlzw(unsigned int x) {
+    return x == 0 ? 32u : (unsigned int)__builtin_clz(x);
+}
+// rlwimi: rotate `value` left by `shift` and insert it into `base` under the
+// mask of bits mb..me (big-endian bit numbering, wrapping when mb > me).
+static inline unsigned int __rlwimi(unsigned int base, unsigned int value, unsigned int shift,
+                                    unsigned int mb, unsigned int me) {
+    unsigned int rot = shift ? (value << shift) | (value >> (32 - shift)) : value;
+    unsigned int m1 = 0xFFFFFFFFu >> mb, m2 = me >= 31 ? 0xFFFFFFFFu : ~(0xFFFFFFFFu >> (me + 1));
+    unsigned int mask = mb <= me ? (m1 & m2) : (m1 | m2);
+    return (rot & mask) | (base & ~mask);
+}
+
+// The paired-single host forms below (port/ps_forms.h; HOST_BUILD.md §18).
+// Each macro is the block's asm replaced by a call on the function's own
+// variables.
+#define PORT_PS_VEC2Normalize(...) port_vec2_normalize((float*)(pOut), (const float*)(pIn));
+#define PORT_PS_MTX33Identity(...) port_mtx33_identity((float*)(pMtx));
+#define PORT_PS_MTX34ToMTX33(...) port_mtx34_to_mtx33((float*)(pOut), (const float*)(pIn));
+#define PORT_PS_MTX34Zero(...) port_mtx34_zero((float*)(pMtx));
+#define PORT_PS_MTX34Scale(...)                                                \
+    port_mtx34_scale((float*)(pOut), (const float*)(pIn), (const float*)(pScale));
+#define PORT_PS_MTX34Trans(...)                                                \
+    port_mtx34_trans((float*)(pOut), (const float*)(pIn), (const float*)(pTrans));
+#define PORT_PS_MTX44Identity(...) port_mtx44_identity((float*)(pMtx));
+#define PORT_PS_MTX44Copy(...) port_mtx44_copy((float*)(pDst), (const float*)(pSrc));
+// math_arithmetic.cpp FrSqrt: frsqrte and one Newton-Raphson step.
+#define PORT_PS_FrSqrt(...) (work1 = port_frsqrt_nr(x));
+// ut_algorithm.h Abs<f32>, RPTnkBlock.cpp BlockAbs: fabs.
+#define PORT_PS_Abs(...) (ax = __builtin_fabsf(x));
+#define PORT_PS_BlockAbs(...) (value = __builtin_fabsf(value));
+// g3d_cpu.cpp: 32-byte block copy / clear (lfd/stfd and psq_st of 0.0 move
+// the bits unchanged).
+#define PORT_PS_Copy32ByteBlocks(...) __builtin_memcpy((pDst), (pSrc), 32);
+#define PORT_PS_ZeroMemory32ByteBlocks(...) __builtin_memset((pDst), 0, 32);
+// g3d_fog.cpp Fog::CopyTo: six lfd/stfd pairs.
+#define PORT_PS_FogCopyTo(...) __builtin_memcpy((pDst), (pSrc), 48);
+// g3d_calcview.cpp SetMdlViewMtxSR (three overloads).
+#define PORT_PS_SetMdlViewMtxSR1(...)                                          \
+    port_g3d_view_sr1((float*)(pViewPos), (const float*)&(rRY), (s));
+#define PORT_PS_SetMdlViewMtxSR3(...)                                          \
+    port_g3d_view_sr3((float*)(pViewPos), (const float*)&(rRY), (sx), (sy), (sz));
+#define PORT_PS_SetMdlViewMtxSR7(...)                                          \
+    port_g3d_view_sr7((float*)(pViewPos), (const float*)&(rRX), (const float*)&(rRY),     \
+                      (const float*)&(rRZ), (sx), (sy), (sz));
+// g3d_calcworld.cpp CalcSkinning: the six (M00, M02, ...) pairs accumulate in
+// port_skin[12], declared by the first block in the same scope as the others.
+#define PORT_PS_CalcSkinZero(...) f32 port_skin[12] = {0};
+#define PORT_PS_CalcSkinAdd(...)                                               \
+    for (int port_k = 0; port_k < 12; port_k++) {                              \
+        port_skin[port_k] = __builtin_fmaf(((const f32*)(pT))[port_k], (R), port_skin[port_k]); \
+    }
+#define PORT_PS_CalcSkinStore(...) __builtin_memcpy((pTargetMtx), port_skin, sizeof port_skin);
+// g3d_calcvtx.cpp CalcVtx: key-shape blends; the (xy, z_) / (rg, ba) pairs
+// live in port_acc[4], declared by the first block of each vertex.
+#define PORT_PS_CalcVtxFirst(...)                                              \
+    f32 port_acc[4];                                                           \
+    port_g3d_vtx_first(port_acc, (pVtx), (firstWeight));
+#define PORT_PS_CalcVtxKey(...) port_g3d_vtx_key(port_acc, (pKeyVtx), (keyWeight));
+#define PORT_PS_CalcVtxStore(...) port_g3d_vtx_store((pDst), port_acc);
+#define PORT_PS_CalcClrFirst(...)                                              \
+    f32 port_acc[4];                                                           \
+    port_g3d_clr_first(port_acc, (pVtx), (firstWeight));
+#define PORT_PS_CalcClrKey(...) port_g3d_clr_key(port_acc, (pKeyVtx), (keyWeight));
+#define PORT_PS_CalcClrStore(...)                                              \
+    for (int port_k = 0; port_k < 4; port_k++) {                               \
+        ((u8*)(pDst))[port_k] = (u8)port_psq_quantize(port_acc[port_k], 0, 0, 0xFF); \
+    }
+// RPHkyPaddle.cpp PointerScreenWidth: lhzx from the TV-mode width table.
+#define PORT_PS_PointerScreenWidthLoad(...) (width = *(const u16*)((const u8*)(table) + (offset)));
+#define PORT_PS_PointerScreenWidthMove(...)
+// RVL MTX library (src/revolution/MTX/vec.c, quat.c).
+#define PORT_PS_PSVECScale(...)                                                \
+    ((out)->x = (in)->x * (scale), (out)->y = (in)->y * (scale), (out)->z = (in)->z * (scale));
+#define PORT_PS_PSVECNormalize(...) port_vec_normalize((const float*)(in), (float*)(out));
+#define PORT_PS_PSVECMagDot(...)                                               \
+    {                                                                          \
+        f32 port_xy2x = (v)->x * (v)->x, port_xy2y = (v)->y * (v)->y;          \
+        dot = __builtin_fmaf((v)->z, (v)->z, port_xy2x) + port_xy2y;           \
+        c_zero = c_half - c_half;                                              \
+    }
+#define PORT_PS_PSVECMagScale(...) (dot = dot * port_frsqrt_nr(dot));
+#define PORT_PS_PSVECSquareDistance(...)                                       \
+    (dist = port_vec_square_distance((const float*)(a), (const float*)(b)));
+#define PORT_PS_PSQUATMultiply(...)                                            \
+    port_quat_multiply((const float*)(a), (const float*)(b), (float*)(prod));
+#define PORT_PS_PSQUATNormalize(...) port_quat_normalize((const float*)(in), (float*)(out));
 
 // CodeWarrior's `#pragma unused(x)` etc. are ignored by GCC/Clang (with a
 // warning); nothing else to do here.

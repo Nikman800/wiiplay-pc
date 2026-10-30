@@ -78,6 +78,9 @@ G3D_SRCS := $(addprefix src/nw4r/g3d/res/,g3d_rescommon.cpp g3d_resdict.cpp \
     g3d_resanmshp.cpp g3d_resanmscn.cpp g3d_resanmamblight.cpp g3d_resanmlight.cpp \
     g3d_resanmcamera.cpp g3d_reslightset.cpp)
 
+# The RVL MTX library: its paired-single asm has host forms (docs/HOST_BUILD.md §18).
+MTX_SRCS := $(addprefix src/revolution/MTX/,mtx.c mtxvec.c vec.c quat.c mtx44.c)
+
 # Real decompiled sources compiled for the host (unmodified unless listed in
 # docs/HOST_BUILD.md).
 DECOMP_SRCS := \
@@ -100,6 +103,9 @@ DECOMP_SRCS := \
     src/nw4r/ut/ut_TagProcessorBase.cpp \
     src/nw4r/math/math_triangular.cpp \
     src/nw4r/math/math_types.cpp \
+    src/nw4r/math/math_arithmetic.cpp \
+    src/nw4r/g3d/platform/g3d_cpu.cpp \
+    $(MTX_SRCS) \
     src/egg/util/eggMsgRes.cpp \
     $(LYT_SRCS) \
     $(G3D_SRCS)
@@ -111,7 +117,7 @@ MSL_SRCS := \
     src/MSL_C/wstring.c \
     src/MSL_C/wmem.c
 
-HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp \
+HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp src/host_mtx.cpp \
     src/host_gxtexobj.cpp
 
 # POINTERS.md step 4 sites (§5.1): compiled (not linked; most of RPKernel and
@@ -128,7 +134,7 @@ HOST_OBJS := $(patsubst %,$(OUT)/host/%.o,$(HOST_SRCS))
 LIB := $(OUT)/libwiiplay_loader.a
 
 TESTS := $(OUT)/test_be $(OUT)/test_be_c $(OUT)/test_port $(OUT)/test_port_c \
-         $(OUT)/test_layout
+         $(OUT)/test_layout $(OUT)/test_math
 
 .PHONY: all test unit archives resources layouts models clean
 all: $(OUT)/arc_harness $(OUT)/res_harness $(OUT)/lyt_harness $(OUT)/g3d_harness $(TESTS) $(STEP4_OBJS)
@@ -185,12 +191,17 @@ $(OUT)/test_port_c: $(HOST)/tests/test_port_c.c $(LIB)
 $(OUT)/test_layout: $(HOST)/tests/layout_asserts.cpp
 	$(CXX) $(CXXFLAGS) -MMD $< -o $@
 
+# Host forms of the paired-single asm against reference math (HOST_BUILD.md §18).
+$(OUT)/test_math: $(HOST)/tests/test_math.cpp $(LIB)
+	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(LIB) -o $@
+
 unit: $(TESTS) $(STEP4_OBJS)
 	$(OUT)/test_be
 	$(OUT)/test_be_c
 	$(OUT)/test_port
 	$(OUT)/test_port_c
 	$(OUT)/test_layout
+	$(OUT)/test_math
 
 archives: $(OUT)/arc_harness
 	python3 $(HOST)/tests/test_archives.py --harness $(OUT)/arc_harness --disc $(DISC)
@@ -214,8 +225,10 @@ ifeq ($(M32),1)
 ANIM_FP := -msse2 -mfpmath=sse
 endif
 ANIM_FP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(G3D_SRCS) src/nw4r/math/math_triangular.cpp \
-    src/nw4r/math/math_types.cpp)
+    src/nw4r/math/math_types.cpp src/nw4r/math/math_arithmetic.cpp \
+    src/nw4r/g3d/platform/g3d_cpu.cpp $(MTX_SRCS))
 $(ANIM_FP_OBJS): CXXFLAGS += $(ANIM_FP)
+$(ANIM_FP_OBJS): CFLAGS += $(ANIM_FP)
 
 $(OUT)/anm_harness: $(HOST)/tests/anm_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
 	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(LIB) -Wl,--gc-sections -o $@

@@ -1,5 +1,19 @@
 #include <revolution/MTX.h>
 
+#ifndef ASM_PS
+// Host builds give this block a C form (port/host/include/decomp/compat.h).
+#define ASM_PS(name) ASM
+#endif
+
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+void PSVECAdd(const Vec* a, const Vec* b, Vec* sum) {
+    f32 x = a->x + b->x, y = a->y + b->y, z = a->z + b->z;
+    sum->x = x;
+    sum->y = y;
+    sum->z = z;
+}
+#else
 asm void PSVECAdd(register const Vec* a, register const Vec* b,
                   register Vec* sum) {
     // clang-format off
@@ -24,12 +38,13 @@ asm void PSVECAdd(register const Vec* a, register const Vec* b,
     blr
     // clang-format on
 }
+#endif
 
 void PSVECScale(register const Vec* in, register Vec* out, register f32 scale) {
     register f32 xy, z;
     register f32 sxy, sz;
 
-    ASM (
+    ASM_PS(PSVECScale) (
         // Load components
         psq_l xy, Vec.x(in), 0, 0
         psq_l z,  Vec.z(in), 1, 0
@@ -54,7 +69,7 @@ void PSVECNormalize(register const Vec* in, register Vec* out) {
     c_half = 0.5f;
     c_three = 3.0f;
 
-    ASM (
+    ASM_PS(PSVECNormalize) (
         // Load vector components
         psq_l xy, Vec.x(in), 0, 0
         psq_l z,  Vec.z(in), 1, 0
@@ -93,7 +108,7 @@ f32 PSVECMag(register const Vec* v) {
     register f32 c_three, c_half, c_zero;
 
     c_half = 0.5f;
-    ASM (
+    ASM_PS(PSVECMagDot) (
         // Load vector components
         psq_l xy, Vec.x(v), 0, 0
         lfs   z,  Vec.z(v)
@@ -116,7 +131,7 @@ f32 PSVECMag(register const Vec* v) {
     rsqrt = __frsqrte(dot);
 
     c_three = 3.0f;
-    ASM (
+    ASM_PS(PSVECMagScale) (
         // Refine estimate using Newton-Raphson method
         // y = 1 / sqrt(x)
         fmuls   work0, rsqrt, rsqrt        // rsqrt^2
@@ -132,6 +147,12 @@ f32 PSVECMag(register const Vec* v) {
     return dot;
 }
 
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+f32 PSVECDotProduct(const Vec* a, const Vec* b) {
+    return port_vec_dot((const float*)a, (const float*)b);
+}
+#else
 asm f32 PSVECDotProduct(register const Vec* a, register const Vec* b) {
     // clang-format off
     nofralloc
@@ -152,7 +173,14 @@ asm f32 PSVECDotProduct(register const Vec* a, register const Vec* b) {
     blr
     // clang-format on
 }
+#endif
 
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+void PSVECCrossProduct(const Vec* a, const Vec* b, Vec* prod) {
+    port_vec_cross((const float*)a, (const float*)b, (float*)prod);
+}
+#else
 asm void PSVECCrossProduct(register const Vec* a, register const Vec* b,
                            register Vec* prod) {
     // clang-format off
@@ -189,6 +217,7 @@ asm void PSVECCrossProduct(register const Vec* a, register const Vec* b,
     blr
     // clang-format on
 }
+#endif
 
 void C_VECHalfAngle(register const Vec* a, register const Vec* b,
                     register Vec* half) {
@@ -219,7 +248,7 @@ f32 PSVECSquareDistance(register const Vec* a, register const Vec* b) {
     register f32 dxy, dyz;
     register f32 dist;
 
-    ASM (
+    ASM_PS(PSVECSquareDistance) (
         // Load vector components
         psq_l axy, Vec.x(a), 0, 0
         psq_l ayz, Vec.y(a), 0, 0 

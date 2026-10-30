@@ -62,7 +62,7 @@ f32 FrSqrt(register f32 x) {
     register f32 c_half = 0.5f, c_three = 3.0f;
     register f32 work0, work1;
 
-    ASM (
+    ASM_PS(FrSqrt) (
         // Estimate reciprocal square root
         frsqrte rsqrt, x
         

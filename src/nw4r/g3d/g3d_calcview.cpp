@@ -16,6 +16,14 @@ namespace {
 using nw4r::math::MTX34;
 using nw4r::math::VEC3;
 
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+void GetModelLocalAxisY2(math::VEC3* pVec, const math::MTX34* pModelMtx,
+                         const math::MTX34* pParentModelMtx) {
+    port_g3d_local_axis_y(reinterpret_cast<f32*>(pVec), reinterpret_cast<const f32*>(pModelMtx),
+                          reinterpret_cast<const f32*>(pParentModelMtx), 0);
+}
+#else
 asm void GetModelLocalAxisY2(register math::VEC3* pVec,
                              register const math::MTX34* pModelMtx,
                              register const math::MTX34* pParentModelMtx) {
@@ -72,7 +80,16 @@ _lbl_80068168:
     blr
     // clang-format on
 }
+#endif
 
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+void GetModelLocalAxisY3(math::VEC3* pVec, const math::MTX34* pModelMtx,
+                         const math::MTX34* pParentModelMtx) {
+    port_g3d_local_axis_y(reinterpret_cast<f32*>(pVec), reinterpret_cast<const f32*>(pModelMtx),
+                          reinterpret_cast<const f32*>(pParentModelMtx), 1);
+}
+#else
 asm void GetModelLocalAxisY3(register math::VEC3* pVec,
                              register const math::MTX34* pModelMtx,
                              register const math::MTX34* pParentModelMtx) {
@@ -135,13 +152,14 @@ _lbl_80068218:
     blr
     // clang-format on
 }
+#endif
 
 inline void SetMdlViewMtxSR(register math::MTX34* pViewPos,
                             register const math::VEC3& rRY, register f32 s) {
     register f32 work0, work1;
     register f32 c_zero = 0.0f;
 
-    ASM (
+    ASM_PS(SetMdlViewMtxSR1) (
         psq_l      work0,  VEC3.x(rRY), 0, 0
         ps_muls0   work0,  work0, s
         ps_merge10 work1,  work0, work0
@@ -163,7 +181,7 @@ inline void SetMdlViewMtxSR(register math::MTX34* pViewPos,
     register f32 work0, work1, work2, work3;
     register f32 c_zero = 0.0f;
 
-    ASM (
+    ASM_PS(SetMdlViewMtxSR3) (
         ps_merge00 work0,  sx, sy
         psq_l      work1,  VEC3.x(rRY), 0, 0
         ps_merge10 work3,  work1, work1
@@ -188,7 +206,7 @@ inline void SetMdlViewMtxSR(register math::MTX34* pViewPos,
 
     register f32 work0, work1, work2, work3;
 
-    ASM (
+    ASM_PS(SetMdlViewMtxSR7) (
         psq_l      work0, VEC3.x(rRX), 0, 0
         psq_l      work1, VEC3.x(rRY), 0, 0
         ps_muls0   work0, work0, sx

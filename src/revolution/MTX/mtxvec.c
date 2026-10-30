@@ -1,5 +1,11 @@
 #include <revolution/MTX.h>
 
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+void PSMTXMultVec(const Mtx mtx, const Vec* vec, Vec* out) {
+    port_mtx_mult_vec(&mtx[0][0], (const float*)vec, (float*)out);
+}
+#else
 asm void PSMTXMultVec(register const Mtx mtx, register const Vec* vec,
                       register Vec* out) {
     // clang-format off
@@ -44,3 +50,4 @@ asm void PSMTXMultVec(register const Mtx mtx, register const Vec* vec,
     blr
     // clang-format on
 }
+#endif

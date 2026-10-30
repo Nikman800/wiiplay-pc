@@ -118,20 +118,7 @@ void GXSetLineWidth(u8 width, u32 offset) {
     Abort("GXSetLineWidth");
 }
 
-u32 PSMTXInverse(const Mtx src, Mtx inv) {
-    (void)src, (void)inv;
-    Abort("PSMTXInverse");
-    return 0;
-}
-
-void PSMTXMultVec(const Mtx mtx, const Vec* vec, Vec* out) {
-    (void)mtx, (void)vec, (void)out;
-    Abort("PSMTXMultVec");
-}
-
-void PSMTXTrans(Mtx mtx, f32 x, f32 y, f32 z) {
-    (void)mtx, (void)x, (void)y, (void)z;
-    Abort("PSMTXTrans");
-}
+/* PSMTXInverse, PSMTXMultVec and PSMTXTrans come from the library (src/revolution/MTX
+ * and src/host_mtx.cpp; docs/HOST_BUILD.md §18). */
 
 } // extern "C"

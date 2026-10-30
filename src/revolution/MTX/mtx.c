@@ -7,6 +7,15 @@ f32 Unit01[2] = {0.0f, 1.0f};
 const f32 mtxOne = 1.0f;
 const f32 mtxZero = 0.0f;
 
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+void PSMTXIdentity(Mtx mtx) {
+    int i;
+    for (i = 0; i < 12; i++) {
+        (&mtx[0][0])[i] = (i % 5 == 0) ? mtxOne : mtxZero;
+    }
+}
+#else
 asm void PSMTXIdentity(register Mtx mtx) {
     nofralloc
 
@@ -22,7 +31,16 @@ asm void PSMTXIdentity(register Mtx mtx) {
     psq_st f2, 0x28(mtx), 0, qr0
     blr
 }
+#endif
 
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+void PSMTXCopy(const Mtx src, Mtx dst) {
+    f32 t[12];
+    __builtin_memcpy(t, src, sizeof t);
+    __builtin_memcpy(dst, t, sizeof t);
+}
+#else
 asm void PSMTXCopy(register const Mtx src, register Mtx dst) {
     nofralloc
 
@@ -40,7 +58,14 @@ asm void PSMTXCopy(register const Mtx src, register Mtx dst) {
     psq_st f5, 0x28(dst), 0, qr0
     blr
 }
+#endif
 
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+void PSMTXConcat(const Mtx srcA, const Mtx srcB, Mtx dst) {
+    port_mtx_concat(&srcA[0][0], &srcB[0][0], &dst[0][0], 0);
+}
+#else
 asm void PSMTXConcat(register const Mtx srcA, register const Mtx srcB,
                      register Mtx dst) {
     nofralloc
@@ -97,7 +122,17 @@ asm void PSMTXConcat(register const Mtx srcA, register const Mtx srcB,
     addi r1, r1, 0x40
     blr
 }
+#endif
 
+#if defined(PORT_HOST)
+// Host form: the asm transliterated (port/host/include/port/ps_forms.h).
+void PSMTXConcatArray(const Mtx srcA, const Mtx srcB, Mtx dst, u32 count) {
+    u32 i;
+    for (i = 0; i < count; i++) {
+        port_mtx_concat(&srcA[0][0], &srcB[0][0] + 12 * i, &dst[0][0] + 12 * i, 1);
+    }
+}
+#else
 asm void PSMTXConcatArray(register const Mtx srcA, register const Mtx srcB,
                            register Mtx dst, register u32 count) {
     nofralloc
@@ -207,4 +242,5 @@ loop:
     addi r1, r1, 0x60
     blr
 }
+#endif
 

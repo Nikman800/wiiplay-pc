@@ -30,6 +30,9 @@
  *   PD   ParticleParameterDesc texture names and fields
  *   K    every particle and emit track (GetPtclTrack / GetEmitTrack /
  *        ResEmitter::GetPtclTrack): offset, AnimCurveHeader fields
+ *   FP   every field parameter block of a particle F32 track (gravity,
+ *        random, spin, magnet, newton, vortex), located and read as
+ *        ParticleManager::Calc does: offset, kind, every member
  *   TF   BREFT registered: path, texture count in its name table
  *   T    texture: FindTexture result offset and TextureData fields; the
  *        texture/tlut slots read back through RES_PTR as file offsets
@@ -96,7 +99,7 @@ struct Creator {
 };
 
 std::vector<File*> sRegistered;
-int sBreff = 0, sBreft = 0, sEmitters = 0, sTracks = 0, sTextures = 0;
+int sBreff = 0, sBreft = 0, sEmitters = 0, sTracks = 0, sTextures = 0, sFields = 0;
 int sStages = 0, sRuns = 0, sCaptures = 0, sTextureSlots = 0, sCurveSlots = 0;
 int sForeignSlots = 0; // cross-file slots resolved into another project pair
 bool sCurves = false;  // --curves
@@ -244,6 +247,75 @@ void DumpTrack(const File* f, int i, char kind, int j, u8* pTrack) {
                 static_cast<u32>(h->randomTable), static_cast<u32>(h->nameTable),
                 static_cast<u32>(h->infoTable));
     sTracks++;
+}
+
+/******************************************************************************
+ * Field parameter blocks (FP lines): read the way ParticleManager::Calc reads
+ * them, located by Calc's expression and read through the header structs
+ * (ef_res_animcurve.h). Spin, magnet, newton and vortex go through the local
+ * copy Calc makes (NW4R_EF_FIELD_VALUE), the other two through the pointer.
+ ******************************************************************************/
+void DumpField(const File* f, int i, int j, u8* pPtclTrack) {
+    AnimCurveHeader* h = reinterpret_cast<AnimCurveHeader*>(pPtclTrack);
+    if (h->magic != NW4R_EF_MAGIC_ANIMCURVE || h->curveFlag != AC_TYPE_PARTICLE_F32) {
+        return;
+    }
+    switch (h->kindType) {
+    case AC_TARGET_UNK32: case AC_TARGET_UNK34: case AC_TARGET_UNK35:
+    case AC_TARGET_UNK36: case AC_TARGET_UNK38: case AC_TARGET_UNK39:
+        break;
+    default:
+        // FIELD_SPEED's 4-byte info table is never read; other kinds have none.
+        return;
+    }
+    u8* pInfo = pPtclTrack + sizeof(AnimCurveHeader) + h->keyTable + h->rangeTable +
+                h->randomTable + h->nameTable;
+    std::printf("FP %s %d p%d %x %u :", f->path.c_str(), i, j, Off(f, pInfo), h->kindType);
+    switch (h->kindType) {
+    case AC_TARGET_UNK32: {
+        FieldGravityParam* pParam = reinterpret_cast<FieldGravityParam*>(pInfo);
+        std::printf(" %08x %08x,%08x,%08x %u %u", Bits(pParam->power), Bits(pParam->dir.x),
+                    Bits(pParam->dir.y), Bits(pParam->dir.z), pParam->space, pParam->type);
+        break;
+    }
+    case AC_TARGET_UNK39: {
+        FieldRandomParam* pParam = reinterpret_cast<FieldRandomParam*>(pInfo);
+        std::printf(" %08x %08x %u %u %u", Bits(pParam->power), Bits(pParam->diffuse),
+                    static_cast<u16>(pParam->interval), pParam->flags, pParam->type);
+        break;
+    }
+    case AC_TARGET_UNK38: {
+        NW4R_EF_FIELD_VALUE(FieldSpinParam) param = *reinterpret_cast<FieldSpinParam*>(pInfo);
+        std::printf(" %08x %08x,%08x,%08x %u %u %u %u", Bits(param.speed), Bits(param.rot.x),
+                    Bits(param.rot.y), Bits(param.rot.z), param.space, param.type,
+                    param.reserved0, param.reserved1);
+        break;
+    }
+    case AC_TARGET_UNK34: {
+        NW4R_EF_FIELD_VALUE(FieldMagnetParam) param = *reinterpret_cast<FieldMagnetParam*>(pInfo);
+        std::printf(" %08x %08x,%08x,%08x %u %u %u %u", Bits(param.power), Bits(param.pos.x),
+                    Bits(param.pos.y), Bits(param.pos.z), param.space, param.type,
+                    param.reserved0, param.reserved1);
+        break;
+    }
+    case AC_TARGET_UNK35: {
+        NW4R_EF_FIELD_VALUE(FieldNewtonParam) param = *reinterpret_cast<FieldNewtonParam*>(pInfo);
+        std::printf(" %08x %08x %08x,%08x,%08x %u %u %u %u", Bits(param.power),
+                    Bits(param.range), Bits(param.pos.x), Bits(param.pos.y), Bits(param.pos.z),
+                    param.space, param.type, param.reserved0, param.reserved1);
+        break;
+    }
+    case AC_TARGET_UNK36: {
+        NW4R_EF_FIELD_VALUE(FieldVortexParam) param = *reinterpret_cast<FieldVortexParam*>(pInfo);
+        std::printf(" %08x %08x %08x %08x,%08x,%08x %u %u %u %u", Bits(param.innerSpeed),
+                    Bits(param.outerSpeed), Bits(param.radius), Bits(param.rot.x),
+                    Bits(param.rot.y), Bits(param.rot.z), param.space, param.type,
+                    param.reserved0, param.reserved1);
+        break;
+    }
+    }
+    std::printf("\n");
+    sFields++;
 }
 
 /******************************************************************************
@@ -435,6 +507,7 @@ void DumpEffect(File* f, EffectProject* pProject) {
                 Errors()++;
             }
             DumpTrack(f, i, 'p', j, pTrack);
+            DumpField(f, i, j, pTrack);
             if (sCurves) {
                 EvalTrack(f, i, 'p', j, pTrack);
             }
@@ -769,11 +842,11 @@ int main(int argc, char** argv) {
     }
 
     std::fprintf(stderr,
-                 "ef_harness: %d BREFF (%d emitters, %d tracks), %d BREFT (%d textures), %d "
+                 "ef_harness: %d BREFF (%d emitters, %d tracks, %d field blocks), %d BREFT (%d textures), %d "
                  "stages, %d changed runs, %d particle texture slots and %d curve slots "
                  "checked (%d into another pair's file), %d capture slots; %d errors (pointer "
                  "size %zu)\n",
-                 sBreff, sEmitters, sTracks, sBreft, sTextures, sStages, sRuns, sTextureSlots,
+                 sBreff, sEmitters, sTracks, sFields, sBreft, sTextures, sStages, sRuns, sTextureSlots,
                  sCurveSlots, sForeignSlots, sCaptures, Errors(), sizeof(void*));
     if (sCurves) {
         std::fprintf(stderr, "ef_harness: %d curve evaluations, %d child creation requests\n",

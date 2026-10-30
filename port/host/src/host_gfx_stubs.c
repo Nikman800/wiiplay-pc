@@ -6,14 +6,12 @@
  *
  * Everything here aborts with its name if called: drawing, capture and the
  * game's scene singletons are Phase 7 work, and nothing on the load path
- * reaches them. The exceptions are data (zero-initialised, as in .bss) and
- * PSVECMag, which the light objects call while loading; the Wii's version is
- * paired-single assembly, this one computes the same magnitude in C.
+ * reaches them. The exception is data (zero-initialised, as in .bss).
+ * PSVECMag and C_MTXOrtho come from src/revolution/MTX (docs/HOST_BUILD.md §18).
  *
  * C++ symbols are given by their (Itanium) mangled names, which are the same
  * for the 64- and 32-bit builds.
  */
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -55,7 +53,6 @@ PORT_STUB(GXSetTexCopyDst)
 PORT_STUB(GXSetTexCopySrc)
 PORT_STUB(GXSetViewport)
 PORT_STUB(GXSetZMode)
-PORT_STUB(C_MTXOrtho)
 
 /* Game code in units that do not build on the host yet. */
 PORT_STUB(Bom_shuffleArray)
@@ -79,9 +76,3 @@ void* port_stub_bom_game_manager __asm__("_ZN16RPBomGameManager9sInstanceE") = 0
 unsigned int RP_randSeedX;
 unsigned int RP_randSeedY;
 float RP_vecZero[3];
-
-/* PSVECMag (src/revolution/MTX/vec.c is paired-single code). */
-float PSVECMag(const float* pVec);
-float PSVECMag(const float* pVec) {
-    return sqrtf(pVec[0] * pVec[0] + pVec[1] * pVec[1] + pVec[2] * pVec[2]);
-}

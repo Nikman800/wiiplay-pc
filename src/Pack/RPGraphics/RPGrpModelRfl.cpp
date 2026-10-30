@@ -230,12 +230,18 @@ void RPGrpModelRfl::DrawGX(const RFLCharModel* pModel, u32 diffMask,
             // non-const (this dummy in the worst-case set) and spDrawModel is a non-const global
             // (always in), so the edge (latency 2) is always there. The stw is then ready together
             // with lbzx (height 9 > 7) and goes after it.
+#if defined(PORT_HOST)
+            setting = &sDrawCoreSetting;
+            spDrawModel = model;
+            stageNum = stages[stageNum];
+#else
             asm volatile {
                 lis setting, sDrawCoreSetting@ha
                 stw model, spDrawModel
                 lbzx stageNum, stages, stageNum
                 addi setting, setting, sDrawCoreSetting@l
             }
+#endif
             setting->tevStageNum = stageNum;
             setting->reverseCulling = (bool)(mFlagsRfl & EFlag_ReverseCulling);
 

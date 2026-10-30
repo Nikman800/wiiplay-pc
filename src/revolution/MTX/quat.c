@@ -6,6 +6,11 @@
 
 DECOMP_FORCELITERAL(quat_c, MY_EPSILON, 1.0f, 0.0f);
 
+#ifndef ASM_PS
+// Host builds give this block a C form (port/host/include/decomp/compat.h).
+#define ASM_PS(name) ASM
+#endif
+
 void PSQUATMultiply(register const Quaternion* a, register const Quaternion* b,
                     register Quaternion* prod) {
     register f32 axy, azw;
@@ -13,7 +18,7 @@ void PSQUATMultiply(register const Quaternion* a, register const Quaternion* b,
     register f32 naxay, naxy, nazw;
     register f32 work1, work2, work3, work4, work5;
 
-    ASM (
+    ASM_PS(PSQUATMultiply) (
         // Load qA components
         psq_l axy, Quaternion.x(a), 0, 0 // AX, AY
         psq_l azw, Quaternion.z(a), 0, 0 // AZ, AW
@@ -59,7 +64,7 @@ void PSQUATNormalize(register const Quaternion* in, register Quaternion* out) {
     c_half = 0.5f;
     c_three = 3.0f;
 
-    ASM (
+    ASM_PS(PSQUATNormalize) (
         // Load quaternion components
         psq_l xy, Quaternion.x(in), 0, 0
         psq_l zw, Quaternion.z(in), 0, 0

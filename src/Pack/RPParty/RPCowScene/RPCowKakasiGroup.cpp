@@ -244,6 +244,7 @@ void AddGroupScore__11RPCowPlayerFll();
 void _restgpr_22();
 }
 
+#if !defined(PORT_HOST)
 asm void RPCowKakasiGroup::OnActivate() {
     nofralloc
     stwu r1, -0x80(r1)
@@ -607,7 +608,10 @@ asm void RPCowKakasiGroup::OnActivate() {
     blr
 }
 
-#if 0
+#endif
+
+// The C++ equivalent: the host form.
+#if defined(PORT_HOST)
 // NONMATCHING: C++ equivalent, 99.90%; target loop swaps r22 and r23.
 void RPCowKakasiGroup::OnActivate() {
     RPCowGame* pGame = RPCowGame::GetInstance();

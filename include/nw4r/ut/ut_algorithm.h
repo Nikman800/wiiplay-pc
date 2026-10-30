@@ -2,6 +2,11 @@
 #define NW4R_UT_ALGORITHM_H
 #include <nw4r/types_nw4r.h>
 
+#ifndef ASM_PS
+// Host builds give this block a C form (port/host/include/decomp/compat.h).
+#define ASM_PS(name) ASM
+#endif
+
 namespace nw4r {
 namespace ut {
 namespace {
@@ -31,7 +36,7 @@ template <typename T> inline T Abs(T x) {
 template <> f32 inline Abs(register f32 x) {
     register f32 ax;
 
-    ASM (
+    ASM_PS(Abs) (
         fabs ax, x
     )
 

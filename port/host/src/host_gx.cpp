@@ -30,23 +30,9 @@ void MEMFreeToAllocator(MEMAllocator* allocator, void* block) {
     allocator->funcs->freeFunc(allocator, block);
 }
 
-/* MTX */
-void PSMTXCopy(const Mtx src, Mtx dst) {
-    if (src != dst) {
-        std::memmove(dst, src, sizeof(Mtx));
-    }
-}
+/* MTX (PSMTXIdentity, PSMTXCopy and PSMTXConcat come from src/revolution/MTX,
+ * built with their host forms: docs/HOST_BUILD.md §18) */
 
-void PSMTXConcat(const Mtx a, const Mtx b, Mtx ab) {
-    Mtx t;
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 4; j++) {
-            t[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j] +
-                      (j == 3 ? a[i][3] : 0.0f);
-        }
-    }
-    std::memcpy(ab, t, sizeof(Mtx));
-}
 
 void PSMTXScale(Mtx m, f32 x, f32 y, f32 z) {
     std::memset(m, 0, sizeof(Mtx));
@@ -144,24 +130,6 @@ void GXSetZTexture(GXZTexOp, GXTexFmt, u32) {}
 void GXCallDisplayList(void*, u32) {}
 void GXSetArray(GXAttr, const void*, u8) {}
 
-void PSMTXIdentity(Mtx m) {
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 4; j++) {
-            m[i][j] = i == j ? 1.0f : 0.0f;
-        }
-    }
-}
 
 } // extern "C"
 
-/* nw4r::g3d::detail::Copy32ByteBlocks (src/nw4r/g3d/platform/g3d_cpu.cpp is
- * paired-single assembly). */
-namespace nw4r {
-namespace g3d {
-namespace detail {
-void Copy32ByteBlocks(void* pDst, const void* pSrc, u32 size) {
-    std::memcpy(pDst, pSrc, size & ~31u);
-}
-} // namespace detail
-} // namespace g3d
-} // namespace nw4r

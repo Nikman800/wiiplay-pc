@@ -37,7 +37,7 @@ Fog Fog::CopyTo(register void* pDst) const {
         register const FogData* pSrc = ptr();
         register f64 work0, work1, work2, work3, work4, work5;
 
-        ASM (
+        ASM_PS(FogCopyTo) (
             lfd  work0, 0(pSrc)
             stfd work0, 0(pDst)
 

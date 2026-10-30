@@ -212,6 +212,22 @@ TOUCHED = [
     "include/nw4r/ef/ef_emitter.h",
     "src/nw4r/ef/ef_emitter.cpp",
     "src/nw4r/ef/ef_particlemanager.cpp",
+    # Paired-single asm host forms (HOST_BUILD.md §18): ASM_PS block names and
+    # #if defined(PORT_HOST) bodies for asm functions; ef field parameter blocks be_*.
+    "src/nw4r/math/math_arithmetic.cpp",
+    "src/nw4r/g3d/platform/g3d_cpu.cpp",
+    "src/nw4r/g3d/g3d_fog.cpp",
+    "src/nw4r/g3d/g3d_calcview.cpp",
+    "src/nw4r/g3d/g3d_calcvtx.cpp",
+    "src/revolution/MTX/mtx.c",
+    "src/revolution/MTX/mtxvec.c",
+    "src/revolution/MTX/vec.c",
+    "src/revolution/MTX/quat.c",
+    "src/Pack/RPParty/RPTnkScene/RPTnkBlock.cpp",
+    "src/Pack/RPParty/RPHkyScene/RPHkyPaddle.cpp",
+    "src/Pack/RPGraphics/RPGrpModelRfl.cpp",
+    "src/Pack/RPSystem/RPSysPauseMgr.cpp",
+    "src/Pack/RPParty/RPCowScene/RPCowKakasiGroup.cpp",
 ]
 
 

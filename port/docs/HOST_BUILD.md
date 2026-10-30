@@ -496,6 +496,9 @@ check in §2 confirms all of them.
 | `include/nw4r/g3d/res/g3d_resanmcamera.h`, `g3d_resanmlight.h`, `g3d_resanmfog.h`, `src/nw4r/g3d/res/g3d_resanmshp.cpp` | §17: `projType`, `distFunc`, `spotFunc` and the fog `type` are `BE_ENUM(..., u32)`; the SHP0 index table is read as `be_u16`. |
 | `src/nw4r/ef/ef_animcurve.cpp`, `include/nw4r/ef/ef_emitter.h`, `src/nw4r/ef/ef_emitter.cpp`, `ef_particlemanager.cpp`, `include/port/be.h` | §17: the curve key, range and table structs are `be_*`, the key reads are `be_u16*` / `be_f32*`; `EmitterInheritSetting::speed` is `be_s16`; the random seed's byte fold indexes `bytes[BE_BYTE(i, 4)]` (new macro, `i` on the Wii); the track-type word is read as `be_u16`. |
 
+| `include/nw4r/ef/ef_res_animcurve.h`, `src/nw4r/ef/ef_particlemanager.cpp` | §18: the field parameter blocks (`FieldGravityParam`, `FieldRandomParam`, `FieldSpinParam`, `FieldMagnetParam`, `FieldNewtonParam`, `FieldVortexParam`) move from the `.cpp` into the header with `be_f32` / `be_u16` / `BE_MATH(VEC3)` members; `Calc`'s local copies of the last four are `NW4R_EF_FIELD_VALUE(T)` (the type itself on the Wii, a host-order `T##Value` on the host). |
+| `include/nw4r/ut/ut_algorithm.h`, `src/nw4r/math/math_types.cpp`, `math_arithmetic.cpp`, `src/nw4r/g3d/platform/g3d_cpu.cpp`, `g3d_fog.cpp`, `g3d_calcview.cpp`, `g3d_calcworld.cpp`, `g3d_calcvtx.cpp`, `src/revolution/MTX/vec.c`, `quat.c`, `mtx.c`, `mtxvec.c`, `src/Pack/RPParty/RPTnkScene/RPTnkBlock.cpp`, `RPHkyScene/RPHkyPaddle.cpp` | §18: every remaining paired-single / asm block is opened with `ASM_PS(name)` (files that do not get the fallback from a header define `ASM_PS(name)` as `ASM` themselves); the CodeWarrior `asm` functions (`MTX34InvTranspose`, `GetModelLocalAxisY2/3`, `PSMTXIdentity`, `PSMTXCopy`, `PSMTXConcat`, `PSMTXConcatArray`, `PSMTXMultVec`, `PSVECAdd`, `PSVECDotProduct`, `PSVECCrossProduct`) get a host body under `#if defined(PORT_HOST)`. |
+| `src/Pack/RPGraphics/RPGrpModelRfl.cpp`, `src/Pack/RPSystem/RPSysPauseMgr.cpp`, `src/Pack/RPParty/RPCowScene/RPCowKakasiGroup.cpp` | §18: the `asm volatile { }` scheduling blocks have their C under `#if defined(PORT_HOST)`; `RPCowKakasiGroup::OnActivate`'s asm body is `#if !defined(PORT_HOST)` and its C++ equivalent (formerly `#if 0`) is the host form. |
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
 
@@ -585,13 +588,10 @@ the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrap
 - g3d beyond loading (§11): the model file structs' math members are `BE_MATH` since step 8
   (§14), and every animation on the disc evaluates through the real `ResAnm*::GetAnmResult`
   readers since §17. Still open: the `AnmObj*` / `AnmScn*` objects (`g3d_anm*.cpp`) and drawing.
-- Drawing layouts needs the Phase 7 GX layer behind `src/host_gx.cpp`. `FAbs`, `FInv`,
-  `FSelect` and the fast-cast conversions have host forms since §17; the other paired-single
-  functions still compile to nothing on the host (`math_types.cpp`: `VEC2Normalize`,
-  `MTX33Identity`, `MTX34ToMTX33`, `MTX34Zero`, `MTX34Scale`, `MTX34Trans`, `MTX44Identity`,
-  `MTX44Copy`; `MTX34InvTranspose` is left out). The `PSMTX*` / `PSVEC*` functions behind
-  `math_types.h`'s inlines exist on the host only as the C stand-ins some harnesses link
-  (`PSMTXIdentity` in `src/host_gx.cpp`, a few others in the test stand-ins).
+- Drawing layouts needs the Phase 7 GX layer behind `src/host_gx.cpp`. Every paired-single
+  block and asm function the host builds or will build has a host form since §18 (table
+  there), and the RVL MTX library is built from `src/revolution/MTX` plus
+  `src/host_mtx.cpp`.
 - Move the next loaders onto `be_*` as they are brought up. Each needs the type declarations, a
   small number of C `BE_GET`s, a `layout_asserts.cpp` block and a `check_matching.py` run:
   - `g3d::Res*Data`
@@ -1535,7 +1535,166 @@ the relocated addresses split into.
   on the host.
 - Eased and step keys, and turn-mode texture and child curves: ported in the test, not on the
   disc.
-- The field parameter blocks behind a curve's tables (`FieldGravityParam`,
-  `FieldRandomParam`, ... in `ef_particlemanager.cpp`) are plain; `Emitter`,
-  `ParticleManager` and `Particle` calculation do not build on the host yet.
+- The field parameter blocks behind a curve's tables are big-endian and checked since §18;
+  `Emitter`, `ParticleManager` and `Particle` calculation do not link on the host yet.
 - Console equivalence of the last float bits (see above).
+
+## 18. ef field parameters; every paired-single asm block with a host form
+
+Two things: the BREFF field parameter blocks are read big-endian through the game's own
+structs, and every asm block or asm function in `src/` and `include/` that the host builds or
+will build has a C form, so none of them silently compiles to nothing. The matching build is
+unchanged: `check_matching.py` compiles the 974 units that depend on a touched file, all
+identical (2026-10-30).
+
+### ef field parameter blocks
+
+A particle F32 track whose kind is a field carries a parameter block in its info table, after
+the name table; `ParticleManager::Calc` finds it at `header + sizeof(AnimCurveHeader) +
+keyTable + rangeTable + randomTable + nameTable` and switches on the kind: 32 gravity, 39
+random, 38 spin, 34 magnet, 35 newton, 36 vortex. (Kind 33, `FIELD_SPEED`, has a 4-byte info
+table the game never reads.) The structs were local to `ef_particlemanager.cpp` and plain;
+they are in `include/nw4r/ef/ef_res_animcurve.h` now, with `be_f32`, `be_u16` and
+`BE_MATH(VEC3)` members:
+
+| Struct | Size | Members |
+|---|---|---|
+| `FieldGravityParam` | 0x14 | `power`, `dir`, `space`, `type` |
+| `FieldRandomParam` | 0xC | `power`, `diffuse`, `interval` (u16), `flags`, `type` |
+| `FieldSpinParam` | 0x14 | `speed`, `rot`, `space`, `type`, 2 reserved |
+| `FieldMagnetParam` | 0x14 | `power`, `pos`, `space`, `type`, 2 reserved |
+| `FieldNewtonParam` | 0x18 | `power`, `range`, `pos`, `space`, `type`, 2 reserved |
+| `FieldVortexParam` | 0x1C | `innerSpeed`, `outerSpeed`, `radius`, `rot`, `space`, `type`, 2 reserved |
+
+Gravity and random are read through a pointer, which works unchanged. For spin, magnet,
+newton and vortex `Calc` copies the block into a local and lets the curve overwrite one member
+as a float (`AnimCurveExecuteF32(..., &param.speed, ...)`); a `be_f32` member cannot take
+that. The local is declared `NW4R_EF_FIELD_VALUE(FieldSpinParam)`: the struct itself on the
+Wii, and on the host `FieldSpinParamValue`, a host-order copy with a converting constructor
+(defined in the header under `#if PORT_BE_WRAPPED`). `layout_asserts.cpp` checks the sizes
+and member offsets.
+
+`ef_harness` prints an `FP` line for every field block of a particle F32 track, located with
+`Calc`'s expression and read through the structs (the four copied kinds through
+`NW4R_EF_FIELD_VALUE`, as `Calc` does). `fmt_effect.py` decodes the same blocks (it places
+the info table after the last name entry, independently of `nameTable`), and
+`test_effects.py` compares them: 96 blocks on the disc (gravity 70, spin 16, random 8,
+magnet 2; no newton or vortex; plus 87 speed tracks whose info table is not read). Reading
+`power` and `interval` as plain types makes 77 of the 96 lines differ.
+
+### Asm on the host
+
+`ASM(...)` is empty on the host and GCC cannot compile CodeWarrior `asm` functions, so the
+audit covered every `ASM`, `ASM_VOLATILE`, `asm { }` / `asm volatile { }` block and `asm`
+function in `src/` and `include/`. As in §16 and §17, each block is opened with
+`ASM_PS(name)` (`ASM` on the Wii: same tokens, same object) and
+`port/host/include/decomp/compat.h` turns `ASM_PS(name)` into `PORT_PS_name`, C on the
+block's own variables. The C is in `port/host/include/port/ps.h` (one helper per
+paired-single instruction: `ps_madd`, `ps_msub`, `ps_nmsub`, `ps_madds0/1` are fused
+`fmaf`; `ps_sum0`, `ps_merge*`, `psq_l` / `psq_st` with W=1 loading `(x, 1.0)`) and
+`port/host/include/port/ps_forms.h` (each block or function transliterated instruction by
+instruction, loads before stores where the asm does so, so in-place calls behave the same).
+`asm` functions get a body under `#if defined(PORT_HOST)` that calls the transliteration.
+Blocks that keep a paired value across several asm blocks (the skinning and key-shape sums)
+declare the pair as a local in the first block's host form (`port_skin[12]`,
+`port_acc[4]`).
+
+Precision: the host forms do in single precision (SSE; `ANIM_FP` on `-m32`) what the
+instructions do, fused where the Wii fuses, so they are bit-exact except where the Wii starts
+from an estimate. `fres` and `frsqrte` are about 12-bit estimates on the Wii, which the code
+then refines (one or two Newton-Raphson steps); the host starts from the exact `1 / x` and
+`1 / sqrt(x)` and runs the same steps. The refined results agree with a double-precision
+reference to 2^-21 relative (`test_math`), which also bounds the Wii's; pinning the last bit
+would need Dolphin's estimate tables.
+
+`tests/test_math.cpp` (`make unit`) calls the built functions and runs the macros of the
+units that are not built yet in a scope with their variables. Exact: copies, identities,
+quantized stores, single products, small-integer sums, sign flips. Fused sums and paired sums:
+a few ulp of the operand magnitudes against double. Estimates: 2^-21 relative (InvTranspose
+and the local axis: 2^-15 of the inverse's magnitude, with ill-conditioned inputs skipped).
+7794 checks on both builds.
+
+| Function / block | File | What it does | Host form | Test |
+|---|---|---|---|---|
+| `VEC2Normalize` | `src/nw4r/math/math_types.cpp` | 2D normalize: frsqrte + 1 NR | `port_vec2_normalize` | 2^-21 rel, in place |
+| `MTX33Identity`, `MTX44Identity` | same | identity | `port_mtx33_identity`, `port_mtx44_identity` | exact |
+| `MTX34ToMTX33` | same | copy 3x3 | `port_mtx34_to_mtx33` | exact |
+| `MTX34InvTranspose` (asm fn) | same | (3x3 inverse)^T; FALSE if det == 0; fres + 2 NR | `port_mtx34_inv_transpose` | 2^-15, hand-worked exact, singular |
+| `MTX34Zero` | same | clear | `port_mtx34_zero` | exact |
+| `MTX34Scale` | same | columns times (x, y, z) | `port_mtx34_scale` | exact, in place |
+| `MTX34Trans` | same | copy 3x3, `_i3 = M_i·t + _i3` (fused pairs) | `port_mtx34_trans` | few ulp; integers exact |
+| `MTX44Copy` | same | copy | `port_mtx44_copy` | exact, in place |
+| `FSEL_MAX` / `FSEL_MIN`, `FAbs`, `FInv`, `FSelect`, fast casts | §17 | | §17 | `test_port` |
+| `FrSqrt` | `src/nw4r/math/math_arithmetic.cpp` | 1 / sqrt: frsqrte + 1 NR | `port_frsqrt_nr` | 2^-21 rel; `FrSqrt(4) == 0.5` |
+| `ut::Abs<f32>` | `include/nw4r/ut/ut_algorithm.h` | fabs | `fabsf` | exact, -0, NaN |
+| `Copy32ByteBlocks`, `ZeroMemory32ByteBlocks` | `src/nw4r/g3d/platform/g3d_cpu.cpp` | 32-byte block copy / clear | `memcpy` / `memset` per block (replaces `host_gx.cpp`'s copy) | exact |
+| `Fog::CopyTo` block | `src/nw4r/g3d/g3d_fog.cpp` | 48-byte copy (lfd/stfd) | `memcpy` | exact (macro) |
+| `GetModelLocalAxisY2`, `Y3` (asm fns) | `src/nw4r/g3d/g3d_calcview.cpp` | rows of M times column 1 of P^-1 (Y2: z = 0); fres + 1 NR | `port_g3d_local_axis_y` | 2^-15; singular P |
+| `SetMdlViewMtxSR` (3 overloads) | same | billboard scale/rotate rows | `port_g3d_view_sr1/3/7` | exact (macros) |
+| `CalcSkinning` weight blocks (3) | `src/nw4r/g3d/g3d_calcworld.cpp` | sum of weight · matrix, fused | `port_skin[12]` + `fmaf` | few ulp (macros) |
+| `CalcVtx` position / normal blocks (3, twice) | `src/nw4r/g3d/g3d_calcvtx.cpp` | key-shape blend of big-endian vertex arrays | `port_g3d_vtx_first/key/store` | exact (macros) |
+| `CalcVtx` colour blocks (3) | same | GQR2 u8 loads, blend, clamped u8 stores | `port_g3d_clr_first/key` + `port_psq_quantize` | exact (macros) |
+| `BlockAbs` | `src/Pack/RPParty/RPTnkScene/RPTnkBlock.cpp` | fabs | `fabsf` | exact (macro) |
+| `PointerScreenWidth` (2 blocks) | `src/Pack/RPParty/RPHkyScene/RPHkyPaddle.cpp` | `lhzx` from the TV-mode width table | C load | exact (macro) |
+| `DrawGX` scheduling block | `src/Pack/RPGraphics/RPGrpModelRfl.cpp` | `setting = &sDrawCoreSetting; spDrawModel = this; stageNum = TEV_STAGE_NUM[type]` | `#if defined(PORT_HOST)` C | compiles (unit not linked) |
+| ctor / `init` blocks | `src/Pack/RPSystem/RPSysPauseMgr.cpp` | `li clear, 0`; `second = this + 0xF0` | C | compiles |
+| `RPCowKakasiGroup::OnActivate` (asm fn) | `src/Pack/RPParty/RPCowScene/RPCowKakasiGroup.cpp` | game logic | its C++ equivalent (was `#if 0`) | compiles |
+| `RPPolyline` block | `src/Pack/RPParty/RPPartyCommon/RPPolyline.cpp` | member load | `#if defined(PORT_HOST)` since §5.1 | `test_polyline` |
+| `PSMTXIdentity`, `PSMTXCopy` (asm fns) | `src/revolution/MTX/mtx.c` | identity, copy | C | exact |
+| `PSMTXConcat`, `PSMTXConcatArray` (asm fns) | same | A · B (fused column pairs; the array form adds the translation with `ps_madd`) | `port_mtx_concat` | few ulp; identity exact; in place |
+| `PSMTXMultVec` (asm fn) | `src/revolution/MTX/mtxvec.c` | M · v + t | `port_mtx_mult_vec` | few ulp |
+| `PSVECAdd`, `PSVECDotProduct`, `PSVECCrossProduct` (asm fns) | `src/revolution/MTX/vec.c` | add, dot, cross | C / `port_vec_dot` / `port_vec_cross` | exact / few ulp, in place |
+| `PSVECScale`, `PSVECNormalize`, `PSVECMag` (2 blocks), `PSVECSquareDistance` | same | scale, normalize (frsqrte + NR), magnitude, squared distance | `PORT_PS_*` | exact / 2^-21 / few ulp |
+| `PSQUATMultiply`, `PSQUATNormalize` | `src/revolution/MTX/quat.c` | Hamilton product; normalize (double-precision NR, zero below 1e-5) | `port_quat_multiply`, `port_quat_normalize` | few ulp; 2^-21; i·j = k; tiny → 0 |
+| `C_VECHalfAngle`, `C_QUATMtx`, `C_QUATSlerp`, `C_MTXFrustum` / `Perspective` / `Ortho` | `vec.c`, `quat.c`, `mtx44.c` | plain C | built as is | `C_VECHalfAngle` |
+
+`src/revolution/MTX/{mtx,mtxvec,vec,quat,mtx44}.c` are built into the host library now, which
+replaces the C stand-ins `host_gx.cpp` had for `PSMTXIdentity`, `PSMTXCopy` and `PSMTXConcat`
+and `host_gfx_stubs.c` had for `PSVECMag` and `C_MTXOrtho` (and the aborting `PSMTXInverse`,
+`PSMTXMultVec`, `PSMTXTrans` in `tests/hbm_host.cpp`). The MTX functions the game calls that
+the decomp does not contain at all (`PSMTXInverse`, `PSMTXInvXpose`, `PSMTXTranspose`,
+`PSMTXTrans`, `PSMTXScaleApply`, `PSMTXRotTrig`, `PSMTXRotAxisRad`, `PSMTXQuat`,
+`C_MTXLookAt`, `C_MTXLightFrustum`, `C_MTXLightPerspective`, `C_MTXLightOrtho`) are in
+`src/host_mtx.cpp`, written from the SDK's C reference forms (`PSMTXScale`,
+`PSMTXTransApply`, `PSMTXRotRad` stay in `host_gx.cpp`). Without the Wii's code they are not
+bit-exact: the paired-single library rounds some sums differently.
+
+Other CodeWarrior intrinsics the decomp calls get host definitions in `compat.h`:
+`__frsqrte`, `__fres` (exact, see above), `__fabs`, `__fnabs`, `__abs`, `__cntlzw`,
+`__rlwimi`.
+
+**A Wii quirk the host keeps.** `GetModelLocalAxisY3`'s z multiplies row 2 of the model
+matrix by the register that holds `(inv21, (P02 - P22) / det)` instead of `(inv01, inv11)`,
+so z = (M20 + M22) · inv21 + M21 · (P02 - P22) / det rather than row 2 times the Y column.
+The asm is the binary's (it matches), so the host does the same; `test_math` models it.
+
+### Hardware-only asm: not emulated
+
+These touch processor or chipset state. The host does not build them; what it does instead:
+
+| Asm | File | Host |
+|---|---|---|
+| `OSInitFastCast`, `OSSetGQR6`, `OSSetGQR7` (GQR SPR writes) | `include/revolution/OS/OSFastCast.h` | empty: the host forms hard-wire what they set (GQR2-5 u8 / u16 / s8 / s16 scale 0; g3d's GQR6 s16 scale 5, GQR7 s16 scale 8), and these are the only GQR settings in the code |
+| `DC*` / `IC*` cache ops, `LC*` locked cache DMA, `DCZeroRange` | `src/revolution/OS/OSCache.c` | `DCFlushRange` / `DCStoreRange` / `DCInvalidateRange` (and NoSync) are no-ops in `host_sdk.cpp` (host memory is coherent); `IC*`, `LC*` and `DCZeroRange` have no host definition, so a caller fails to link rather than run (none is on the load paths) |
+| `OSDisableInterrupts` / `OSEnableInterrupts` / `OSRestoreInterrupts`, exception and decrementer handlers, system call vector | `OSInterrupt.c`, `OS.c`, `OSAlarm.c`, `OSSync.c`, `db.c` | interrupts are a flag in `host_snd.cpp` (and the `tests/*_host` stand-ins); no exception vectors on the host |
+| Context save / load, fibers, FPU init | `OSContext.c`, `OS.c` (`__OSFPRInit`, `__OSPSInit`) | not built; threads are `host_sdk.cpp`'s stand-ins |
+| `OSGetTime`, `OSGetTick` (`mftb`) | `OSTime.c` | `host_snd.cpp` (`OSGetTick` counts calls) and the test stand-ins; a real clock comes with Phase 7 |
+| MMU / BAT set-up (`ConfigMEM*`, `RealMode`) | `OSMemory.c` | the M0 arena (§5) |
+| `__start`, `__init_registers`, `__init_hardware`, `__flush_cache` | `__start.c`, `__ppc_eabi_init.c` | the host's own start-up |
+| `PPCMf*` / `PPCMt*` SPRs, `PPCHalt`, `PPCSync` | `src/revolution/BASE/PPCArch.c` | not built |
+| `__AICallbackStackSwitch` | `src/revolution/AI/ai.c` | `AIRegisterDMACallback` in `host_snd.cpp` |
+| FIFO writes (`WriteMTXPS*`, `WriteProjPS`, `WriteLightObj`, `LoadProjPS`, `Copy6Floats`, `GXGetProjectionv`) | `src/revolution/GX/GXTransform.c`, `GXLight.c` | the GX layer (`host_gx.cpp` now, Phase 7) |
+| Compiler runtime (`__save_gpr`, `__restore_fpr`, `__div2i`, `__cvt_fp2unsigned`, ...), pointer-to-member thunks | `src/runtime/runtime.c`, `ptmf.c` | the host compiler's own |
+| MetroTRK debugger | `src/MetroTRK/...` | not part of the port |
+
+### Still open
+
+- `ParticleManager::Calc` itself (and `Emitter`, `Particle`) compiles on the host but does
+  not link yet, so the field forces are not evaluated against a model; the parameter blocks
+  are.
+- The MTX functions in `src/host_mtx.cpp` are reference math, not the Wii's rounding.
+- Bit-exact `fres` / `frsqrte` (Dolphin's tables) if console-exact floats are ever needed.
+- `g3d_calcview.cpp`, `g3d_calcvtx.cpp`, `g3d_calcworld.cpp`, `g3d_fog.cpp` and the game
+  units with host forms compile on the host; they are linked as the g3d runtime and game code
+  are brought up (the game units still have unrelated host errors, e.g. `RPTnkBlock.cpp`'s
+  anonymous union, `RPHkyPaddle.cpp`'s address of a temporary).

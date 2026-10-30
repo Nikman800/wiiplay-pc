@@ -81,7 +81,7 @@ void CalcVtx(ResMdl mdl, AnmObjShp* pAnmShp, ResVtxPosData** ppVtxPosTable,
                 register f32 firstWeight = rFirst.weight;
                 register const void* pVtx = rFirst.pVtx;
 
-                ASM (
+                ASM_PS(CalcVtxFirst) (
                     psq_l  xy, VEC3.x(pVtx), 0, 0
                     psq_l  z_, VEC3.z(pVtx), 1, 0
                     ps_mul xy, xy, firstWeight
@@ -98,7 +98,7 @@ void CalcVtx(ResMdl mdl, AnmObjShp* pAnmShp, ResVtxPosData** ppVtxPosTable,
                     register const void* pKeyVtx = pKey->pVtx;
                     register f32 key_xy, key_z_;
 
-                    ASM (
+                    ASM_PS(CalcVtxKey) (
                         psq_l   key_xy, VEC3.x(pKeyVtx), 0, 0
                         psq_l   key_z_, VEC3.z(pKeyVtx), 1, 0
                         ps_madd xy, key_xy, keyWeight, xy
@@ -113,7 +113,7 @@ void CalcVtx(ResMdl mdl, AnmObjShp* pAnmShp, ResVtxPosData** ppVtxPosTable,
 
                 register void* pDst = pVtxPosBuf;
 
-                ASM (
+                ASM_PS(CalcVtxStore) (
                     psq_st xy, VEC3.x(pDst), 0, 0
                     psq_st z_, VEC3.z(pDst), 1, 0
                 )
@@ -180,7 +180,7 @@ void CalcVtx(ResMdl mdl, AnmObjShp* pAnmShp, ResVtxPosData** ppVtxPosTable,
                 register f32 firstWeight = rFirst.weight;
                 register const void* pVtx = rFirst.pVtx;
 
-                ASM (
+                ASM_PS(CalcVtxFirst) (
                     psq_l  xy, VEC3.x(pVtx), 0, 0
                     psq_l  z_, VEC3.z(pVtx), 1, 0
                     ps_mul xy, xy, firstWeight
@@ -197,7 +197,7 @@ void CalcVtx(ResMdl mdl, AnmObjShp* pAnmShp, ResVtxPosData** ppVtxPosTable,
                     register const void* pKeyVtx = pKey->pVtx;
                     register f32 key_xy, key_z_;
 
-                    ASM (
+                    ASM_PS(CalcVtxKey) (
                         psq_l   key_xy, VEC3.x(pKeyVtx), 0, 0
                         psq_l   key_z_, VEC3.z(pKeyVtx), 1, 0
                         ps_madd xy, key_xy, keyWeight, xy
@@ -212,7 +212,7 @@ void CalcVtx(ResMdl mdl, AnmObjShp* pAnmShp, ResVtxPosData** ppVtxPosTable,
 
                 register void* pDst = pVtxNrmBuf;
 
-                ASM (
+                ASM_PS(CalcVtxStore) (
                     psq_st xy, VEC3.x(pDst), 0, 0
                     psq_st z_, VEC3.z(pDst), 1, 0
                 )
@@ -279,7 +279,7 @@ void CalcVtx(ResMdl mdl, AnmObjShp* pAnmShp, ResVtxPosData** ppVtxPosTable,
                 register f32 firstWeight = rFirst.weight;
                 register const void* pVtx = rFirst.pVtx;
 
-                ASM (
+                ASM_PS(CalcClrFirst) (
                     psq_l  rg, Color.r(pVtx), 0, 2
                     psq_l  ba, Color.b(pVtx), 0, 2
                     ps_mul rg, rg, firstWeight
@@ -296,7 +296,7 @@ void CalcVtx(ResMdl mdl, AnmObjShp* pAnmShp, ResVtxPosData** ppVtxPosTable,
                     register const void* pKeyVtx = pKey->pVtx;
                     register f32 key_rg, key_ba;
 
-                    ASM (
+                    ASM_PS(CalcClrKey) (
                         psq_l   key_rg, Color.r(pKeyVtx), 0, 2
                         psq_l   key_ba, Color.b(pKeyVtx), 0, 2
                         ps_madd rg, key_rg, keyWeight, rg
@@ -311,7 +311,7 @@ void CalcVtx(ResMdl mdl, AnmObjShp* pAnmShp, ResVtxPosData** ppVtxPosTable,
 
                 register void* pDst = pVtxClrBuf;
 
-                ASM (
+                ASM_PS(CalcClrStore) (
                     psq_st rg, Color.r(pDst), 0, 2
                     psq_st ba, Color.b(pDst), 0, 2
                 )

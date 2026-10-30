@@ -19,7 +19,7 @@ VEC2* VEC2Normalize(register VEC2* pOut, register const VEC2* pIn) {
     register float c_05 = 0.5, c_30 = 3.0; // c_05 = f0, c_30 = f1
     register float f0r, xy, f3r, f4r, f5r; // xy = f2
   
-    ASM (
+    ASM_PS(VEC2Normalize) (
         psq_l xy, VEC2.x(pIn), 0, 0
         ps_mul f3r, xy, xy
         ps_sum0 f3r, f3r, f3r, f3r
@@ -71,7 +71,7 @@ MTX33* MTX33Identity(register MTX33* pMtx) {
     register f32 c_00 = 0.0f, c_10 = 1.0f;
     register f32 c_11;
 
-    ASM (
+    ASM_PS(MTX33Identity) (
         ps_merge00 c_11, c_10, c_00
 
         psq_st c_00, MTX33._02(pMtx), 0, 0 // _02=0, _10=0
@@ -88,7 +88,7 @@ MTX33* MTX33Identity(register MTX33* pMtx) {
 MTX33* MTX34ToMTX33(register MTX33* pOut, register const MTX34* pIn) {
     register f32 row0a, row0b, row1a, row1b, row2a, row2b;
 
-    ASM (
+    ASM_PS(MTX34ToMTX33) (
         psq_l row0a, MTX34._00(pIn), 0, 0
         psq_l row0b, MTX34._02(pIn), 0, 0
         psq_l row1a, MTX34._10(pIn), 0, 0
@@ -107,9 +107,14 @@ MTX33* MTX34ToMTX33(register MTX33* pOut, register const MTX34* pIn) {
     return pOut;
 }
 
-#if !defined(PORT_HOST)
-// A CodeWarrior asm function; the PC port has no form of it yet
-// (port/docs/HOST_BUILD.md §17).
+#if defined(PORT_HOST)
+// A CodeWarrior asm function; the host form is its transliteration
+// (port/host/include/port/ps_forms.h, port/docs/HOST_BUILD.md §18).
+u32 MTX34InvTranspose(MTX33* pOut, const MTX34* pIn) {
+    return port_mtx34_inv_transpose(reinterpret_cast<f32*>(pOut),
+                                    reinterpret_cast<const f32*>(pIn));
+}
+#else
 #define nofralloc
 #undef PURE_ASM
 
@@ -192,7 +197,7 @@ inverse_exists:
 MTX34* MTX34Zero(register MTX34* pMtx) {
     register f32 c_zero = 0.0f;
 
-    ASM (
+    ASM_PS(MTX34Zero) (
         psq_st c_zero, MTX34._00(pMtx), 0, 0
         psq_st c_zero, MTX34._02(pMtx), 0, 0
         psq_st c_zero, MTX34._10(pMtx), 0, 0
@@ -211,7 +216,7 @@ MTX34* MTX34Scale(register MTX34* pOut, register const MTX34* pIn,
     register f32 row1a, row1b;
     register f32 row2a, row2b;
 
-    ASM (
+    ASM_PS(MTX34Scale) (
         psq_l xy, VEC3.x(pScale), 0, 0 // (XXXX, YYYY)
         psq_l z,  VEC3.z(pScale), 1, 0 // (ZZZZ, 1111)
 
@@ -248,7 +253,7 @@ MTX34* MTX34Trans(register MTX34* pOut, register const MTX34* pIn,
     register f32 row2a, row2b;
     register f32 work0, work1, work2;
 
-    ASM (
+    ASM_PS(MTX34Trans) (
         psq_l xy, VEC3.x(pTrans), 0, 0 // (XXXX, YYYY)
         psq_l z,  VEC3.z(pTrans), 1, 0 // (ZZZZ, 1111)
 
@@ -346,7 +351,7 @@ MTX44* MTX44Identity(register MTX44* pMtx) {
     register f32 c_zero = 0.0f, c_one = 1.0f;
     register f32 c_01, c_10;
 
-    ASM (
+    ASM_PS(MTX44Identity) (
         ps_merge01 c_01, c_zero, c_one
         ps_merge10 c_10, c_one, c_zero
 
@@ -369,7 +374,7 @@ MTX44* MTX44Copy(register MTX44* pDst, register const MTX44* pSrc) {
     register f32 row2a, row2b;
     register f32 row3a, row3b;
 
-    ASM (
+    ASM_PS(MTX44Copy) (
         psq_l row0a, MTX44._00(pSrc), 0, 0
         psq_l row0b, MTX44._02(pSrc), 0, 0
         psq_l row1a, MTX44._10(pSrc), 0, 0

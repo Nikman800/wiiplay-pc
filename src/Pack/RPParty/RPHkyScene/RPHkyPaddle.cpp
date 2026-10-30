@@ -14,6 +14,11 @@
 
 #include <cmath>
 
+#ifndef ASM_PS
+// Host builds give this block a C form (port/host/include/decomp/compat.h).
+#define ASM_PS(name) ASM
+#endif
+
 f32 RPHkyPaddle::sRoundRadius = 34.0f;
 f32 RPHkyPaddle::sCpuGain = 0.03f;
 f32 RPHkyPaddle::sMaxSpeed = 10.0f;
@@ -655,8 +660,8 @@ static inline u16 PointerScreenWidth() {
     register u16 width;
     register u16* table = sTVModeWidths__Q23EGG6Screen;
     register u32 offset = (u32)EGG::Screen::GetTVMode() * 2;
-    ASM (lhzx r6, table, offset)
-    ASM (mr width, r6)
+    ASM_PS(PointerScreenWidthLoad) (lhzx r6, table, offset)
+    ASM_PS(PointerScreenWidthMove) (mr width, r6)
     return width;
 }
 

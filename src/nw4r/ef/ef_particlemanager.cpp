@@ -119,60 +119,6 @@ ParticleManager::CreateParticle(u16 life, math::VEC3 pos, math::VEC3 vel,
     return pParticle;
 }
 
-struct FieldGravityParam {
-    f32 power;       // at 0x0
-    math::VEC3 dir;  // at 0x4
-    u8 space;        // at 0x10
-    u8 type;         // at 0x11
-};
-
-struct FieldRandomParam {
-    f32 power;    // at 0x0
-    f32 diffuse;  // at 0x4
-    u16 interval; // at 0x8
-    u8 flags;     // at 0xA
-    u8 type;      // at 0xB
-};
-
-struct FieldSpinParam {
-    f32 speed;      // at 0x0
-    math::VEC3 rot; // at 0x4
-    u8 space;       // at 0x10
-    u8 type;        // at 0x11
-    u8 reserved0;   // at 0x12
-    u8 reserved1;   // at 0x13
-};
-
-struct FieldMagnetParam {
-    f32 power;      // at 0x0
-    math::VEC3 pos; // at 0x4
-    u8 space;       // at 0x10
-    u8 type;        // at 0x11
-    u8 reserved0;   // at 0x12
-    u8 reserved1;   // at 0x13
-};
-
-struct FieldNewtonParam {
-    f32 power;      // at 0x0
-    f32 range;      // at 0x4
-    math::VEC3 pos; // at 0x8
-    u8 space;       // at 0x14
-    u8 type;        // at 0x15
-    u8 reserved0;   // at 0x16
-    u8 reserved1;   // at 0x17
-};
-
-struct FieldVortexParam {
-    f32 innerSpeed; // at 0x0
-    f32 outerSpeed; // at 0x4
-    f32 radius;     // at 0x8
-    math::VEC3 rot; // at 0xC
-    u8 space;       // at 0x18
-    u8 type;        // at 0x19
-    u8 reserved0;   // at 0x1A
-    u8 reserved1;   // at 0x1B
-};
-
 void ParticleManager::Calc() {
     Particle* pFirst = static_cast<Particle*>(
         ut::List_GetNext(&mActivityList.mActiveList, mLastCalced));
@@ -613,7 +559,7 @@ void ParticleManager::Calc() {
                 }
 
                 case AC_TARGET_UNK38: {
-                    FieldSpinParam param = *reinterpret_cast<FieldSpinParam*>(
+                    NW4R_EF_FIELD_VALUE(FieldSpinParam) param = *reinterpret_cast<FieldSpinParam*>(
                         pPtclTrack + sizeof(AnimCurveHeader) +
                         pTrackAsHeader->keyTable + pTrackAsHeader->rangeTable +
                         pTrackAsHeader->randomTable + pTrackAsHeader->nameTable);
@@ -661,7 +607,7 @@ void ParticleManager::Calc() {
                 }
 
                 case AC_TARGET_UNK34: {
-                    FieldMagnetParam param = *reinterpret_cast<FieldMagnetParam*>(
+                    NW4R_EF_FIELD_VALUE(FieldMagnetParam) param = *reinterpret_cast<FieldMagnetParam*>(
                         pPtclTrack + sizeof(AnimCurveHeader) +
                         pTrackAsHeader->keyTable + pTrackAsHeader->rangeTable +
                         pTrackAsHeader->randomTable + pTrackAsHeader->nameTable);
@@ -707,7 +653,7 @@ void ParticleManager::Calc() {
                 }
 
                 case AC_TARGET_UNK35: {
-                    FieldNewtonParam param = *reinterpret_cast<FieldNewtonParam*>(
+                    NW4R_EF_FIELD_VALUE(FieldNewtonParam) param = *reinterpret_cast<FieldNewtonParam*>(
                         pPtclTrack + sizeof(AnimCurveHeader) +
                         pTrackAsHeader->keyTable + pTrackAsHeader->rangeTable +
                         pTrackAsHeader->randomTable + pTrackAsHeader->nameTable);
@@ -760,7 +706,7 @@ void ParticleManager::Calc() {
                 }
 
                 case AC_TARGET_UNK36: {
-                    FieldVortexParam param = *reinterpret_cast<FieldVortexParam*>(
+                    NW4R_EF_FIELD_VALUE(FieldVortexParam) param = *reinterpret_cast<FieldVortexParam*>(
                         pPtclTrack + sizeof(AnimCurveHeader) +
                         pTrackAsHeader->keyTable + pTrackAsHeader->rangeTable +
                         pTrackAsHeader->randomTable + pTrackAsHeader->nameTable);

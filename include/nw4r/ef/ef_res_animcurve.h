@@ -5,6 +5,7 @@
 #include <nw4r/math.h>
 
 #include <port/be.h>
+#include <port/bemath.h>
 
 #define NW4R_EF_MAGIC_ANIMCURVE 0xAC
 #define NW4R_EF_MAGIC_ANIMBAKED 0xAB
@@ -145,6 +146,114 @@ struct AnimCurveNameTable {
     be_u16 PADDING_0x2; // at 0x2
     Name datas[1];   // at 0x4
 };
+
+/******************************************************************************
+ *
+ * Field parameter blocks
+ *
+ * A particle track whose kind is a field (gravity, random, spin, magnet,
+ * newton, vortex) carries one of these in its info table, right after the
+ * name table. ParticleManager::Calc finds it at
+ * header + sizeof(AnimCurveHeader) + keyTable + rangeTable + randomTable +
+ * nameTable (src/nw4r/ef/ef_particlemanager.cpp).
+ *
+ ******************************************************************************/
+struct FieldGravityParam {
+    be_f32 power;          // at 0x0
+    BE_MATH(VEC3) dir;     // at 0x4
+    u8 space;              // at 0x10
+    u8 type;               // at 0x11
+};
+
+struct FieldRandomParam {
+    be_f32 power;    // at 0x0
+    be_f32 diffuse;  // at 0x4
+    be_u16 interval; // at 0x8
+    u8 flags;        // at 0xA
+    u8 type;         // at 0xB
+};
+
+struct FieldSpinParam {
+    be_f32 speed;         // at 0x0
+    BE_MATH(VEC3) rot;    // at 0x4
+    u8 space;             // at 0x10
+    u8 type;              // at 0x11
+    u8 reserved0;         // at 0x12
+    u8 reserved1;         // at 0x13
+};
+
+struct FieldMagnetParam {
+    be_f32 power;         // at 0x0
+    BE_MATH(VEC3) pos;    // at 0x4
+    u8 space;             // at 0x10
+    u8 type;              // at 0x11
+    u8 reserved0;         // at 0x12
+    u8 reserved1;         // at 0x13
+};
+
+struct FieldNewtonParam {
+    be_f32 power;         // at 0x0
+    be_f32 range;         // at 0x4
+    BE_MATH(VEC3) pos;    // at 0x8
+    u8 space;             // at 0x14
+    u8 type;              // at 0x15
+    u8 reserved0;         // at 0x16
+    u8 reserved1;         // at 0x17
+};
+
+struct FieldVortexParam {
+    be_f32 innerSpeed;    // at 0x0
+    be_f32 outerSpeed;    // at 0x4
+    be_f32 radius;        // at 0x8
+    BE_MATH(VEC3) rot;    // at 0xC
+    u8 space;             // at 0x18
+    u8 type;              // at 0x19
+    u8 reserved0;         // at 0x1A
+    u8 reserved1;         // at 0x1B
+};
+
+#if PORT_BE_WRAPPED
+// ParticleManager::Calc copies the spin, magnet, newton and vortex blocks into
+// a local and lets the curve overwrite one member as a host float
+// (AnimCurveExecuteF32(..., &param.speed, ...)). On the host the local is this
+// host-order copy; on the Wii it is the block's own type.
+struct FieldSpinParamValue {
+    f32 speed;
+    math::VEC3 rot;
+    u8 space, type, reserved0, reserved1;
+    FieldSpinParamValue(const FieldSpinParam& r)
+        : speed(r.speed), rot(r.rot), space(r.space), type(r.type),
+          reserved0(r.reserved0), reserved1(r.reserved1) {}
+};
+struct FieldMagnetParamValue {
+    f32 power;
+    math::VEC3 pos;
+    u8 space, type, reserved0, reserved1;
+    FieldMagnetParamValue(const FieldMagnetParam& r)
+        : power(r.power), pos(r.pos), space(r.space), type(r.type),
+          reserved0(r.reserved0), reserved1(r.reserved1) {}
+};
+struct FieldNewtonParamValue {
+    f32 power, range;
+    math::VEC3 pos;
+    u8 space, type, reserved0, reserved1;
+    FieldNewtonParamValue(const FieldNewtonParam& r)
+        : power(r.power), range(r.range), pos(r.pos), space(r.space), type(r.type),
+          reserved0(r.reserved0), reserved1(r.reserved1) {}
+};
+struct FieldVortexParamValue {
+    f32 innerSpeed, outerSpeed, radius;
+    math::VEC3 rot;
+    u8 space, type, reserved0, reserved1;
+    FieldVortexParamValue(const FieldVortexParam& r)
+        : innerSpeed(r.innerSpeed), outerSpeed(r.outerSpeed), radius(r.radius),
+          rot(r.rot), space(r.space), type(r.type), reserved0(r.reserved0),
+          reserved1(r.reserved1) {}
+};
+#define NW4R_EF_FIELD_VALUE(T) T##Value
+#else
+#define NW4R_EF_FIELD_VALUE(T) T
+#endif
 
 class ResAnimCurve {
 private:

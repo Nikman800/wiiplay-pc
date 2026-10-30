@@ -3,6 +3,11 @@
 #include <Pack/RPKernel/RPSysEffectBase.h>
 #include <Pack/RPSystem/RPSysResourceManager.h>
 #include <revolution/MTX.h>
+
+#ifndef ASM_PS
+// Host builds give this block a C form (port/host/include/decomp/compat.h).
+#define ASM_PS(name) ASM
+#endif
 #pragma opt_unroll_loops off
 
 extern nw4r::math::VEC3 RP_vecZero;
@@ -15,7 +20,7 @@ static RPTnkBlock::StateFunc sStateFuncs[1] = {
 };
 
 static inline f32 BlockAbs(register f32 value) {
-    ASM (fabs value, value)
+    ASM_PS(BlockAbs) (fabs value, value)
     return value;
 }
 

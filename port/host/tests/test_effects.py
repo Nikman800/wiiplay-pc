@@ -7,6 +7,11 @@ lines (see the comment at the top of tests/ef_harness.cpp):
 
   EF/E/ED/PD/K   every BREFF, emitter, emitter and particle descriptor field,
                  particle and emit track (fmt_effect.parse, read-only)
+  FP             every field parameter block (gravity, random, spin, magnet,
+                 newton, vortex) of a particle F32 track: fmt_effect places it
+                 after the name entries and decodes it; the harness locates it
+                 with ParticleManager::Calc's expression and reads it through
+                 the header structs
   TF/T           every BREFT and texture
   STAGE          RelocateCommand's error count, emitter and texture totals and
                  the two project lists after every set/reset
@@ -264,6 +269,25 @@ def structure_lines(p):
                     t["kindEnable"], t["processFlag"], t["loopCount"], t["frameLength"],
                     t["keyTableSize"], t["randomTableSize"], t["randomRangeTableSize"],
                     t["nameTableSize"], t["infoTableSize"]))
+                fp = t.get("fieldParam")
+                if kind == "p" and fp is not None and fp["kind"] != "speed":
+                    # Member values as fmt_effect decodes them (floats as bits).
+                    b = fp["bits"]
+                    vec = lambda n: ",".join("%08x" % b["%s.%s" % (n, c)] for c in "xyz")
+                    f = lambda n: "%08x" % b[n]
+                    u = lambda *ns: " ".join("%d" % b[n] for n in ns)
+                    vals = {
+                        "gravity": lambda: [f("power"), vec("dir"), u("space", "type")],
+                        "random": lambda: [f("power"), f("diffuse"), u("interval", "flags", "type")],
+                        "spin": lambda: [f("speed"), vec("rot"), u("space", "type", "reserved0", "reserved1")],
+                        "magnet": lambda: [f("power"), vec("pos"), u("space", "type", "reserved0", "reserved1")],
+                        "newton": lambda: [f("power"), f("range"), vec("pos"),
+                                   u("space", "type", "reserved0", "reserved1")],
+                        "vortex": lambda: [f("innerSpeed"), f("outerSpeed"), f("radius"), vec("rot"),
+                                   u("space", "type", "reserved0", "reserved1")],
+                    }[fp["kind"]]()
+                    lines.append("FP %s %d p%d %x %d : %s" % (
+                        path, i, j, fp["offset"], t["kindType"], " ".join(vals)))
     else:
         lines.append("TF %s %d %d" % (path, len(p.names), u32(d, PROJECT_OFFSET)))
         by_name = {}

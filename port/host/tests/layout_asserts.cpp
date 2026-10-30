@@ -251,6 +251,21 @@ PORT_LAYOUT_SIZE(nw4r::ef::EffectProject, 0x14);
 PORT_LAYOUT_OFFSET(nw4r::ef::TextureProject, projectlink, 0x4);
 PORT_LAYOUT_SIZE(nw4r::ef::TextureProject, 0x14);
 PORT_LAYOUT_SIZE(nw4r::ef::EmitterResource, 0x8); // locates the EmitterDesc
+// Field parameter blocks (ef_res_animcurve.h; read by ParticleManager::Calc).
+PORT_LAYOUT_OFFSET(nw4r::ef::FieldGravityParam, space, 0x10);
+PORT_LAYOUT_SIZE(nw4r::ef::FieldGravityParam, 0x14);
+PORT_LAYOUT_OFFSET(nw4r::ef::FieldRandomParam, interval, 0x8);
+PORT_LAYOUT_SIZE(nw4r::ef::FieldRandomParam, 0xC);
+PORT_LAYOUT_OFFSET(nw4r::ef::FieldSpinParam, space, 0x10);
+PORT_LAYOUT_SIZE(nw4r::ef::FieldSpinParam, 0x14);
+PORT_LAYOUT_OFFSET(nw4r::ef::FieldMagnetParam, space, 0x10);
+PORT_LAYOUT_SIZE(nw4r::ef::FieldMagnetParam, 0x14);
+PORT_LAYOUT_OFFSET(nw4r::ef::FieldNewtonParam, pos, 0x8);
+PORT_LAYOUT_OFFSET(nw4r::ef::FieldNewtonParam, space, 0x14);
+PORT_LAYOUT_SIZE(nw4r::ef::FieldNewtonParam, 0x18);
+PORT_LAYOUT_OFFSET(nw4r::ef::FieldVortexParam, rot, 0xC);
+PORT_LAYOUT_OFFSET(nw4r::ef::FieldVortexParam, space, 0x18);
+PORT_LAYOUT_SIZE(nw4r::ef::FieldVortexParam, 0x1C);
 PORT_LAYOUT_OFFSET(nw4r::ef::TextureData, width, 0x4);
 PORT_LAYOUT_OFFSET(nw4r::ef::TextureData, dataSize, 0x8);
 PORT_LAYOUT_OFFSET(nw4r::ef::TextureData, tlutEntries, 0xE);

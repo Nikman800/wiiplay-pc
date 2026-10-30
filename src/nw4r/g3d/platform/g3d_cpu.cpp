@@ -9,7 +9,7 @@ void Copy32ByteBlocks(register void* pDst, register const void* pSrc,
     register f32 work0, work1, work2, work3;
 
     for (size /= 32; size > 0; size--) {
-        ASM (
+        ASM_PS(Copy32ByteBlocks) (
             lfd  work0, 0(pSrc)
             stfd work0, 0(pDst)
 
@@ -32,7 +32,7 @@ void ZeroMemory32ByteBlocks(register void* pDst, register u32 size) {
     register f32 zero = 0.0f;
 
     for (size /= 32; size > 0; size--) {
-        ASM (
+        ASM_PS(ZeroMemory32ByteBlocks) (
             psq_st zero,  0(pDst), 0, 0
             psq_st zero,  8(pDst), 0, 0
             psq_st zero, 16(pDst), 0, 0

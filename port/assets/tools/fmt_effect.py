@@ -31,6 +31,12 @@ except ImportError:
 # - ParticleParameterDesc: include/nw4r/ef/ef_particle.h:20
 # - TextureData: include/nw4r/ef/ef_res_texture.h:11
 # - AnimCurveHeader and its tables: include/nw4r/ef/ef_res_animcurve.h:93,119,125,131,137
+# - Field parameter blocks (FieldGravityParam ... FieldVortexParam, the info table of a
+#   particle F32 track whose kindType is a field): include/nw4r/ef/ef_res_animcurve.h,
+#   read by ParticleManager::Calc (src/nw4r/ef/ef_particlemanager.cpp), which switches on
+#   kindType 32 gravity, 39 random, 38 spin, 34 magnet, 35 newton, 36 vortex. Kind 33
+#   (FIELD_SPEED) has a 4-byte info table that the game never reads; it is decoded here as
+#   one f32 for completeness.
 #
 # Each EmitterResource track table is two u32 arrays (relocated pointers then sizes)
 # from EmitterResource::LocateTracks (include/nw4r/ef/ef_res_emitter.h:360). Track
@@ -56,6 +62,45 @@ ANIM_NAME_ENTRY_SIZE = 4
 TEX_LAYERS = 3
 ANIM_CURVE_MAGIC = 0xAC
 ANIM_BAKED_MAGIC = 0xAB
+
+
+AC_TYPE_PARTICLE_F32 = 3
+
+# kindType -> (name, struct format, member names); VEC3 members are three floats.
+FIELD_PARAMS = {
+    32: ("gravity", "4f2B", ("power", "dir.x", "dir.y", "dir.z", "space", "type")),
+    33: ("speed", "f", ("speed",)),
+    34: ("magnet", "4f4B", ("power", "pos.x", "pos.y", "pos.z", "space", "type",
+                             "reserved0", "reserved1")),
+    35: ("newton", "5f4B", ("power", "range", "pos.x", "pos.y", "pos.z", "space", "type",
+                             "reserved0", "reserved1")),
+    36: ("vortex", "6f4B", ("innerSpeed", "outerSpeed", "radius", "rot.x", "rot.y", "rot.z",
+                             "space", "type", "reserved0", "reserved1")),
+    38: ("spin", "4f4B", ("speed", "rot.x", "rot.y", "rot.z", "space", "type",
+                           "reserved0", "reserved1")),
+    39: ("random", "2fH2B", ("power", "diffuse", "interval", "flags", "type")),
+}
+
+
+def _field_param(data: bytes, offset: int, size: int, kind: int, what: str) -> dict[str, Any] | None:
+    """Decode the field parameter block in a particle F32 track's info table."""
+    spec = FIELD_PARAMS.get(kind)
+    if spec is None:
+        return None
+    name, fmt, members = spec
+    need = struct.calcsize(">" + fmt)
+    if size < need:
+        raise FormatError(f"{what}: {name} field info table is {size} bytes, needs {need}")
+    values = _unpack(data, offset, fmt, f"{what} {name} field parameters")
+    return {"kind": name, "offset": offset, "size": size,
+            "values": dict(zip(members, values)),
+            "bits": dict(zip(members, _field_bits(data, offset, fmt)))}
+
+
+def _field_bits(data: bytes, offset: int, fmt: str) -> list[int]:
+    """The members as raw integers (floats as their IEEE bits)."""
+    raw_fmt = ">" + fmt.replace("f", "I")
+    return list(struct.unpack_from(raw_fmt, data, offset))
 
 
 class FormatError(ValueError):
@@ -266,6 +311,10 @@ def _anim_curve(data: bytes, offset: int, end: int, what: str) -> dict[str, Any]
         "infoTableSize": info_table,
         "endOffset": end,
     }
+    if magic == ANIM_CURVE_MAGIC and curve_flag == AC_TYPE_PARTICLE_F32 and info_table:
+        field = _field_param(data, names_end, info_table, kind_type, what)
+        if field is not None:
+            curve["fieldParam"] = field
     return curve
 
 
@@ -463,7 +512,8 @@ def check(root: str) -> tuple[dict[str, int], dict[str, int], dict[str, dict[str
     errors = {"BREFF": 0, "BREFT": 0}
     facts: dict[str, dict[str, Any]] = {
         "BREFF": {"versions": collections.Counter(), "emitters": 0,
-                  "particleTracks": 0, "emitTracks": 0},
+                  "particleTracks": 0, "emitTracks": 0,
+                  "fieldParams": collections.Counter()},
         "BREFT": {"versions": collections.Counter(), "textures": 0,
                   "formats": collections.Counter(), "tlutFormats": collections.Counter()},
     }
@@ -482,6 +532,10 @@ def check(root: str) -> tuple[dict[str, int], dict[str, int], dict[str, dict[str
                     emitter["particleTrackCount"] for emitter in parsed["emitters"])
                 facts["BREFF"]["emitTracks"] += sum(
                     emitter["emitTrackCount"] for emitter in parsed["emitters"])
+                for emitter in parsed["emitters"]:
+                    for track in emitter["tracks"]:
+                        if "fieldParam" in track:
+                            facts["BREFF"]["fieldParams"][track["fieldParam"]["kind"]] += 1
             else:
                 facts["BREFT"]["textures"] += len(parsed["textures"])
                 for texture in parsed["textures"]:
@@ -509,7 +563,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"BREFF: files parsed={counts['BREFF']} errors={errors['BREFF']} "
         f"versions[({_counter_text(breff['versions'])})] emitters={breff['emitters']} "
-        f"particleTracks={breff['particleTracks']} emitTracks={breff['emitTracks']}"
+        f"particleTracks={breff['particleTracks']} emitTracks={breff['emitTracks']} "
+        f"fieldParams[({', '.join(f'{k}={v}' for k, v in sorted(breff['fieldParams'].items()))})]"
     )
     print(
         f"BREFT: files parsed={counts['BREFT']} errors={errors['BREFT']} "

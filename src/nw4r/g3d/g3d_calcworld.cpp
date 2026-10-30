@@ -197,7 +197,7 @@ void CalcSkinning(math::MTX34* pModelMtxArray, u32* pModelMtxAttribArray,
 
             M00 = 0.0f;
 
-            ASM (
+            ASM_PS(CalcSkinZero) (
                 ps_merge00 M00, M00, M00
                 ps_merge00 M02, M00, M00
                 ps_merge00 M10, M00, M00
@@ -223,7 +223,7 @@ void CalcSkinning(math::MTX34* pModelMtxArray, u32* pModelMtxAttribArray,
 
                 register math::MTX34* pT = &pSkinMtxArray[mtxID];
 
-                ASM (
+                ASM_PS(CalcSkinAdd) (
                     psq_l T00, MTX34._00(pT), 0, 0
                     psq_l T02, MTX34._02(pT), 0, 0
                     psq_l T10, MTX34._10(pT), 0, 0
@@ -247,7 +247,7 @@ void CalcSkinning(math::MTX34* pModelMtxArray, u32* pModelMtxAttribArray,
 
             register math::MTX34* pTargetMtx = &pModelMtxArray[targetMtxID];
 
-            ASM (
+            ASM_PS(CalcSkinStore) (
                 psq_st M00, MTX34._00(pTargetMtx), 0, 0
                 psq_st M02, MTX34._02(pTargetMtx), 0, 0
                 psq_st M10, MTX34._10(pTargetMtx), 0, 0

@@ -28,15 +28,25 @@ inline RPSysPauseMgr::RPSysPauseMgr(EGG::Heap* pHeap)
     : mpParentHeap(pHeap), mPause(FALSE) {
     mPauseMenu = new RPSysPauseMenu();
     register u32 clear;
+#if defined(PORT_HOST)
+    clear = 0;
+#else
     asm volatile {
         li clear, 0
     }
+#endif
     register f32 zero = 0.0f;
     register RPSysPauseMgr* base = this;
     register RPSysPauseMgr* second;
+#if defined(PORT_HOST)
+    // this + 0xF0: mWork[1] seen as a second object's mWork[0] (the Wii
+    // offset; pointer-sized on the host).
+    second = reinterpret_cast<RPSysPauseMgr*>(reinterpret_cast<u8*>(base) + 0xF0);
+#else
     asm volatile {
         addi second, base, 0xF0
     }
+#endif
     mPause = clear;
     mUNK_0x0C = clear;
     for (int j = 0; j < 60; ++j) {
@@ -57,9 +67,15 @@ void RPSysPauseMgr::init() {
     mPause = FALSE;
     register RPSysPauseMgr* base = this;
     register RPSysPauseMgr* second;
+#if defined(PORT_HOST)
+    // this + 0xF0: mWork[1] seen as a second object's mWork[0] (the Wii
+    // offset; pointer-sized on the host).
+    second = reinterpret_cast<RPSysPauseMgr*>(reinterpret_cast<u8*>(base) + 0xF0);
+#else
     asm volatile {
         addi second, base, 0xF0
     }
+#endif
     mUNK_0x0C = 0;
 
     for (int j = 0; j < 60; ++j) {
