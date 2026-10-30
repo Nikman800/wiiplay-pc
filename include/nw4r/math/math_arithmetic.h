@@ -8,6 +8,13 @@
 
 #include <cmath>
 
+// FAbs, FInv and FSelect mark their asm block with the function's name, so the
+// PC port can put C in its place (port/host/include/decomp/compat.h). Here it
+// is the asm block itself.
+#ifndef ASM_PS
+#define ASM_PS(name) ASM
+#endif
+
 namespace nw4r {
 namespace math {
 
@@ -33,7 +40,7 @@ f32 FrSqrt(f32 x);
 inline f32 FAbs(register f32 x) {
     register f32 ax;
 
-    ASM (
+    ASM_PS(FAbs) (
         fabs ax, x
     )
 
@@ -59,7 +66,7 @@ inline f32 FInv(register f32 x) {
     register f32 work0, work1, work2, work3;
 #endif
 
-    ASM (
+    ASM_PS(FInv) (
         fmr  work1, x     // x
         fres work0, work1 // 1/x
 
@@ -98,7 +105,7 @@ inline f32 FSelect(register f32 value, register f32 ge_zero,
                    register f32 lt_zero) {
     register f32 ret;
 
-    ASM (
+    ASM_PS(FSelect) (
         fsel ret, value, ge_zero, lt_zero
     )
 

@@ -94,7 +94,7 @@ struct ResAnmCameraData : ResAnmCameraDataTypedef {
     be_s32 name;                  // at 0x8
     be_u32 id;                    // at 0xC
     be_u32 refNumber;             // at 0x10
-    GXProjectionType projType; // at 0x14
+    BE_ENUM(GXProjectionType, u32) projType; // at 0x14
     be_u32 flags;                 // at 0x18
     be_s32 toResUserData;         // at 0x1C
     ResAnmData posX;           // at 0x20

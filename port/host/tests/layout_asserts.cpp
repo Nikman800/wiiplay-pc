@@ -370,6 +370,23 @@ PORT_LAYOUT_OFFSET(nw4r::ef::Lighting, mPosition, 0xE);
 PORT_LAYOUT_OFFSET(nw4r::ef::ParticleParameterDesc, textureTranslate, 0x50);
 } // namespace step8_layout
 
+// Animation data read by the evaluators (HOST_BUILD.md §17): the SCN0 enums
+// are 4-byte BE_ENUMs, and a child curve key embeds EmitterInheritSetting.
+namespace anim_layout {
+PORT_LAYOUT_SIZE(nw4r::g3d::ResAnmCameraData, 0x5C);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResAnmCameraData, projType, 0x14);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResAnmCameraData, orthoHeight, 0x58);
+PORT_LAYOUT_SIZE(nw4r::g3d::ResAnmLightData, 0x5C);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResAnmLightData, distFunc, 0x40);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResAnmLightData, spotFunc, 0x4C);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResAnmLightData, shininess, 0x58);
+PORT_LAYOUT_SIZE(nw4r::g3d::ResAnmFogData, 0x28);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResAnmFogData, type, 0x18);
+PORT_LAYOUT_SIZE(nw4r::ef::EmitterInheritSetting, 0x8);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterInheritSetting, type, 0x6);
+PORT_LAYOUT_SIZE(nw4r::ef::AnimCurveHeader, 0x20);
+} // namespace anim_layout
+
 } // namespace
 
 int main() {

@@ -106,10 +106,10 @@ struct ResAnmLightData : ResAnmLightDataTypedef {
     ResAnmData aimX;           // at 0x34
     ResAnmData aimY;           // at 0x38
     ResAnmData aimZ;           // at 0x3C
-    GXDistAttnFn distFunc;     // at 0x40
+    BE_ENUM(GXDistAttnFn, u32) distFunc; // at 0x40
     ResAnmData refDistance;    // at 0x44
     ResAnmData refBrightness;  // at 0x48
-    GXSpotFn spotFunc;         // at 0x4C
+    BE_ENUM(GXSpotFn, u32) spotFunc;     // at 0x4C
     ResAnmData cutoff;         // at 0x50
     ResColorAnmData specColor; // at 0x54
     ResAnmData shininess;      // at 0x58

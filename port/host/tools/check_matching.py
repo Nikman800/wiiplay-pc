@@ -203,6 +203,15 @@ TOUCHED = [
     "include/RVLFaceLib/RFL_Model.h",
     "include/RVLFaceLib/RFL_MiddleDatabase.h",
     "include/nw4r/math/math_types.h",
+    # Animation evaluation (HOST_BUILD.md §17): fast-cast / math asm blocks named with ASM_PS,
+    # SCN0 enums BE_ENUM, SHP0 index table and ef curve keys be_*.
+    "include/revolution/OS/OSFastCast.h",
+    "include/nw4r/math/math_arithmetic.h",
+    "src/nw4r/math/math_types.cpp",
+    "src/nw4r/g3d/res/g3d_resanmshp.cpp",
+    "include/nw4r/ef/ef_emitter.h",
+    "src/nw4r/ef/ef_emitter.cpp",
+    "src/nw4r/ef/ef_particlemanager.cpp",
 ]
 
 

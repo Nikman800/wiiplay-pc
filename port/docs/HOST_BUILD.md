@@ -95,6 +95,10 @@ files: BREFF 13, BREFT 13 (scene pairs 11)
 lines: EF 13/13, E 373/373, ED 373/373, PD 373/373, K 1168/1168, TF 13/13, T 159/159, STAGE 24/24, FILE 138/138, W 6773/6773, CAP 3/3 (harness/python)
 missing 0, extra 0
 OK
+anm_harness: 132 BRRES, 222 animations, 59010 results; 0 errors (pointer size 8)
+test_anims: 132 BRRES; AMB 1134, CAM 399, CHR 54684, CLR 1008, LIT 1008, PAT 231, SRT 546; 0 errors
+ef_harness: 206736 curve evaluations, 2286 child creation requests
+test_efcurves: 206736 evaluations (U8 71154, F32 100536, Texture 3186, Child 15045, Rotate 16815), 2286 child requests; 0 errors
 ```
 
 The number of changed bytes depends on the emulated addresses the arena hands out, so it
@@ -103,7 +107,7 @@ differs slightly between the 64-bit and `-m32` builds (48690 there; 6774 changed
 
 | Target | What it runs |
 |---|---|
-| `unit` | `test_be`, `test_be_c` (wrapper), `test_port`, `test_port_c` (M0 arena, `RES_PTR`, wide functions, host `GXInitTexObj`/`GXInitTlutObj` words, C++ and C), `test_layout` (compile-time struct layout checks); also compiles the step 4 units (§10) |
+| `unit` | `test_be`, `test_be_c` (wrapper), `test_port`, `test_port_c` (M0 arena, `RES_PTR`, wide functions, host `GXInitTexObj`/`GXInitTlutObj` words, the fast-cast and `nw4r::math` asm stand-ins of §17, C++ and C), `test_layout` (compile-time struct layout checks); also compiles the step 4 units (§10) |
 | `archives` | `arc_harness` + `tests/test_archives.py` |
 | `resources` | `res_harness` + `tests/test_resources.py` |
 | `layouts` | `lyt_harness` + `tests/test_layouts.py` |
@@ -112,6 +116,8 @@ differs slightly between the 64-bit and `-m32` builds (48690 there; 6774 changed
 | `effects` | `ef_harness` + `tests/test_effects.py` (§12); `test_ef` (`RES_LIST`, ef slots) runs with `unit` |
 | `collision` | `coll_harness` + `tests/test_collision.py` (§14: KCL, PMP) |
 | `data` | `data_harness` + `tests/test_data.py` (§14: `.plight`, `.plmap`, `.pblm`, game tables) |
+| `anims` | `anm_harness` + `tests/test_anims.py` (§17: every g3d animation evaluated by the real readers) |
+| `efcurves` | `ef_harness --curves` + `tests/test_efcurves.py` (§17: every BREFF curve through `ef_animcurve.cpp`) |
 
 The harnesses take well under a second each. The Python reference walks take about 13 s
 (archives, which hashes every file), 3 s (resources) and 3 s (layouts). Nothing is written to disk except the
@@ -486,6 +492,9 @@ check in §2 confirms all of them.
 | `include/egg/core/eggIBinary.h` | §14: `BinHeader::size` is `be_u32`; `GetBinarySize` uses `sizeof(typename T::Bin)` under `#if defined(PORT_HOST)` (GCC needs the `typename`). |
 | `include/egg/gfxe/eggLightManager.h`, `eggLightObject.h`, `eggLightTexture.h`, `eggDrawPathBloom.h`, `src/egg/gfxe/eggLightManager.cpp`, `eggLightTextureManager.cpp` | §14: the `BinData` structs (and `BinData0` / `BinData1`, `BlurParam`) have `be_*` and `BE_MATH(_VEC3)` members; the light-map texture count is read and written through `be_u16*`. `DrawPathBloom::mData` is a `BinData`, so the runtime copy reads through the wrapper too. Type tokens only. |
 | `include/Pack/RPParty/RPPartyCommon/RPTnkMapData.h`, `RPBomScene/RPBomQuestionParam.h`, `RPWlyScene/RPWlyLevelTable.h`, `RPPnpScene/RPPnpLevelTable.h` | §14: the table record structs (`RPTnkMapData::Map`, `RPBomQuestionData` / `PatternData` / `LevelData` / `QuestionParamFile`, `RPWlyLevelVec3` / `LevelData`, `RPPnpLevelTable::LevelEntry` / `RallyEntry`) have `be_*` members. Type tokens only. |
+| `include/revolution/OS/OSFastCast.h`, `include/nw4r/math/math_arithmetic.h`, `include/nw4r/g3d/platform/g3d_cpu.h`, `src/nw4r/math/math_types.cpp` | §17: the quantized load/store asm blocks (`__OSu8tof32` ... `__OSf32tos16`, `S7_8ToF32`, `S10_5ToF32`, `F32ToS10_5`), `FAbs`, `FInv`, `FSelect` and the `FSEL_MAX` / `FSEL_MIN` blocks are opened with `ASM_PS(name)` (each header defines `ASM_PS(name)` as `ASM` when it is not defined); `MTX34InvTranspose` (a CodeWarrior `asm` function) is under `#if !defined(PORT_HOST)`. |
+| `include/nw4r/g3d/res/g3d_resanmcamera.h`, `g3d_resanmlight.h`, `g3d_resanmfog.h`, `src/nw4r/g3d/res/g3d_resanmshp.cpp` | §17: `projType`, `distFunc`, `spotFunc` and the fog `type` are `BE_ENUM(..., u32)`; the SHP0 index table is read as `be_u16`. |
+| `src/nw4r/ef/ef_animcurve.cpp`, `include/nw4r/ef/ef_emitter.h`, `src/nw4r/ef/ef_emitter.cpp`, `ef_particlemanager.cpp`, `include/port/be.h` | §17: the curve key, range and table structs are `be_*`, the key reads are `be_u16*` / `be_f32*`; `EmitterInheritSetting::speed` is `be_s16`; the random seed's byte fold indexes `bytes[BE_BYTE(i, 4)]` (new macro, `i` on the Wii); the track-type word is read as `be_u16`. |
 
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
@@ -573,22 +582,26 @@ the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrap
 
 ## 8. Next steps
 
-- g3d beyond loading (§11): the `math::_VEC3`/`_MTX34`/`_VEC2` members of the model file
-  structs are `BE_MATH` since step 8 (§14); the animation data's vectors and the
-  camera/light/fog animation values are still plain. Animation evaluation (`GetAnmResult`) compiles but is not validated: it also
-  uses `nw4r::math` and OS fast-cast helpers (`OSu16tof32`, `F32ToU16`) that are inline assembly.
-- Drawing layouts needs the Phase 7 GX layer behind `src/host_gx.cpp`, and the
-  `nw4r::math` inline-assembly helpers: `math_arithmetic.h` `FAbs` (and others written as
-  `register` + asm) return an uninitialised value on the host, because `ASM(...)` compiles away.
-  Nothing on the build/bind path calls them.
+- g3d beyond loading (§11): the model file structs' math members are `BE_MATH` since step 8
+  (§14), and every animation on the disc evaluates through the real `ResAnm*::GetAnmResult`
+  readers since §17. Still open: the `AnmObj*` / `AnmScn*` objects (`g3d_anm*.cpp`) and drawing.
+- Drawing layouts needs the Phase 7 GX layer behind `src/host_gx.cpp`. `FAbs`, `FInv`,
+  `FSelect` and the fast-cast conversions have host forms since §17; the other paired-single
+  functions still compile to nothing on the host (`math_types.cpp`: `VEC2Normalize`,
+  `MTX33Identity`, `MTX34ToMTX33`, `MTX34Zero`, `MTX34Scale`, `MTX34Trans`, `MTX44Identity`,
+  `MTX44Copy`; `MTX34InvTranspose` is left out). The `PSMTX*` / `PSVEC*` functions behind
+  `math_types.h`'s inlines exist on the host only as the C stand-ins some harnesses link
+  (`PSMTXIdentity` in `src/host_gx.cpp`, a few others in the test stand-ins).
 - Move the next loaders onto `be_*` as they are brought up. Each needs the type declarations, a
   small number of C `BE_GET`s, a `layout_asserts.cpp` block and a `check_matching.py` run:
   - `g3d::Res*Data`
   - `snd` file structs
 - ef beyond loading (§12): the `math::VEC2`/`VEC3` members of `EmitterDesc`,
-  `ParticleParameterDesc` and `Lighting` are `BE_MATH` since step 8 (§14); the curve keys
-  read by `ef_animcurve.cpp` are still plain, and particle evaluation and drawing are not
-  validated.
+  `ParticleParameterDesc` and `Lighting` are `BE_MATH` since step 8 (§14), and every curve
+  evaluates through the real `ef_animcurve.cpp` since §17. Still open: the field parameter
+  blocks after a curve's tables (`FieldGravityParam`, `FieldRandomParam`, ... in
+  `ef_particlemanager.cpp`) are plain, `Emitter` / `ParticleManager` / `Particle` calculation
+  is not built on the host, and drawing needs Phase 7.
 - Route `swprintf`/`vswprintf` to `src/MSL_C/wprintf.c` (§6) when the first caller is built.
 - Replace `src/host_sdk.cpp` with the Phase 7 OS/DVD/heap layer: real threads, message queues
   that block, and MEM heaps (the decomp's `src/revolution/MEM` could compile as-is once the OS
@@ -720,8 +733,8 @@ on any difference:
 
 ### Not covered yet
 
-The `math::_VEC3`, `_VEC2` and `_MTX34` members of the file structs stay plain (§8), and
-animation evaluation is not validated. Neither is on the load path.
+The `math::_VEC3`, `_VEC2` and `_MTX34` members of the file structs are `BE_MATH` since §14,
+and animation evaluation is validated since §17. The `AnmObj*` classes and drawing are not.
 
 ## 12. ef resources (POINTERS.md step 6)
 
@@ -802,9 +815,10 @@ neighbours; and the `TextureData` and track-slot stores.
 
 ### Not covered yet
 
-Particle evaluation and drawing: the `math::VEC2`/`VEC3` members of the emitter and particle
-descriptors and the curve key data that `ef_animcurve.cpp` reads are still plain, and the
-draw strategies need the Phase 7 GX layer.
+Particle evaluation and drawing. The descriptor math members are `BE_MATH` (§14) and the
+curves evaluate correctly (§17), but `Emitter` / `ParticleManager` / `Particle` calculation is
+not built on the host, the field parameter blocks are plain, and the draw strategies need the
+Phase 7 GX layer.
 
 ## 13. Sound archives (POINTERS.md step 7)
 
@@ -1352,3 +1366,176 @@ test_polyline: 390 checks, 0 errors
   - The HOME Menu's sound archive player (`HomeButtonSe.brsar` itself opens through the snd
     harness).
   - PLAN Phase 7 replaces or stubs the HOME Menu.
+
+## 17. Animation evaluation: g3d animations and ef curves
+
+Every animation on the disc is now evaluated on the host through the game's own readers, and
+every result matches, bit for bit, an independent evaluation written from the formats and the
+decompiled formulas: all 222 g3d animations (CHR0, CLR0, SRT0, PAT0, SCN0) through
+`ResAnm*::GetAnmResult`, and all 1168 BREFF particle and emit curves through
+`ef_animcurve.cpp`. The matching build is unchanged: `check_matching.py` compiles the 970 units
+that depend on a touched file, all identical (2026-10-30), `ef_animcurve` (a FUNCTIONAL unit)
+included.
+
+### What was still read wrongly
+
+The g3d animation file structs were already `be_*` (§11). What made evaluation wrong on the
+host was elsewhere:
+
+- **Inline-assembly helpers.** `ASM(...)` compiles to nothing on the host, so these returned an
+  uninitialised value:
+  - `OSFastCast.h`: `OSu8tof32`, `OSu16tof32`, `OSs16tof32`, `OSf32tou8`, `OSf32tou16`,
+    `OSf32tos16`, and through them `math::U16ToF32`, `F32ToU16`, `S16ToF32`, `F32ToS16`;
+  - `g3d_cpu.h` fastcast on host-order values: `S7_8ToF32`, `S10_5ToF32` (GQR7 / GQR6),
+    `F32ToS10_5`, and through `OSFastCast.h` `U8_0ToF32`, `U16_0ToF32`, `F32ToU8_0`;
+  - `math_arithmetic.h`: `FAbs`, `FInv`, `FSelect`.
+
+  Every keyframe search uses `F32ToU16` for its first estimate, CHR0 FVS32 / FVS48 keys
+  decode their frames, values and slopes with the fastcast loads, CV tracks and `SinCosFIdx`
+  truncate with `F32ToU16`, the Hermite interpolations divide with `FInv`, and
+  `MTX34RotXYZDeg` calls `SinCosFIdx`, which starts with `FAbs`.
+- **SCN0 enums.** `ResAnmCameraData::projType`, `ResAnmLightData::distFunc` / `spotFunc` and
+  `ResAnmFogData::type` were plain enums. `ResAnmCamera::GetAnmResult` switches on the
+  projection type: an orthographic camera (1, read as 0x01000000) took neither branch, and the
+  result's `projType` was wrong (the disc has both kinds). They are `BE_ENUM(..., u32)` now.
+- **SHP0.** `ResAnmShp::GetAnmResult` read its index table through `const u16*`; it is
+  `const be_u16*` (no SHP0 on the disc).
+- **ef curve keys.** `ef_animcurve.cpp` describes keys and ranges with its own structs
+  (`AnimCurveKeyTexture`, `AnimCurveRangeTexture`, `AnimCurveKeyChild`, `AnimCurveTable<T>`,
+  ...) and reads byte-addressed keys through `u16*` / `f32*` casts. The structs are `be_*` now
+  and the casts `be_u16*` / `be_f32*` (on the Wii `be_u16` is the macro `u16`, so the code is
+  the same tokens). `EmitterInheritSetting::speed`, which a child curve key embeds and
+  `CreationQueue` copies, is `be_s16`.
+- **The random seed.** `CalcRandomSeed` (and `createChild`, and the random field in
+  `ef_particlemanager.cpp`) fold a `u32` byte by byte through a `union { u32; u8[4]; }`:
+  `bytes[2] ^= bytes[3]` and so on, where `bytes[0]` is the most significant byte on the Wii.
+  On a little-endian host that folds the other way and every random key, range and table
+  pick changes. The indexes are `bytes[BE_BYTE(i, 4)]` now: `BE_BYTE(i, size)` is `i` in
+  `include/port/be.h` and `size - 1 - i` on a little-endian host.
+- The `curveFlag` / `kindEnable` pair that `Emitter` and `ParticleManager` read as one `u16`
+  is read as `be_u16` (`ef_emitter.cpp`, `ef_particlemanager.cpp`; neither is built on the
+  host yet).
+
+### Host forms of the asm helpers
+
+As for the `VEC3` inlines in §16, each asm block is opened with `ASM_PS(name)`. Each header
+defines `ASM_PS(name)` as `ASM` when it is not already defined (`OSFastCast.h`,
+`math_arithmetic.h`, `g3d_cpu.h`; `math_types.h` already did), so the Wii compiles the same
+asm. On the host, `port/host/include/decomp/compat.h` replaces the block with C on the
+function's own variables:
+
+- quantized loads (`psq_l`): convert and divide by 2^scale (u8 / u16 / s16 at scale 0 for
+  the OS GQRs; S7.8 and S10.5 for g3d's GQR7 / GQR6);
+- quantized stores (`psq_st`, `port_psq_quantize`): multiply by 2^scale, clamp to the
+  integer type's range, truncate toward zero (what Dolphin's `ScaleAndClamp` does); NaN, which
+  the hardware leaves undefined, gives 0;
+- `FAbs` is `fabsf`; `FSelect` and `math_types.cpp`'s `FSEL_MAX` / `FSEL_MIN` follow `fsel`
+  (`value >= 0`, so -0 selects the first operand and NaN the second);
+- `FInv` divides: `1.0f / x`.
+
+`src/nw4r/math/math_types.cpp` is now built into the host library (`MTX34RotXYZFIdx`).
+`MTX34InvTranspose` is a CodeWarrior `asm` function, which GCC cannot compile; it is under
+`#if !defined(PORT_HOST)`. `test_port` checks the conversions, the clamping and `FSelect` on
+hand-worked values.
+
+### Floats on the host and on the Wii
+
+The host computes every operation in single precision with SSE and no fused multiply-add:
+x86-64 has no FMA without `-march` options, and on `-m32` the g3d resource, `nw4r::math` and
+`ef_animcurve` objects and both harnesses are built with `-msse2 -mfpmath=sse` (`ANIM_FP` in
+the Makefile; x87 would keep extended precision between operations). The Python models round
+every operation to f32 the same way, so the comparison has no tolerance: 0 ulp.
+
+The console can differ from the host in the last bit or so of a float result, for three
+reasons the port does not reproduce:
+
+- `FInv` on the Wii (Rev 1) is `fres` refined by one Newton-Raphson step, within about an
+  ulp of `1 / x`; the host divides exactly.
+- `g3d_resanmchr.cpp` is compiled with `#pragma fp_contract on`, so CodeWarrior fuses
+  multiply-adds (the FVS value `scale * v + offset`, the Hermite polynomial) into `fmadds`,
+  rounding once where the host rounds twice.
+- The truncating `psq_st` follows Dolphin; it only decides which integer a float lands on,
+  which matters at exact integer frames, not in between.
+
+Key and frame selection does not depend on any of these except at exact boundaries, and the
+integer, colour, enable-bit and texture results are exact. Pinning the last bits would need
+results from Dolphin or a console.
+
+### What runs
+
+`tests/anm_harness.cpp` (`make anims`):
+
+- Walks the disc and sets every BRRES up as `g3d_harness` does (§11): `CheckRevision`,
+  `Init`, `Bind(itself)`, `ResAnmScn::Bind`, then the archive's other files for one that
+  stays unresolved, so all 56 PAT0 slots are bound.
+- Evaluates every animation at 21 frames: before the range (-1.5), 0, 0.25, 1, 1.5, six
+  fractional and six integer frames spread over the range, the last frames and 2.5 past the
+  end. Per frame it calls, for every node, material, light, ambient light and camera:
+  `ResAnmChr::GetAnmResult`, `ResAnmClr::GetAnmResult`, `ResAnmTexSrt::GetAnmResult`,
+  `ResAnmTexPat::GetAnmResult`, and through `ResAnmScn::Get*ByRefNumber` the
+  `ResAnmAmbLight`, `ResAnmLight` and `ResAnmCamera` readers. Each result struct is zeroed
+  first and printed whole (floats as bits, PAT0 textures as the bound `ResTex` name).
+- `tests/test_anims.py` locates the blocks and records with
+  `port/assets/tools/fmt_brres_anim.py` (read-only) and evaluates them from the bytes: the
+  keyframe estimate-and-walk search and both Hermite forms, CHR0 FVS32 / FVS48 / FVS96 keys
+  (quantised frames, 12- and 16-bit values, S10.5 / S7.8 slopes) and CV8 / CV16 / CV32
+  tracks, `MTX34RotXYZDeg` with `SinCosFIdx`'s table (read from
+  `src/nw4r/math/math_triangular.cpp`), the colour lerp, the light enable bits, `ClipFrame`,
+  the PAT0 frame search and the SCN0 records' flag logic. Perturbing the model (either
+  Hermite form, the S10.5 frame quantisation, the colour lerp shift, `SinCosFIdx`, the CV
+  lerp) makes it report differences.
+
+`ef_harness --curves` (`make efcurves`):
+
+- Registers the pairs in the game's order as in §12. Right after a file is registered it runs
+  each particle and emit track through `AnimCurveExecuteU8`, `F32`, `Rotate`, `Texture` or
+  `Child` (by the curve type) for seeds 0, 0x1234 and 0xBEEF, lifetimes 20 (every tick to 21)
+  and 97 (every third tick to 99), and ticks 250 and 1000.
+- Targets start as 0xEE bytes. The texture curve gets a particle whose three texture slots
+  are printed as the `TextureData` names RelocateCommand stored, plus the wrap and reverse
+  bits. The child curve gets a particle → `ParticleManager` → `Emitter` → `Effect` →
+  `EffectSystem` chain (raw storage; only these members are used), and the harness defines
+  `CreationQueue::AddParticleCreation` / `AddEmitterCreation` to record the requests: type,
+  the 8 `EmitterInheritSetting` bytes and `speed`, the emitter's name and `calcRemain`.
+- `tests/test_efcurves.py` locates the tracks with `port/assets/tools/fmt_effect.py`
+  (read-only; it also checks the harness's track offsets against it) and evaluates them:
+  `CalcTime` / `CalcFrameStep` in every loop mode, the stride and step key searches, the
+  per-key random seed (folded in the Wii's byte order), range and table picks, the random
+  rotation sign, `AdjustTurnLoop`, the linear / smooth / eased / step interpolations of bytes
+  and floats, texture keys with random reverse bits, and the child walk over loops. Texture
+  and child names resolve when a registered project (the boot pairs and the current scene
+  pair) has them.
+
+What the disc exercises: U8, F32 and Rotate curves in one-shot, loop-count, infinite, turn,
+fitting and sync modes; linear and smooth keys (no eased or step key on the disc); random keys
+from the range table (all three types) and from the random table (U8). Texture curves are all
+one-shot; child curves are one-shot, loop-count, infinite and fitting, none in turn mode. The
+other paths are ported in the test but no disc data reaches them. Perturbing the test's model
+(the little-endian seed fold, the rotation sign bit, the turn-loop seed, the fitting loop, the
+random reverse bits, the smooth curve) makes it report differences, so these paths are covered.
+
+Results (`make test` and `make M32=1 test`):
+
+```
+anm_harness: 132 BRRES, 222 animations, 59010 results; 0 errors
+test_anims: 132 BRRES; AMB 1134, CAM 399, CHR 54684, CLR 1008, LIT 1008, PAT 231, SRT 546; 0 errors
+ef_harness: 206736 curve evaluations, 2286 child creation requests
+test_efcurves: 206736 evaluations (U8 71154, F32 100536, Texture 3186, Child 15045, Rotate 16815), 2286 child requests; 0 errors
+```
+
+`ef_harness`'s changed-run count without `--curves` is unchanged; with it, the evaluation's
+own allocations move the scene files to other emulated addresses, which changes how many runs
+the relocated addresses split into.
+
+### Not covered yet
+
+- VIS0 and SHP0: their readers build, but no file on the disc has one. `ResAnmFog` has no
+  reader in Wii Play (dead-stripped).
+- The `AnmObj*` classes (`g3d_anm*.cpp`: frame control, blending, `AnmScnRes`) are not built
+  on the host.
+- Eased and step keys, and turn-mode texture and child curves: ported in the test, not on the
+  disc.
+- The field parameter blocks behind a curve's tables (`FieldGravityParam`,
+  `FieldRandomParam`, ... in `ef_particlemanager.cpp`) are plain; `Emitter`,
+  `ParticleManager` and `Particle` calculation do not build on the host yet.
+- Console equivalence of the last float bits (see above).

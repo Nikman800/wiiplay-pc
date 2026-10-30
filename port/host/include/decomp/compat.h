@@ -72,6 +72,45 @@ static inline float __fnmsubs(float a, float b, float c) {
     (work2 = __fmadds((pVec)->z, (pVec)->z, (pVec)->x * (pVec)->x) +           \
              (pVec)->y * (pVec)->y);
 
+// Gekko quantized store (psq_st) of one float to an integer type, as the GQRs
+// set by OSInitFastCast / g3d's InitFastCast use them: scale by 2^scale, clamp
+// to the type's range, truncate toward zero (Dolphin's ScaleAndClamp). NaN is
+// undefined on the hardware; it gives 0 here.
+static inline long port_psq_quantize(float v, int scale, long lo, long hi) {
+    float s = v * (float)(1L << scale);
+    if (!(s == s)) {
+        return 0;
+    }
+    if (s <= (float)lo) {
+        return lo;
+    }
+    if (s >= (float)hi) {
+        return hi;
+    }
+    return (long)s;
+}
+
+// OSFastCast.h (GQR2..GQR5: u8, u16, s8, s16, scale 0): psq_l / psq_st.
+#define PORT_PS___OSu8tof32(...) (ret = (f32) * (in));
+#define PORT_PS___OSu16tof32(...) (ret = (f32) * (arg));
+#define PORT_PS___OSs16tof32(...) (ret = (f32) * (arg));
+#define PORT_PS___OSf32tou8(...) (*(u8*)ptr = (u8)port_psq_quantize(arg, 0, 0, 0xFF));
+#define PORT_PS___OSf32tou16(...) (*(u16*)ptr = (u16)port_psq_quantize(arg, 0, 0, 0xFFFF));
+#define PORT_PS___OSf32tos16(...) (*(s16*)ptr = (s16)port_psq_quantize(arg, 0, -0x8000, 0x7FFF));
+
+// nw4r::math (math_arithmetic.h). FInv is fres plus one Newton-Raphson step
+// on the Wii (Rev 1), within an ulp or so of 1/x; the host divides.
+#define PORT_PS_FAbs(...) (ax = __builtin_fabsf(x));
+#define PORT_PS_FInv(...) (work0 = 1.0f / (x));
+#define PORT_PS_FSelect(...) (ret = (value) >= 0.0f ? (ge_zero) : (lt_zero));
+// math_types.cpp FSEL_MAX / FSEL_MIN (VEC3Maximize / VEC3Minimize).
+#define PORT_PS_FSEL(...) (work = (dt) >= 0.0f ? (fx) : (fy));
+
+// nw4r::g3d fastcast (g3d_cpu.h): GQR7 is s16 scale 8, GQR6 s16 scale 5.
+#define PORT_PS_S7_8ToF32(...) (f = (f32) * (pPtr) / 256.0f);
+#define PORT_PS_S10_5ToF32(...) (f = (f32) * (pPtr) / 32.0f);
+#define PORT_PS_F32ToS10_5(...) (*(pPtr) = (s16)port_psq_quantize(f, 5, -0x8000, 0x7FFF));
+
 // CodeWarrior's `#pragma unused(x)` etc. are ignored by GCC/Clang (with a
 // warning); nothing else to do here.
 

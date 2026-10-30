@@ -300,7 +300,7 @@ void ParticleManager::Calc() {
             }
 
             // Load curveFlag and kindEnable
-            u16 ctrl = *reinterpret_cast<u16*>(&pTrackAsHeader->curveFlag);
+            u16 ctrl = *reinterpret_cast<be_u16*>(&pTrackAsHeader->curveFlag);
             u8 kind = pTrackAsHeader->kindType;
 
             switch (ctrl >> 8) {
@@ -522,9 +522,9 @@ void ParticleManager::Calc() {
                                     static_cast<u16>(tick) * 0x371097E7 +
                                     0x4BF53;
 
-                    rndSeed.bytes[2] ^= rndSeed.bytes[3];
-                    rndSeed.bytes[1] ^= rndSeed.bytes[2];
-                    rndSeed.bytes[0] ^= rndSeed.bytes[1];
+                    rndSeed.bytes[BE_BYTE(2, 4)] ^= rndSeed.bytes[BE_BYTE(3, 4)];
+                    rndSeed.bytes[BE_BYTE(1, 4)] ^= rndSeed.bytes[BE_BYTE(2, 4)];
+                    rndSeed.bytes[BE_BYTE(0, 4)] ^= rndSeed.bytes[BE_BYTE(1, 4)];
 
                     if (!(pTrackAsHeader->processFlag &
                           AnimCurveHeader::PROC_FLAG_TIMING)) {

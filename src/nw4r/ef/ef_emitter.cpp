@@ -711,7 +711,7 @@ void Emitter::CalcEmitter() {
         }
 
         // Load curveFlag and kindEnable
-        u16 ctrl = *reinterpret_cast<u16*>(&pTrackAsHeader->curveFlag);
+        u16 ctrl = *reinterpret_cast<be_u16*>(&pTrackAsHeader->curveFlag);
         u8 kind = pTrackAsHeader->kindType;
 
         switch (ctrl) {

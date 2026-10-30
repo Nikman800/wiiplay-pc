@@ -42,6 +42,17 @@
  *   CAP  RPSysEffectMgr::setCaptureEfb on every active creator after each
  *        scene is set (ef-5): the dummy_tex slot holds the heap buffer's
  *        emulated address; the reset stage's W lines include those writes
+ *
+ * With --curves (HOST_BUILD.md §17) it also evaluates every particle and emit
+ * track right after its file is registered, through the real
+ * ef_animcurve.cpp (AnimCurveExecuteU8 / F32 / Rotate / Texture / Child) at
+ * a set of ticks, seeds and lifetimes (tests/test_efcurves.py):
+ *
+ *   C    path, emitter, track, seed, life, tick, then the result: U8 target
+ *        bytes, F32 / Rotate target words, the texture curve's three layer
+ *        textures (TextureData name) with the wrap / reverse bits, or the
+ *        child curve's creation requests (type, EmitterInheritSetting bytes
+ *        and speed, emitter name, calcRemain)
  */
 #include <nw4r/ef.h>
 
@@ -88,6 +99,18 @@ std::vector<File*> sRegistered;
 int sBreff = 0, sBreft = 0, sEmitters = 0, sTracks = 0, sTextures = 0;
 int sStages = 0, sRuns = 0, sCaptures = 0, sTextureSlots = 0, sCurveSlots = 0;
 int sForeignSlots = 0; // cross-file slots resolved into another project pair
+bool sCurves = false;  // --curves
+int sCurveEvals = 0, sChildCount = 0;
+
+/** CreationQueue requests a child curve makes (the queue itself is not linked). */
+struct ChildRequest {
+    int type; // 0 particle, 1 emitter
+    u8 setting[8];
+    s16 speed;
+    const EmitterResource* pResource;
+    u16 calcRemain;
+};
+std::vector<ChildRequest> sChildRequests;
 
 int& Errors() {
     return disc_walk::Errors();
@@ -223,6 +246,115 @@ void DumpTrack(const File* f, int i, char kind, int j, u8* pTrack) {
     sTracks++;
 }
 
+/******************************************************************************
+ * Curve evaluation (--curves)
+ ******************************************************************************/
+std::vector<u32> CurveTicks(u32 life) {
+    std::vector<u32> ticks;
+    for (u32 t = 0; t <= life + 1; t += life < 40 ? 1 : 3) {
+        ticks.push_back(t);
+    }
+    ticks.push_back(250);
+    ticks.push_back(1000);
+    return ticks;
+}
+
+std::string TextureName(const TextureData* p) {
+    return p != NULL ? std::string(static_cast<const char*>(p->name)) : "-";
+}
+
+void EvalTrack(const File* f, int i, char kind, int j, u8* pTrack) {
+    AnimCurveHeader* h = reinterpret_cast<AnimCurveHeader*>(pTrack);
+    if (h->magic != NW4R_EF_MAGIC_ANIMCURVE) {
+        return;
+    }
+    static const u16 kSeeds[] = {0x0000, 0x1234, 0xBEEF};
+    static const u32 kLives[] = {20, 97};
+
+    // A particle and its manager chain, as far as the texture and child curves
+    // follow it (raw storage: only these members are touched).
+    alignas(16) static u8 sPtcl[sizeof(Particle)], sPm[sizeof(ParticleManager)],
+        sEm[sizeof(Emitter)], sEf[sizeof(Effect)], sEs[sizeof(EffectSystem)];
+    Particle* pPtcl = reinterpret_cast<Particle*>(sPtcl);
+    pPtcl->mParticleManager = reinterpret_cast<ParticleManager*>(sPm);
+    pPtcl->mParticleManager->mManagerEM = reinterpret_cast<Emitter*>(sEm);
+    pPtcl->mParticleManager->mManagerEM->mManagerEF = reinterpret_cast<Effect*>(sEf);
+    pPtcl->mParticleManager->mManagerEM->mManagerEF->mManagerES =
+        reinterpret_cast<EffectSystem*>(sEs);
+    pPtcl->mCalcRemain = 3;
+
+    for (u16 seed : kSeeds) {
+        for (u32 life : kLives) {
+            for (u32 tick : CurveTicks(life)) {
+                std::printf("C %s %d %c%d %x %u %u :", f->path.c_str(), i, kind, j, seed, life,
+                            tick);
+                switch (h->curveFlag) {
+                case AC_TYPE_PARTICLE_U8: {
+                    u8 target[8];
+                    std::memset(target, 0xEE, sizeof target);
+                    AnimCurveExecuteU8(pTrack, target, tick, seed, life);
+                    for (int k = 0; k < 8; k++) {
+                        std::printf(" %02x", target[k]);
+                    }
+                    break;
+                }
+                case AC_TYPE_PARTICLE_F32:
+                case AC_TYPE_PARTICLE_ROTATE: {
+                    f32 target[8];
+                    std::memset(target, 0xEE, sizeof target);
+                    if (h->curveFlag == AC_TYPE_PARTICLE_F32) {
+                        AnimCurveExecuteF32(pTrack, target, tick, seed, life);
+                    } else {
+                        AnimCurveExecuteRotate(pTrack, target, tick, seed, life);
+                    }
+                    for (int k = 0; k < 8; k++) {
+                        std::printf(" %08x", Bits(target[k]));
+                    }
+                    break;
+                }
+                case AC_TYPE_PARTICLE_TEXTURE: {
+                    ParticleParameter& rParam = pPtcl->mParameter;
+                    for (int l = 0; l < TEX_LAYER_MAX; l++) {
+                        rParam.mTexture[l] = NULL;
+                    }
+                    rParam.mTextureWrap = 0;
+                    rParam.mTextureReverse = 0;
+                    AnimCurveExecuteTexture(pTrack, pPtcl, tick, seed, life);
+                    for (int l = 0; l < TEX_LAYER_MAX; l++) {
+                        std::printf(" %s", TextureName(rParam.mTexture[l]).c_str());
+                    }
+                    std::printf(" %x %x", rParam.mTextureWrap, rParam.mTextureReverse);
+                    break;
+                }
+                case AC_TYPE_CHILD: {
+                    sChildRequests.clear();
+                    AnimCurveExecuteChild(pTrack, pPtcl, tick, seed, life);
+                    for (const ChildRequest& c : sChildRequests) {
+                        std::printf(" %d,", c.type);
+                        for (int k = 0; k < 8; k++) {
+                            std::printf("%02x", c.setting[k]);
+                        }
+                        std::printf(",%d,%s,%u", c.speed,
+                                    c.pResource != NULL
+                                        ? const_cast<EmitterResource*>(c.pResource)->GetName()
+                                        : "-",
+                                    c.calcRemain);
+                        sChildCount++;
+                    }
+                    break;
+                }
+                default: {
+                    std::printf(" ?");
+                    break;
+                }
+                }
+                std::printf("\n");
+                sCurveEvals++;
+            }
+        }
+    }
+}
+
 void DumpEffect(File* f, EffectProject* pProject) {
     Resource* r = Resource::GetInstance();
     u32 n = r->NumEmitter(pProject);
@@ -303,9 +435,15 @@ void DumpEffect(File* f, EffectProject* pProject) {
                 Errors()++;
             }
             DumpTrack(f, i, 'p', j, pTrack);
+            if (sCurves) {
+                EvalTrack(f, i, 'p', j, pTrack);
+            }
         }
         for (u16 j = 0; j < res->NumEmitTrack(); j++) {
             DumpTrack(f, i, 'e', j, res->GetEmitTrack(j));
+            if (sCurves) {
+                EvalTrack(f, i, 'e', j, res->GetEmitTrack(j));
+            }
         }
         sEmitters++;
     }
@@ -550,11 +688,30 @@ void CaptureEfb(Creator& c, void* pTexture) {
 
 } // namespace
 
+// The two CreationQueue entry points a child curve calls: recorded, not queued.
+namespace nw4r {
+namespace ef {
+void CreationQueue::AddParticleCreation(const EmitterInheritSetting* pSetting, Particle*,
+                                        EmitterResource* pResource, u16 calcRemain) {
+    ChildRequest c = {0, {}, pSetting->speed, pResource, calcRemain};
+    std::memcpy(c.setting, pSetting, sizeof c.setting);
+    sChildRequests.push_back(c);
+}
+void CreationQueue::AddEmitterCreation(const EmitterInheritSetting* pSetting, Particle*,
+                                       EmitterResource* pResource, u16 calcRemain) {
+    ChildRequest c = {1, {}, pSetting->speed, pResource, calcRemain};
+    std::memcpy(c.setting, pSetting, sizeof c.setting);
+    sChildRequests.push_back(c);
+}
+} // namespace ef
+} // namespace nw4r
+
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: %s <disc-files-dir>\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <disc-files-dir> [--curves]\n", argv[0]);
         return 2;
     }
+    sCurves = argc > 2 && std::strcmp(argv[2], "--curves") == 0;
 
     PortHostSetDiscRoot(argv[1]);
     EGG::DvdFile::initialize();
@@ -618,5 +775,9 @@ int main(int argc, char** argv) {
                  "size %zu)\n",
                  sBreff, sEmitters, sTracks, sBreft, sTextures, sStages, sRuns, sTextureSlots,
                  sCurveSlots, sForeignSlots, sCaptures, Errors(), sizeof(void*));
+    if (sCurves) {
+        std::fprintf(stderr, "ef_harness: %d curve evaluations, %d child creation requests\n",
+                     sCurveEvals, sChildCount);
+    }
     return Errors() == 0 ? 0 : 1;
 }

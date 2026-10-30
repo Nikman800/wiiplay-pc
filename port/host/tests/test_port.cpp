@@ -1,14 +1,18 @@
 /**
  * Unit tests for the M0 arena, RES_PTR slots and the 16-bit wchar_t
- * functions (port/arena.h, port/resptr.h, port/wide.h).
+ * functions (port/arena.h, port/resptr.h, port/wide.h), the host GX object
+ * words, and the host forms of the fast-cast / nw4r::math asm helpers.
  */
 
 #include <port/arena.h>
 #include <port/resptr.h>
 #include <port/wide.h>
 
+#include <nw4r/g3d/platform/g3d_cpu.h>
+#include <nw4r/math/math_arithmetic.h>
 #include <revolution/GX.h>
 #include <revolution/OS/OSAddress.h>
+#include <revolution/OS/OSFastCast.h>
 
 #include <cstdio>
 #include <cstring>
@@ -211,6 +215,49 @@ void TestGXObjects() {
     PortArenaFree(pImage);
 }
 
+/**
+ * The paired-single / quantized-load helpers that are asm on the Wii and C on
+ * the host (port/host/include/decomp/compat.h, HOST_BUILD.md §17): GQR loads
+ * convert, stores scale, clamp and truncate toward zero.
+ */
+void TestFastCast() {
+    using namespace nw4r;
+    CHECK(math::U16ToF32(65535) == 65535.0f);
+    CHECK(math::S16ToF32(-32768) == -32768.0f);
+    CHECK(math::F32ToU16(3.99f) == 3);
+    CHECK(math::F32ToU16(-1.0f) == 0);
+    CHECK(math::F32ToU16(70000.0f) == 0xFFFF);
+    CHECK(math::F32ToS16(-2.75f) == -2);
+    CHECK(math::F32ToS16(-40000.0f) == -0x8000);
+    CHECK(math::F32ToS16(40000.0f) == 0x7FFF);
+
+    u8 b = 200;
+    f32 f;
+    OSu8tof32(&b, &f);
+    CHECK(f == 200.0f);
+    f32 in = 255.9f;
+    u8 out;
+    OSf32tou8(&in, &out);
+    CHECK(out == 255);
+    in = 300.0f;
+    OSf32tou8(&in, &out);
+    CHECK(out == 255);
+
+    CHECK(math::FAbs(-1.5f) == 1.5f && math::FAbs(2.0f) == 2.0f);
+    CHECK(math::FInv(4.0f) == 0.25f);
+    CHECK(math::FSelect(0.0f, 1.0f, 2.0f) == 1.0f);
+    CHECK(math::FSelect(-0.0f, 1.0f, 2.0f) == 1.0f);
+    CHECK(math::FSelect(-1e-30f, 1.0f, 2.0f) == 2.0f);
+
+    s16 raw = -48; // GQR6 S10.5 and GQR7 S7.8
+    CHECK(g3d::fastcast::S10_5ToF32(&raw) == -1.5f);
+    CHECK(g3d::fastcast::S7_8ToF32(&raw) == -0.1875f);
+    CHECK(g3d::fastcast::F32ToS10_5(-1.53f) == -48);
+    CHECK(g3d::fastcast::F32ToS10_5(2000.0f) == 0x7FFF);
+    CHECK(g3d::fastcast::F32ToU8_0(17.8f) == 17);
+    CHECK(g3d::fastcast::U8_0ToF32(&b) == 200.0f);
+}
+
 } // namespace
 
 int main() {
@@ -218,6 +265,7 @@ int main() {
     TestResPtr();
     TestWide();
     TestGXObjects();
+    TestFastCast();
     if (sFailures != 0) {
         std::printf("test_port: %d failures\n", sFailures);
         return 1;

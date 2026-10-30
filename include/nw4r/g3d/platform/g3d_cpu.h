@@ -6,6 +6,13 @@
 
 #include <port/be.h>
 
+// The GQR6/GQR7 quantized loads and stores below mark their asm block with the
+// function's name, so the PC port can put C in its place
+// (port/host/include/decomp/compat.h). Here it is the asm block itself.
+#ifndef ASM_PS
+#define ASM_PS(name) ASM
+#endif
+
 namespace nw4r {
 namespace g3d {
 
@@ -46,7 +53,7 @@ inline f32 U16_0ToF32(const u16* pPtr) {
 inline f32 S7_8ToF32(register const s16* pPtr) {
     register f32 f;
 
-    ASM (
+    ASM_PS(S7_8ToF32) (
         psq_l f, 0(pPtr), 1, 7
     )
 
@@ -56,7 +63,7 @@ inline f32 S7_8ToF32(register const s16* pPtr) {
 inline f32 S10_5ToF32(register const s16* pPtr) {
     register f32 f;
 
-    ASM (
+    ASM_PS(S10_5ToF32) (
         psq_l f, 0(pPtr), 1, 6
     )
 
@@ -91,7 +98,7 @@ inline s16 F32ToS10_5(register f32 f) {
     s16 x;
     register s16* pPtr = &x;
 
-    ASM (
+    ASM_PS(F32ToS10_5) (
         psq_st f, 0(pPtr), 1, 6
     )
 

@@ -5,6 +5,12 @@
 extern "C" {
 #endif
 
+// The quantized load/store blocks are opened with ASM_PS(name): ASM here; the
+// host build's decomp/compat.h replaces them with the same conversions in C.
+#ifndef ASM_PS
+#define ASM_PS(name) ASM
+#endif
+
 #define OS_GQR_TYPE_U8 4
 #define OS_GQR_TYPE_U16 5
 #define OS_GQR_TYPE_S8 6
@@ -54,7 +60,7 @@ static void OSSetGQR7(register u32 type, register u32 scale) {
 static f32 __OSu8tof32(register u8* in) {
     register f32 ret;
 
-    ASM (
+    ASM_PS(__OSu8tof32) (
         psq_l ret, 0(in), 1, 2
     )
 
@@ -73,7 +79,7 @@ static void OSu8tof32(u8* in, volatile f32* out) {
 static f32 __OSu16tof32(register u16* arg) {
     register f32 ret;
 
-    ASM (
+    ASM_PS(__OSu16tof32) (
         psq_l ret, 0(arg), 1, 3
     )
 
@@ -92,7 +98,7 @@ static void OSu16tof32(u16* in, volatile f32* out) {
 static f32 __OSs16tof32(register s16* arg) {
     register f32 ret;
 
-    ASM (
+    ASM_PS(__OSs16tof32) (
         psq_l ret, 0(arg), 1, 5
     )
 
@@ -113,7 +119,7 @@ static u8 __OSf32tou8(register f32 arg) {
     register f32* ptr = &a;
     u8 r;
 
-    ASM (
+    ASM_PS(__OSf32tou8) (
         psq_st arg, 0(ptr), 1, 2
     )
 
@@ -130,7 +136,7 @@ static u16 __OSf32tou16(register f32 arg) {
     register f32* ptr = &a;
     u16 r;
 
-    ASM (
+    ASM_PS(__OSf32tou16) (
         psq_st arg, 0(ptr), 1, 3
     )
 
@@ -147,7 +153,7 @@ static s16 __OSf32tos16(register f32 arg) {
     register f32* ptr = &a;
     s16 r;
 
-    ASM (
+    ASM_PS(__OSf32tos16) (
         psq_st arg, 0(ptr), 1, 5
     )
 

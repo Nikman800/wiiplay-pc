@@ -334,4 +334,15 @@ _Static_assert(sizeof(be_u24) == 3 && _Alignof(be_u24) == 1, "be_u24 layout");
 
 #endif /* __cplusplus */
 
+/*
+ * BE_BYTE(i, size): the index, in host memory, of byte i (0 = most significant)
+ * of a size-byte integer. For code that looks at an integer's bytes through a
+ * union, as the Wii (big-endian) lays them out.
+ */
+#if PORT_HOST_BIG_ENDIAN
+#define BE_BYTE(i, size) (i)
+#else
+#define BE_BYTE(i, size) ((size) - 1 - (i))
+#endif
+
 #endif /* PORT_BE_H */

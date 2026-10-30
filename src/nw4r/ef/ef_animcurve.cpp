@@ -11,30 +11,30 @@ namespace {
 
 // Key of a float curve with N components
 template <int N> struct AnimCurveKeyF32 {
-    u16 frame;       // at 0x0
-    u16 interp;      // at 0x2, two bits per component
-    u16 PADDING_0x4; // at 0x4
+    be_u16 frame;       // at 0x0
+    be_u16 interp;      // at 0x2, two bits per component
+    be_u16 PADDING_0x4; // at 0x4
     u8 random;       // at 0x6
     u8 PADDING_0x7;  // at 0x7
     union {
-        f32 value[N]; // at 0x8
-        u16 rangeIdx; // at 0x8
+        be_f32 value[N]; // at 0x8
+        be_u16 rangeIdx; // at 0x8
     };
 };
 
 // Random range of a float curve with N components
 template <int N> struct AnimCurveRangeF32 {
     struct {
-        f32 base;  // at 0x0
-        f32 width; // at 0x4
+        be_f32 base;  // at 0x0
+        be_f32 width; // at 0x4
     } comp[N];
 };
 
 // Random range of a rotation curve
 struct AnimCurveRangeRotate {
     struct {
-        f32 base;  // at 0x0
-        f32 width; // at 0x4
+        be_f32 base;  // at 0x0
+        be_f32 width; // at 0x4
     } comp[3];
     u8 randomSign;     // at 0x18
     u8 PADDING_0x19[3]; // at 0x19
@@ -42,14 +42,14 @@ struct AnimCurveRangeRotate {
 
 // Key of a byte curve with N components
 template <int N> struct AnimCurveKeyU8 {
-    u16 frame;       // at 0x0
-    u16 interp;      // at 0x2, two bits per component
-    u16 PADDING_0x4; // at 0x4
+    be_u16 frame;       // at 0x0
+    be_u16 interp;      // at 0x2, two bits per component
+    be_u16 PADDING_0x4; // at 0x4
     u8 random;       // at 0x6
     u8 PADDING_0x7;  // at 0x7
     union {
         u8 value[N];  // at 0x8
-        u16 rangeIdx; // at 0x8
+        be_u16 rangeIdx; // at 0x8
     };
 };
 
@@ -65,7 +65,7 @@ template <int N> struct AnimCurveRangeU8 {
 
 // Key of a texture curve
 struct AnimCurveKeyTexture {
-    u16 frame;          // at 0x0
+    be_u16 frame;          // at 0x0
     u8 random;          // at 0x2
     u8 PADDING_0x3[9];  // at 0x3
     union {
@@ -73,15 +73,15 @@ struct AnimCurveKeyTexture {
             u8 wrap;    // at 0xC
             u8 reverse; // at 0xD
         };
-        u16 rangeIdx; // at 0xC
+        be_u16 rangeIdx; // at 0xC
     };
-    u16 name; // at 0xE
+    be_u16 name; // at 0xE
 };
 
 struct AnimCurveRangeTexture {
     u8 wrap;          // at 0x0
     u8 reverse;       // at 0x1
-    u16 name;         // at 0x2
+    be_u16 name;         // at 0x2
     u8 randomReverse; // at 0x4
     u8 PADDING_0x5[3]; // at 0x5
 };
@@ -89,29 +89,29 @@ struct AnimCurveRangeTexture {
 struct AnimCurveRandomTexture {
     u8 wrap;    // at 0x0
     u8 reverse; // at 0x1
-    u16 name;   // at 0x2
+    be_u16 name;   // at 0x2
 };
 
 // Child created by a child curve
 struct AnimCurveChild {
     EmitterInheritSetting setting; // at 0x0
-    u16 resIdx;                    // at 0x8, index into the name table
+    be_u16 resIdx;                    // at 0x8, index into the name table
 };
 
 // Key of a child curve
 struct AnimCurveKeyChild {
-    u16 frame;          // at 0x0
+    be_u16 frame;          // at 0x0
     u8 random;          // at 0x2
     u8 PADDING_0x3[9];  // at 0x3
     union {
         AnimCurveChild child; // at 0xC
-        u16 rangeIdx;         // at 0xC
+        be_u16 rangeIdx;         // at 0xC
     };
 };
 
 template <typename T> struct AnimCurveTable {
-    u16 count;       // at 0x0
-    u16 PADDING_0x2; // at 0x2
+    be_u16 count;       // at 0x0
+    be_u16 PADDING_0x2; // at 0x2
     T datas[1];      // at 0x4
 };
 
@@ -293,7 +293,7 @@ static inline int SearchKeyStep(TKey* pKeys, u16 numKey, int frame,
 
 // Frame of a key in a table with variable sized keys
 static inline u16 KeyFrame(u8* pKeys, int idx, int keySize) {
-    return *reinterpret_cast<u16*>(pKeys + idx * keySize);
+    return *reinterpret_cast<be_u16*>(pKeys + idx * keySize);
 }
 
 // Time of a looping curve stretched over the particle life
@@ -523,9 +523,9 @@ static inline u32 CalcRandomSeed(u16 seed, AnimCurveHeader* pHeader, u32 loop,
     rndSeed.value = seed * 0x3F81F635 + pHeader->randomSeed * 0x30A74193 +
                     rangeIdx * 0x371097E7 + loop * 0x7B929 + 0x4BF53;
 
-    rndSeed.bytes[2] ^= rndSeed.bytes[3];
-    rndSeed.bytes[1] ^= rndSeed.bytes[2];
-    rndSeed.bytes[0] ^= rndSeed.bytes[1];
+    rndSeed.bytes[BE_BYTE(2, 4)] ^= rndSeed.bytes[BE_BYTE(3, 4)];
+    rndSeed.bytes[BE_BYTE(1, 4)] ^= rndSeed.bytes[BE_BYTE(2, 4)];
+    rndSeed.bytes[BE_BYTE(0, 4)] ^= rndSeed.bytes[BE_BYTE(1, 4)];
 
     return rndSeed.value;
 }
@@ -844,7 +844,7 @@ void AnimCurveExecuteU8(u8* pCmdList, u8* pTarget, u32 tick, u16 seed,
             u32 rnd;
             u8* pRange = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                           rangeSize, random,
-                                          *reinterpret_cast<u16*>(pValue),
+                                          *reinterpret_cast<be_u16*>(pValue),
                                           loop, seed, rnd);
 
             for (; mask != 0; mask >>= 1) {
@@ -902,7 +902,7 @@ void AnimCurveExecuteU8(u8* pCmdList, u8* pTarget, u32 tick, u16 seed,
             pTarget++;
         }
     } else if (isRandom0 && !isRandom1) {
-        u16 rangeIdx = *reinterpret_cast<u16*>(pValue0);
+        u16 rangeIdx = *reinterpret_cast<be_u16*>(pValue0);
         u32 rnd;
         u8* pRange = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                       rangeSize, random0,
@@ -930,7 +930,7 @@ void AnimCurveExecuteU8(u8* pCmdList, u8* pTarget, u32 tick, u16 seed,
         u32 rnd;
         u8* pRange = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                       rangeSize, pKey1[2],
-                                      *reinterpret_cast<u16*>(pValue1), loop1,
+                                      *reinterpret_cast<be_u16*>(pValue1), loop1,
                                       seed, rnd);
 
         for (; mask != 0; mask >>= 1) {
@@ -952,13 +952,13 @@ void AnimCurveExecuteU8(u8* pCmdList, u8* pTarget, u32 tick, u16 seed,
         }
     } else {
         u32 rnd0;
-        rangeIdx0 = *reinterpret_cast<u16*>(pValue0);
+        rangeIdx0 = *reinterpret_cast<be_u16*>(pValue0);
         u8* pRange0 = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                        rangeSize, random0,
                                        rangeIdx0, loop,
                                        seed, rnd0);
         u32 rnd1;
-        rangeIdx1 = *reinterpret_cast<u16*>(pValue1);
+        rangeIdx1 = *reinterpret_cast<be_u16*>(pValue1);
         u8* pRange1 = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                        rangeSize, pKey1[2],
                                        rangeIdx1, loop1,
@@ -998,11 +998,11 @@ static inline f32 CalcRandomValue(f32 base, f32 width, u32 rnd) {
 }
 
 // The random value of one component's range (base, width)
-static inline f32 RandomValueF32(const f32* pRange, u32 rnd) {
+static inline f32 RandomValueF32(const be_f32* pRange, u32 rnd) {
     return CalcRandomValue(pRange[0], pRange[1], rnd);
 }
 
-static inline f32 CalcRandomF32(AnimCurveHeader* pHeader, f32*& rpRange,
+static inline f32 CalcRandomF32(AnimCurveHeader* pHeader, be_f32*& rpRange,
                                 u32& rRnd) {
     f32 value = CalcRandomValue(rpRange[0], rpRange[1], rRnd);
     rpRange += 2;
@@ -1163,11 +1163,11 @@ void AnimCurveExecuteF32(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
     u8 random1;
     u32 loop1;
     bool isRandom1;
-    f32* pValue0;
+    be_f32* pValue0;
     f32 v0;
     f32 v1;
     f32 t;
-    f32* pValue1;
+    be_f32* pValue1;
     bool isRandom0;
     u8* pInterp;
     u8* pKeys;
@@ -1178,9 +1178,9 @@ void AnimCurveExecuteF32(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
     u16 rangeIdx0;
     u16 rangeIdx1;
     u32 rnd0;
-    f32* pRange0;
+    be_f32* pRange0;
     u32 rnd1;
-    f32* pRange1;
+    be_f32* pRange1;
     u8 mask;
     pHeader = reinterpret_cast<AnimCurveHeader*>(pCmdList);
 
@@ -1217,7 +1217,7 @@ void AnimCurveExecuteF32(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
     if (exact) {
         u8* pKey = pKeys + idx * keySize;
         u8 random = pKey[2];
-        f32* pValue = reinterpret_cast<f32*>(pKey + 12);
+        be_f32* pValue = reinterpret_cast<be_f32*>(pKey + 12);
 
         if (random == 0) {
             for (; mask != 0; mask >>= 1) {
@@ -1229,9 +1229,9 @@ void AnimCurveExecuteF32(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
             }
         } else {
             u32 rnd;
-            f32* pRange = reinterpret_cast<f32*>(GetRandomRangeU8(
+            be_f32* pRange = reinterpret_cast<be_f32*>(GetRandomRangeU8(
                 pHeader, pRangeTbl, pRandomTbl, rangeSize, random,
-                *reinterpret_cast<u16*>(pValue), loop, seed, rnd));
+                *reinterpret_cast<be_u16*>(pValue), loop, seed, rnd));
 
             for (; mask != 0; mask >>= 1) {
                 if (enable & mask) {
@@ -1256,9 +1256,9 @@ void AnimCurveExecuteF32(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
     pKey0 = pKeys + idx * keySize;
     pKey1 = pKeys + (idx + 1) * keySize;
 
-    pValue0 = reinterpret_cast<f32*>(pKey0 + 12);
+    pValue0 = reinterpret_cast<be_f32*>(pKey0 + 12);
     pInterp = pKey0 + 4;
-    pValue1 = reinterpret_cast<f32*>(pKey1 + 12);
+    pValue1 = reinterpret_cast<be_f32*>(pKey1 + 12);
     random0 = pKey0[2];
     random1 = pKey1[2];
     isRandom0 = random0 != 0;
@@ -1284,8 +1284,8 @@ void AnimCurveExecuteF32(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
         }
     } else if (isRandom0 && !isRandom1) {
         u32 rnd;
-        rangeIdx = *reinterpret_cast<u16*>(pValue0);
-        f32* pRange = reinterpret_cast<f32*>(GetRandomRangeU8(
+        rangeIdx = *reinterpret_cast<be_u16*>(pValue0);
+        be_f32* pRange = reinterpret_cast<be_f32*>(GetRandomRangeU8(
             pHeader, pRangeTbl, pRandomTbl, rangeSize, random0,
             rangeIdx, loop, seed, rnd));
 
@@ -1300,8 +1300,8 @@ void AnimCurveExecuteF32(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
         }
     } else if (!isRandom0 && isRandom1) {
         u32 rnd;
-        rangeIdx = *reinterpret_cast<u16*>(pValue1);
-        f32* pRange = reinterpret_cast<f32*>(GetRandomRangeU8(
+        rangeIdx = *reinterpret_cast<be_u16*>(pValue1);
+        be_f32* pRange = reinterpret_cast<be_f32*>(GetRandomRangeU8(
             pHeader, pRangeTbl, pRandomTbl, rangeSize, random1,
             rangeIdx, loop1, seed, rnd));
 
@@ -1315,12 +1315,12 @@ void AnimCurveExecuteF32(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
             pTarget++;
         }
     } else {
-        rangeIdx0 = *reinterpret_cast<u16*>(pValue0);
-        pRange0 = reinterpret_cast<f32*>(GetRandomRangeU8(
+        rangeIdx0 = *reinterpret_cast<be_u16*>(pValue0);
+        pRange0 = reinterpret_cast<be_f32*>(GetRandomRangeU8(
             pHeader, pRangeTbl, pRandomTbl, rangeSize, random0,
             rangeIdx0, loop, seed, rnd0));
-        rangeIdx1 = *reinterpret_cast<u16*>(pValue1);
-        pRange1 = reinterpret_cast<f32*>(GetRandomRangeU8(
+        rangeIdx1 = *reinterpret_cast<be_u16*>(pValue1);
+        pRange1 = reinterpret_cast<be_f32*>(GetRandomRangeU8(
             pHeader, pRangeTbl, pRandomTbl, rangeSize, random1,
             rangeIdx1, loop1, seed, rnd1));
 
@@ -1354,7 +1354,7 @@ static inline void GetRandomSign(u8* pRange, u32& rRnd, bool& rNegate) {
     }
 }
 
-static inline f32 CalcRandomRotate(f32* pRange, int i, u32 rnd, bool negate) {
+static inline f32 CalcRandomRotate(be_f32* pRange, int i, u32 rnd, bool negate) {
     f32 value = CalcRandomValue(pRange[i * 2], pRange[i * 2 + 1], rnd);
     if (negate) {
         value = -value;
@@ -1452,10 +1452,10 @@ void AnimCurveExecuteRotate(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
     f32 t;
     u8* pKey0;
     u8* pKey1;
-    f32* pValue1;
+    be_f32* pValue1;
     u8* pInterp;
     u16 nextFrame;
-    f32* pValue0;
+    be_f32* pValue0;
     int idx;
     pHeader = reinterpret_cast<AnimCurveHeader*>(pCmdList);
 
@@ -1475,7 +1475,7 @@ void AnimCurveExecuteRotate(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
     if (exact) {
         u8* pKey = pKeys + idx * ROTATE_KEY_SIZE;
         u8 random = pKey[2];
-        f32* pValue = reinterpret_cast<f32*>(pKey + 12);
+        be_f32* pValue = reinterpret_cast<be_f32*>(pKey + 12);
 
         if (random == 0) {
             for (int i = 0; i < 3; i++) {
@@ -1485,12 +1485,12 @@ void AnimCurveExecuteRotate(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
             u32 rnd;
             u8* pRange = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                           ROTATE_RANGE_SIZE, random,
-                                          *reinterpret_cast<u16*>(pValue),
+                                          *reinterpret_cast<be_u16*>(pValue),
                                           loop, seed, rnd);
             bool negate;
             GetRandomSign(pRange, rnd, negate);
 
-            f32* pRangeValue = reinterpret_cast<f32*>(pRange);
+            be_f32* pRangeValue = reinterpret_cast<be_f32*>(pRange);
             pTarget[0] = CalcRandomRotate(pRangeValue, 0, rnd, negate);
             if (!(pHeader->processFlag & AnimCurveHeader::PROC_FLAG_SYNC)) {
                 rnd = MixRandom(rnd);
@@ -1513,9 +1513,9 @@ void AnimCurveExecuteRotate(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
     pKey0 = pKeys + idx * ROTATE_KEY_SIZE;
     pKey1 = pKeys + (idx + 1) * ROTATE_KEY_SIZE;
 
-    pValue0 = reinterpret_cast<f32*>(pKey0 + 12);
+    pValue0 = reinterpret_cast<be_f32*>(pKey0 + 12);
     pInterp = pKey0 + 4;
-    pValue1 = reinterpret_cast<f32*>(pKey1 + 12);
+    pValue1 = reinterpret_cast<be_f32*>(pKey1 + 12);
     random0 = pKey0[2];
     random1 = pKey1[2];
     isRandom0 = random0 != 0;
@@ -1539,12 +1539,12 @@ void AnimCurveExecuteRotate(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
         }
     } else if (isRandom0 && !isRandom1) {
         u32 rnd;
-        rangeIdx = *reinterpret_cast<u16*>(pValue0);
+        rangeIdx = *reinterpret_cast<be_u16*>(pValue0);
         u8* pRange = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                       ROTATE_RANGE_SIZE, random0,
                                       rangeIdx, loop,
                                       seed, rnd);
-        f32* pRangeValue = reinterpret_cast<f32*>(pRange);
+        be_f32* pRangeValue = reinterpret_cast<be_f32*>(pRange);
         bool negate;
         GetRandomSign(pRange, rnd, negate);
 
@@ -1564,12 +1564,12 @@ void AnimCurveExecuteRotate(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
         }
     } else if (!isRandom0 && isRandom1) {
         u32 rnd;
-        rangeIdx = *reinterpret_cast<u16*>(pValue1);
+        rangeIdx = *reinterpret_cast<be_u16*>(pValue1);
         u8* pRange = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                       ROTATE_RANGE_SIZE, random1,
                                       rangeIdx, loop1,
                                       seed, rnd);
-        f32* pRangeValue = reinterpret_cast<f32*>(pRange);
+        be_f32* pRangeValue = reinterpret_cast<be_f32*>(pRange);
         bool negate;
         GetRandomSign(pRange, rnd, negate);
 
@@ -1588,14 +1588,14 @@ void AnimCurveExecuteRotate(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
             }
         }
     } else {
-        rangeIdx0 = *reinterpret_cast<u16*>(pValue0);
+        rangeIdx0 = *reinterpret_cast<be_u16*>(pValue0);
         u32 rnd0;
         u8* pRange0 = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                        ROTATE_RANGE_SIZE, random0,
                                        rangeIdx0, loop,
                                        seed, rnd0);
         u32 rnd1;
-        rangeIdx1 = *reinterpret_cast<u16*>(pValue1);
+        rangeIdx1 = *reinterpret_cast<be_u16*>(pValue1);
         u8* pRange1 = GetRandomRangeU8(pHeader, pRangeTbl, pRandomTbl,
                                        ROTATE_RANGE_SIZE, random1,
                                        rangeIdx1, loop1,
@@ -1604,8 +1604,8 @@ void AnimCurveExecuteRotate(u8* pCmdList, f32* pTarget, u32 tick, u16 seed,
         GetRandomSign(pRange0, rnd0, negate0);
         bool negate1;
         GetRandomSign(pRange1, rnd1, negate1);
-        f32* pRangeValue0 = reinterpret_cast<f32*>(pRange0);
-        f32* pRangeValue1 = reinterpret_cast<f32*>(pRange1);
+        be_f32* pRangeValue0 = reinterpret_cast<be_f32*>(pRange0);
+        be_f32* pRangeValue1 = reinterpret_cast<be_f32*>(pRange1);
 
         for (int i = 0; i < 3; i++) {
             v0 = RandomValueF32(pRangeValue0, rnd0);
@@ -1754,9 +1754,9 @@ void createChild(u8* pKeyData, u16 seed, AnimCurveHeader* pHeader,
         rndSeed.value = seed * 0x3F81F635 + pHeader->randomSeed * 0x30A74193 +
                         rangeIdx * 0x371097E7 + loop * 0x7B929 + 0x4BF53;
 
-        rndSeed.bytes[2] ^= rndSeed.bytes[3];
-        rndSeed.bytes[1] ^= rndSeed.bytes[2];
-        rndSeed.bytes[0] ^= rndSeed.bytes[1];
+        rndSeed.bytes[BE_BYTE(2, 4)] ^= rndSeed.bytes[BE_BYTE(3, 4)];
+        rndSeed.bytes[BE_BYTE(1, 4)] ^= rndSeed.bytes[BE_BYTE(2, 4)];
+        rndSeed.bytes[BE_BYTE(0, 4)] ^= rndSeed.bytes[BE_BYTE(1, 4)];
 
         // @bug pChild is left unset for keys with a random range
         if (pKey->random & KEY_RANDOM_FLAG_TABLE) {

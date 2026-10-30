@@ -28,7 +28,7 @@ struct EmitterInheritSetting {
         FLAG_INHERIT_ROT = (1 << 1),
     };
 
-    s16 speed; // at 0x0
+    be_s16 speed; // at 0x0
     u8 scale;  // at 0x2
     u8 alpha;  // at 0x3
     u8 color;  // at 0x4

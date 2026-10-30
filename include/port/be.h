@@ -30,4 +30,7 @@
 #define BE_GET(field) (field)
 #define BE_SET(field, value) ((field) = (value))
 
+// Byte i (0 = most significant) of a size-byte integer seen through a union.
+#define BE_BYTE(i, size) i
+
 #endif

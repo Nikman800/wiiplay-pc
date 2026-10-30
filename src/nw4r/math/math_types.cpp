@@ -4,13 +4,13 @@
     fx = (_fx);                                                                \
     fy = (_fy);                                                                \
     dt = fx - fy;                                                              \
-    ASM ( fsel work, dt, fx, fy )
+    ASM_PS(FSEL) ( fsel work, dt, fx, fy )
 
 #define FSEL_MIN(_fx, _fy)                                                     \
     fx = (_fx);                                                                \
     fy = (_fy);                                                                \
     dt = fy - fx;                                                              \
-    ASM ( fsel work, dt, fx, fy )
+    ASM_PS(FSEL) ( fsel work, dt, fx, fy )
 
 namespace nw4r {
 namespace math {
@@ -107,6 +107,9 @@ MTX33* MTX34ToMTX33(register MTX33* pOut, register const MTX34* pIn) {
     return pOut;
 }
 
+#if !defined(PORT_HOST)
+// A CodeWarrior asm function; the PC port has no form of it yet
+// (port/docs/HOST_BUILD.md §17).
 #define nofralloc
 #undef PURE_ASM
 
@@ -184,6 +187,7 @@ inverse_exists:
     blr
     // clang-format on
 }
+#endif
 
 MTX34* MTX34Zero(register MTX34* pMtx) {
     register f32 c_zero = 0.0f;

@@ -42,7 +42,7 @@ struct ResAnmFogData {
     be_u32 id;                // at 0xC
     be_u32 refNumber;         // at 0x10
     be_u32 flags;             // at 0x14
-    GXFogType type;        // at 0x18
+    BE_ENUM(GXFogType, u32) type; // at 0x18
     ResAnmData startz;     // at 0x1C
     ResAnmData endz;       // at 0x20
     ResColorAnmData color; // at 0x24

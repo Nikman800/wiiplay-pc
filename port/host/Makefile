@@ -99,6 +99,7 @@ DECOMP_SRCS := \
     src/nw4r/ut/ut_TextWriterBase.cpp \
     src/nw4r/ut/ut_TagProcessorBase.cpp \
     src/nw4r/math/math_triangular.cpp \
+    src/nw4r/math/math_types.cpp \
     src/egg/util/eggMsgRes.cpp \
     $(LYT_SRCS) \
     $(G3D_SRCS)
@@ -203,7 +204,26 @@ layouts: $(OUT)/lyt_harness
 models: $(OUT)/g3d_harness
 	python3 $(HOST)/tests/test_models.py --harness $(OUT)/g3d_harness --disc $(DISC)
 
-test: unit archives resources layouts models
+test: unit archives resources layouts models anims
+
+# --- g3d animation evaluation (docs/HOST_BUILD.md §17) ------------------------
+# The real ResAnm*::GetAnmResult readers at a set of frames, against an f32
+# model in test_anims.py. On -m32, -mfpmath=sse keeps the arithmetic in single
+# precision (x87 would keep extended precision between operations).
+ifeq ($(M32),1)
+ANIM_FP := -msse2 -mfpmath=sse
+endif
+ANIM_FP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(G3D_SRCS) src/nw4r/math/math_triangular.cpp \
+    src/nw4r/math/math_types.cpp)
+$(ANIM_FP_OBJS): CXXFLAGS += $(ANIM_FP)
+
+$(OUT)/anm_harness: $(HOST)/tests/anm_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
+	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: anims
+all: $(OUT)/anm_harness
+anims: $(OUT)/anm_harness
+	python3 $(HOST)/tests/test_anims.py --harness $(OUT)/anm_harness --disc $(DISC)
 
 clean:
 	rm -rf $(HOST)/build
@@ -213,29 +233,33 @@ clean:
 # --- nw4r::ef resources (POINTERS.md step 6; docs/HOST_BUILD.md §12) ---------
 # Resource::Add / AddTexture / RelocateCommand / Remove*, the emitter track
 # tables and ResEmitter/ResAnimCurve accessors, linked into ef_harness with the
-# RES_LIST helper. ef_animcurve.cpp (curve evaluation, an unlinked unit in the
-# decomp) is compiled only, so its RES_PTR/PORT_U32_TO_PTR forms keep building.
+# RES_LIST helper. ef_animcurve.cpp (curve evaluation; FUNCTIONAL in the decomp) is
+# linked into ef_harness only, which evaluates every curve with --curves
+# (docs/HOST_BUILD.md §17); on -m32 it is built with ANIM_FP (SSE floats).
 EF_SRCS := src/nw4r/ef/ef_resource.cpp src/nw4r/ef/ef_res_emitter_ac.cpp \
     src/nw4r/ef/ef_res_animcurve_ac.cpp
-EF_COMPILE_SRCS := src/nw4r/ef/ef_animcurve.cpp
+EF_CURVE_SRCS := src/nw4r/ef/ef_animcurve.cpp
 EF_HOST_SRCS := src/host_reslist.cpp
 EF_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(EF_SRCS)) $(patsubst %,$(OUT)/host/%.o,$(EF_HOST_SRCS))
-EF_COMPILE_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(EF_COMPILE_SRCS))
+EF_CURVE_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(EF_CURVE_SRCS))
+$(EF_CURVE_OBJS): CXXFLAGS += $(ANIM_FP)
 
-$(OUT)/ef_harness: $(HOST)/tests/ef_harness.cpp $(HOST)/tests/disc_walk.h $(EF_OBJS) $(LIB)
-	$(CXX) $(CXXFLAGS) -MMD $< $(EF_OBJS) $(LIB) -o $@
+$(OUT)/ef_harness: $(HOST)/tests/ef_harness.cpp $(HOST)/tests/disc_walk.h $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB) -o $@
 
 $(OUT)/test_ef: $(HOST)/tests/test_ef.cpp $(EF_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(EF_OBJS) $(LIB) -o $@
 
-.PHONY: effects effects-unit
-all: $(OUT)/ef_harness $(OUT)/test_ef $(EF_COMPILE_OBJS)
+.PHONY: effects effects-unit efcurves
+all: $(OUT)/ef_harness $(OUT)/test_ef
 unit: effects-unit
-effects-unit: $(OUT)/test_ef $(EF_COMPILE_OBJS)
+effects-unit: $(OUT)/test_ef
 	$(OUT)/test_ef
 effects: $(OUT)/ef_harness
 	python3 $(HOST)/tests/test_effects.py --harness $(OUT)/ef_harness --disc $(DISC)
-test: effects
+efcurves: $(OUT)/ef_harness
+	python3 $(HOST)/tests/test_efcurves.py --harness $(OUT)/ef_harness --disc $(DISC)
+test: effects efcurves
 
 # --- nw4r::snd sound archives (POINTERS.md step 7; docs/HOST_BUILD.md §13) ----
 # The whole snd library (all units compile on the host; the archive below only
