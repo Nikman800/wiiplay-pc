@@ -1,0 +1,14 @@
+Command run:
+python3 port/assets/tools/fmt_collision.py --check ~/wii-play/extracted/files
+
+Exact output:
+KCL: files=7 errors=0 versions=0x38,0x3C positions=2771 normals=22086 prisms=7966 octree_nodes=1032
+PMP: files=7 errors=0 versions=0 entries=1744 paths=0 points=0
+
+Known gaps:
+- PMP disc files contain object entries but no path or point records. The path/point layouts are
+  validated structurally, but no shipped instance exercises those arrays.
+- KCL normal sections can end in an 8-byte tail and expose two additional 12-byte normal slots
+  spanning that tail plus the dummy prism. The parser follows the indexed extent observed on the
+  disc; the format has no explicit normal-count field.
+- KCL attributes and PMP object-entry type/parameter semantics are decoded as raw fields only.
