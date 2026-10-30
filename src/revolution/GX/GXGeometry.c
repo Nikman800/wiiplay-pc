@@ -2,19 +2,19 @@
 
 inline void __GXSetAmbMat(u32 dirtyFlags) {
     if (dirtyFlags & GX_DIRTY_AMB_COLOR0) {
-        GX_XF_LOAD_REG(GX_XF_REG_AMBIENT0, *(u32*)&gxdt->ambColors[0]);
+        GX_XF_LOAD_REG(GX_XF_REG_AMBIENT0, BE_GET(*(be_u32*)&gxdt->ambColors[0]));
     }
 
     if (dirtyFlags & GX_DIRTY_AMB_COLOR1) {
-        GX_XF_LOAD_REG(GX_XF_REG_AMBIENT1, *(u32*)&gxdt->ambColors[1]);
+        GX_XF_LOAD_REG(GX_XF_REG_AMBIENT1, BE_GET(*(be_u32*)&gxdt->ambColors[1]));
     }
 
     if (dirtyFlags & GX_DIRTY_MAT_COLOR0) {
-        GX_XF_LOAD_REG(GX_XF_REG_MATERIAL0, *(u32*)&gxdt->matColors[0]);
+        GX_XF_LOAD_REG(GX_XF_REG_MATERIAL0, BE_GET(*(be_u32*)&gxdt->matColors[0]));
     }
 
     if (dirtyFlags & GX_DIRTY_MAT_COLOR1) {
-        GX_XF_LOAD_REG(GX_XF_REG_MATERIAL1, *(u32*)&gxdt->matColors[1]);
+        GX_XF_LOAD_REG(GX_XF_REG_MATERIAL1, BE_GET(*(be_u32*)&gxdt->matColors[1]));
     }
 }
 
@@ -137,19 +137,19 @@ void GXBegin(GXPrimitive prim, GXVtxFmt fmt, u16 verts) {
         __GXSendFlushPrim();
     }
 
-    WGPIPE.c = fmt | prim;
-    WGPIPE.s = verts;
+    WGPIPE_WRITE(c, fmt | prim);
+    WGPIPE_WRITE(s, verts);
 }
 
 void __GXSendFlushPrim(void) {
     u32 i;
     u32 sz = gxdt->SHORT_0x4 * gxdt->vlim;
 
-    WGPIPE.uc = GX_TRIANGLESTRIP;
-    WGPIPE.us = gxdt->SHORT_0x4;
+    WGPIPE_WRITE(uc, GX_TRIANGLESTRIP);
+    WGPIPE_WRITE(us, gxdt->SHORT_0x4);
 
     for (i = 0; i < sz; i += 4) {
-        WGPIPE.i = 0;
+        WGPIPE_WRITE(i, 0);
     }
 
     gxdt->lastWriteWasXF = TRUE;
@@ -206,7 +206,12 @@ void GXSetCoPlanar(GXBool coplanar) {
     GX_BP_LOAD_REG(gxdt->genMode);
 }
 
+#if defined(PORT_HOST)
+// GCC rejects a static definition after GXGeometry.h's extern declaration
+inline void __GXSetGenMode(void) {
+#else
 static inline void __GXSetGenMode(void) {
+#endif
     GX_BP_LOAD_REG(gxdt->genMode);
     gxdt->lastWriteWasXF = FALSE;
 }

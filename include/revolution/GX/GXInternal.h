@@ -3,6 +3,9 @@
 #include <types.h>
 
 #include <revolution/GX/GXTypes.h>
+
+#include <port/be.h>
+#include <port/resptr.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -57,23 +60,27 @@ typedef struct _GXLightObjImpl {
     f32 dirZ;      // at 0x3C
 } GXLightObjImpl;
 
+/**
+ * Texture and TLUT objects hold the words the CPU sends to the GP; on the PC
+ * port they keep the Wii's byte order and 32-bit addresses (be_*, RES_PTR).
+ */
 typedef struct _GXTexObjImpl {
-    u32 mode0;      // at 0x0
-    u32 mode1;      // at 0x4
-    u32 image0;     // at 0x8
-    u32 image3;     // at 0xC
-    void* userData; // at 0x10
-    GXTexFmt fmt;   // at 0x14
-    u32 tlutName;   // at 0x18
-    u16 loadCnt;    // at 0x1C
-    u8 loadFmt;     // at 0x1E
-    u8 flags;       // at 0x1F
+    be_u32 mode0;                  // at 0x0
+    be_u32 mode1;                  // at 0x4
+    be_u32 image0;                 // at 0x8
+    be_u32 image3;                 // at 0xC
+    RES_PTR(void) userData;        // at 0x10
+    BE_ENUM(GXTexFmt, u32) fmt;    // at 0x14
+    be_u32 tlutName;               // at 0x18
+    be_u16 loadCnt;                // at 0x1C
+    u8 loadFmt;                    // at 0x1E
+    u8 flags;                      // at 0x1F
 } GXTexObjImpl;
 
 typedef struct _GXTlutObjImpl {
-    u32 tlut;       // at 0x0
-    u32 loadTlut0;  // at 0x4
-    u16 numEntries; // at 0x8
+    be_u32 tlut;       // at 0x0
+    be_u32 loadTlut0;  // at 0x4
+    be_u16 numEntries; // at 0x8
 } GXTlutObjImpl;
 
 typedef struct _GXTexRegionImpl {

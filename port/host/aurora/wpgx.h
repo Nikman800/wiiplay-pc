@@ -49,6 +49,24 @@ int wpgx_read_frame(uint8_t* rgba, size_t size, uint32_t* width, uint32_t* heigh
 /* Name of the graphics adapter in use (for logs). */
 const char* wpgx_adapter_name(void);
 
+/* --- The port's GX command stream (milestone 2, HOST_BUILD.md §26) -------- */
+
+/* Big-endian GX command bytes from the decomp's GX SDK (the host write-gather
+   pipe), in order; not necessarily split at command boundaries. */
+void wpgx_fifo_write(const void* data, uint32_t size);
+
+/* At a command boundary. WPGX_SYNC_FLUSH: the commands so far may run
+   (GXFlush). WPGX_SYNC_DRAWDONE: run them all and wait (GXDrawDone). */
+enum { WPGX_SYNC_FLUSH = 0, WPGX_SYNC_DRAWDONE = 1 };
+void wpgx_fifo_sync(uint32_t kind);
+
+/* Resolves 32-bit addresses found in the stream (CP array bases, CALL_DL,
+   texture images, TLUT loads) to host memory: returns NULL if unmapped and
+   stores the bytes readable from the result in *size. Called from Aurora's
+   FIFO thread. NULL removes it. */
+typedef const void* (*wpgx_address_resolver)(uint32_t address, uint32_t* size, void* user);
+void wpgx_set_address_resolver(wpgx_address_resolver resolver, void* user);
+
 /* --- Test helpers on Aurora's GX API (milestone 1) ------------------------ */
 
 /* Clear colour (0xRRGGBBAA), viewport/scissor and an orthographic projection

@@ -218,6 +218,51 @@ static inline unsigned int __rlwimi(unsigned int base, unsigned int value, unsig
     port_quat_multiply((const float*)(a), (const float*)(b), (float*)(prod));
 #define PORT_PS_PSQUATNormalize(...) port_quat_normalize((const float*)(in), (float*)(out));
 
+// The GX SDK's write-gather asm (src/revolution/GX/GXTransform.c, GXLight.c):
+// `ASM_VOLATILE_PS(name) ( ...asm... )` becomes the same stores through the
+// host write-gather pipe (port/wgpipe.h), on the function's own `dst`/`src`;
+// psq_l/psq_st pairs move floats in order.
+#define ASM_VOLATILE_PS(name) PORT_PS_##name
+#define PORT_PS_LoadProjPS(...)                                                \
+    {                                                                          \
+        int i_;                                                                \
+        for (i_ = 0; i_ < 6; i_++) {                                           \
+            dst[i_] = gxdt->proj[i_];                                          \
+        }                                                                      \
+    }
+#define PORT_PS_Copy6Floats(...)                                               \
+    {                                                                          \
+        int i_;                                                                \
+        for (i_ = 0; i_ < 6; i_++) {                                           \
+            dst[i_] = src[i_];                                                 \
+        }                                                                      \
+    }
+#define PORT_PS_WriteProjPS(...) port_wgpipe_f32s((const f32*)(src), 6);
+#define PORT_PS_WriteMTXPS4x3(...) port_wgpipe_f32s((const f32*)(src), 12);
+#define PORT_PS_WriteMTXPS4x2(...) port_wgpipe_f32s((const f32*)(src), 8);
+// psq_l 0, lfs 8, psq_l 16, lfs 24, psq_l 32, lfs 40: the 3x3 part of a 3x4.
+#define PORT_PS_WriteMTXPS3x3(...)                                             \
+    {                                                                          \
+        port_wgpipe_f32s((const f32*)(src)[0], 3);                             \
+        port_wgpipe_f32s((const f32*)(src)[1], 3);                             \
+        port_wgpipe_f32s((const f32*)(src)[2], 3);                             \
+    }
+// Three zero words, the colour word (RGBA, read as one big-endian word), then
+// the twelve floats aa..dirZ.
+#define PORT_PS_WriteLightObj(...)                                             \
+    {                                                                          \
+        const u8* c_ = (const u8*)&src->color;                                 \
+        port_wgpipe_u32(0);                                                    \
+        port_wgpipe_u32(0);                                                    \
+        port_wgpipe_u32(0);                                                    \
+        port_wgpipe_u32((u32)c_[0] << 24 | (u32)c_[1] << 16 |                  \
+                        (u32)c_[2] << 8 | (u32)c_[3]);                         \
+        port_wgpipe_f32s(&src->aa, 12);                                        \
+    }
+
+// MSL's <math.h> constants that the C library lacks (GXInitFogAdjTable).
+#define M_SQRT3 1.73205f
+
 // CodeWarrior's `#pragma unused(x)` etc. are ignored by GCC/Clang (with a
 // warning); nothing else to do here.
 

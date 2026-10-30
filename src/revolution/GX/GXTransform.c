@@ -1,11 +1,16 @@
 #include <revolution/GX.h>
 
+// Host forms of the asm blocks: port/host/include/decomp/compat.h
+#ifndef ASM_VOLATILE_PS
+#define ASM_VOLATILE_PS(name) ASM_VOLATILE
+#endif
+
 // TODO(kiwi) Fake inline
 inline void LoadProjPS(register f32* dst) {
     register f32 ps_0, ps_1, ps_2;
     register GXData* src;
 
-    ASM_VOLATILE (
+    ASM_VOLATILE_PS(LoadProjPS) (
         lwz src, gxdt
         psq_l  ps_0,  0  + GXData.proj(src), 0, 0
         psq_l  ps_1,  8  + GXData.proj(src), 0, 0
@@ -19,7 +24,7 @@ inline void LoadProjPS(register f32* dst) {
 inline void WriteProjPS(register volatile void* dst, register const f32* src) {
     register f32 ps_0, ps_1, ps_2;
 
-    ASM_VOLATILE (
+    ASM_VOLATILE_PS(WriteProjPS) (
         psq_l  ps_0,  0(src), 0, 0
         psq_l  ps_1,  8(src), 0, 0
         psq_l  ps_2, 16(src), 0, 0
@@ -32,7 +37,7 @@ inline void WriteProjPS(register volatile void* dst, register const f32* src) {
 inline void Copy6Floats(register f32* dst, register const f32* src) {
     register f32 ps_0, ps_1, ps_2;
 
-    ASM_VOLATILE (
+    ASM_VOLATILE_PS(Copy6Floats) (
         psq_l  ps_0,  0(src), 0, 0
         psq_l  ps_1,  8(src), 0, 0
         psq_l  ps_2, 16(src), 0, 0
@@ -48,7 +53,7 @@ void __GXSetProjection(void) {
 
     GX_XF_LOAD_REGS(ARRAY_SIZE(gxdt->proj), GX_XF_REG_PROJECTIONA);
     WriteProjPS(wgpipe, gxdt->proj);
-    WGPIPE.i = gxdt->projType;
+    WGPIPE_WRITE(i, gxdt->projType);
 }
 
 void GXSetProjection(const Mtx44 proj, GXProjectionType type) {
@@ -84,7 +89,7 @@ void GXGetProjectionv(f32 proj[GX_PROJECTION_SZ]) {
 inline void WriteMTXPS4x3(register volatile void* dst, register const Mtx src) {
     register f32 ps_0, ps_1, ps_2, ps_3, ps_4, ps_5;
 
-    ASM_VOLATILE (
+    ASM_VOLATILE_PS(WriteMTXPS4x3) (
         psq_l  ps_0,  0(src), 0, 0
         psq_l  ps_1,  8(src), 0, 0
         psq_l  ps_2, 16(src), 0, 0
@@ -104,7 +109,7 @@ inline void WriteMTXPS4x3(register volatile void* dst, register const Mtx src) {
 inline void WriteMTXPS3x3(register volatile void* dst, register const Mtx src) {
     register f32 ps_0, ps_1, ps_2, ps_3, ps_4, ps_5;
 
-    ASM_VOLATILE (
+    ASM_VOLATILE_PS(WriteMTXPS3x3) (
         psq_l  ps_0,  0(src), 0, 0
         lfs    ps_1,  8(src)
         psq_l  ps_2, 16(src), 0, 0
@@ -124,7 +129,7 @@ inline void WriteMTXPS3x3(register volatile void* dst, register const Mtx src) {
 inline void WriteMTXPS4x2(register volatile void* dst, register const Mtx src) {
     register f32 ps_0, ps_1, ps_2, ps_3;
 
-    ASM_VOLATILE (
+    ASM_VOLATILE_PS(WriteMTXPS4x2) (
         psq_l  ps_0,  0(src), 0, 0
         psq_l  ps_1,  8(src), 0, 0
         psq_l  ps_2, 16(src), 0, 0
@@ -201,12 +206,12 @@ void __GXSetViewport(void) {
     f = far + gxdt->offsetZ;
 
     GX_XF_LOAD_REGS(6 - 1, GX_XF_REG_SCALEX);
-    WGPIPE.f = a;
-    WGPIPE.f = b;
-    WGPIPE.f = c;
-    WGPIPE.f = d;
-    WGPIPE.f = e;
-    WGPIPE.f = f;
+    WGPIPE_WRITE(f, a);
+    WGPIPE_WRITE(f, b);
+    WGPIPE_WRITE(f, c);
+    WGPIPE_WRITE(f, d);
+    WGPIPE_WRITE(f, e);
+    WGPIPE_WRITE(f, f);
 }
 
 void GXSetViewportJitter(f32 ox, f32 oy, f32 sx, f32 sy, f32 near, f32 far,

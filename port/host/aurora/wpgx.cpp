@@ -6,11 +6,13 @@
 #include <aurora/gfx.h>
 #include <dolphin/gx.h>
 #include <dolphin/mtx.h>
+#include <dolphin/vi.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 
+#include "gx/fifo.hpp"
 #include "webgpu/gpu.hpp"
 
 #define WPGX_API extern "C" __attribute__((visibility("default")))
@@ -19,10 +21,11 @@ namespace {
 
 // Bumped whenever our Aurora patches change what a cached pipeline means, so
 // a stale pipeline_cache.db is discarded instead of loaded.
-constexpr uint32_t kPipelineCacheKey = 1;
+constexpr uint32_t kPipelineCacheKey = 2;
 
 int gLogLevel = LOG_INFO;
 bool gInitialized = false;
+bool gInFrame = false;
 std::string gDataDir;
 std::string gAdapterName;
 alignas(32) uint8_t gFifo[256 * 1024];
@@ -72,6 +75,13 @@ WPGX_API int wpgx_init(const wpgx_config* config) {
     gAdapterName = std::string(aurora::webgpu::g_adapterInfo.device.data, aurora::webgpu::g_adapterInfo.device.length);
 
     GXInit(gFifo, sizeof gFifo);
+    // The game's EFB is the configured size: viewports and scissors map 1:1
+    // (Aurora scales GX coordinates from the VI's frame buffer size).
+    GXRenderModeObj mode = GXNtsc480IntDf;
+    mode.fbWidth = static_cast<u16>(width);
+    mode.efbHeight = static_cast<u16>(height);
+    mode.xfbHeight = static_cast<u16>(height);
+    VIConfigure(&mode);
     AuroraSetDrawsBlocking(config->blocking_pipelines != 0);
     gInitialized = true;
     return 0;
@@ -89,16 +99,41 @@ WPGX_API int wpgx_begin_frame(void) {
     while (event != nullptr && event->type != AURORA_NONE) {
         ++event;
     }
-    return aurora_begin_frame() ? 1 : 0;
+    gInFrame = aurora_begin_frame();
+    return gInFrame ? 1 : 0;
 }
 
-WPGX_API void wpgx_end_frame(void) { aurora_end_frame(); }
+WPGX_API void wpgx_end_frame(void) {
+    gInFrame = false;
+    aurora_end_frame();
+}
 
 WPGX_API int wpgx_read_frame(uint8_t* rgba, size_t size, uint32_t* width, uint32_t* height) {
     return aurora_read_framebuffer(rgba, size, width, height) ? 0 : -1;
 }
 
 WPGX_API const char* wpgx_adapter_name(void) { return gAdapterName.c_str(); }
+
+// --- The port's GX command stream -----------------------------------------------
+
+WPGX_API void wpgx_fifo_write(const void* data, uint32_t size) { aurora::gx::fifo::write_data(data, size); }
+
+WPGX_API void wpgx_fifo_sync(uint32_t kind) {
+    // Outside a frame the commands wait for the next one (Aurora runs them
+    // against the frame's render target).
+    if (!gInFrame) {
+        return;
+    }
+    if (kind == WPGX_SYNC_DRAWDONE) {
+        aurora::gx::fifo::drain();
+    } else {
+        aurora::gx::fifo::publish();
+    }
+}
+
+WPGX_API void wpgx_set_address_resolver(wpgx_address_resolver resolver, void* user) {
+    AuroraSetAddressResolver(resolver, user);
+}
 
 // --- Test helpers -------------------------------------------------------------
 

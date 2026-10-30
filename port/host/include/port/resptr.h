@@ -40,6 +40,9 @@
 #include <cstddef>
 #include <type_traits>
 
+// C++ linkage even when included from an extern "C" block (the GX headers).
+extern "C++" {
+
 namespace port {
 
 template <typename T> class res_ptr {
@@ -108,6 +111,8 @@ template <typename T> inline u32 ptr_to_u32(const res_ptr<T>& slot) {
 }
 
 } // namespace port
+
+} // extern "C++"
 
 #define RES_PTR(T) port::res_ptr<T>
 #define RES_PTR_GET(slot) ((slot).get())

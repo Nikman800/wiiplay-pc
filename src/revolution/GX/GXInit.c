@@ -21,6 +21,11 @@ void GXPokeDstAlpha(GXBool enable, u8 alpha);
 void GXPokeZMode(GXBool compare, u32 func, GXBool update);
 void GXSetGPMetric(u32 perf0, u32 perf1);
 void GXClearGPMetric(void);
+#if defined(PORT_HOST)
+// Implicitly declared in the original; GCC requires prototypes
+void GXInitFifoBase(GXFifoObj* fifo, void* base, u32 size);
+void GXSetGPFifo(const GXFifoObj* fifo);
+#endif
 
 static GXFifoObj FifoObj;
 static GXData gxData;
@@ -174,14 +179,14 @@ static BOOL __GXShutdown(BOOL final, u32 event) {
         GXSetDrawSyncCallback(NULL);
         GXSetDrawDoneCallback(NULL);
 
-        WGPIPE.i = 0;
-        WGPIPE.i = 0;
-        WGPIPE.i = 0;
-        WGPIPE.i = 0;
-        WGPIPE.i = 0;
-        WGPIPE.i = 0;
-        WGPIPE.i = 0;
-        WGPIPE.i = 0;
+        WGPIPE_WRITE(i, 0);
+        WGPIPE_WRITE(i, 0);
+        WGPIPE_WRITE(i, 0);
+        WGPIPE_WRITE(i, 0);
+        WGPIPE_WRITE(i, 0);
+        WGPIPE_WRITE(i, 0);
+        WGPIPE_WRITE(i, 0);
+        WGPIPE_WRITE(i, 0);
         PPCSync();
 
         ((volatile u16*)__cpReg)[1] = 0;
@@ -404,7 +409,7 @@ void __GXInitGX(void) {
     GXInvalidateVtxCache();
 
     for (i = GX_VA_POS; i <= GX_LIGHT_ARRAY; i++) {
-        GXSetArray((GXAttr)i, gxdt, 0);
+        GXSetArray((GXAttr)i, PORT_GP_STATIC(gxdt, sizeof(GXData)), 0);
     }
 
     for (i = 0; i < GX_MAX_VTXFMT; i++) {
@@ -458,7 +463,8 @@ void __GXInitGX(void) {
     GXSetTexRegionCallback(__GXDefaultTexRegionCallback);
     GXSetTlutRegionCallback(__GXDefaultTlutRegionCallback);
 
-    GXInitTexObj(&tex_obj, DefaultTexData, 4, 4, GX_TF_IA8, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GXInitTexObj(&tex_obj, PORT_GP_STATIC(DefaultTexData, sizeof(DefaultTexData)), 4, 4,
+                 GX_TF_IA8, GX_CLAMP, GX_CLAMP, GX_FALSE);
     GXLoadTexObj(&tex_obj, GX_TEXMAP0);
     GXLoadTexObj(&tex_obj, GX_TEXMAP1);
     GXLoadTexObj(&tex_obj, GX_TEXMAP2);

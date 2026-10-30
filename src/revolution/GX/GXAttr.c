@@ -35,7 +35,7 @@ static void __GXXfVtxSpecs(void) {
     cmd = 0;
     cmd = cmd | clr >> 1;
     cmd = (txc << 3) & ~0xF | cmd;
-    WGPIPE.i = cmd | nrm << 2;
+    WGPIPE_WRITE(i, cmd | nrm << 2);
 
     gxdt->lastWriteWasXF = TRUE;
 }
@@ -555,7 +555,7 @@ void __GXSetVAT(void) {
         flags >>= 1;
     } while (flags != 0);
 
-    WGPIPE.c = GX_FIFO_CMD_NOOP;
+    WGPIPE_WRITE(c, GX_FIFO_CMD_NOOP);
     gxdt->vatDirtyFlags = 0;
 }
 
@@ -713,13 +713,13 @@ void GXSetArray(GXAttr attr, const void* base, u8 stride) {
 
     GX_CP_LOAD_REG(GX_BP_REG_SETMODE0_TEX4 | idx,
                    // Address -> offset?
-                   (u32)base & ~0xC0000000);
+                   PORT_PTR_TO_U32(base) & ~0xC0000000);
 
     GX_CP_LOAD_REG(GX_BP_REG_SETIMAGE2_TEX4 | idx, stride);
 }
 
 void GXInvalidateVtxCache(void) {
-    WGPIPE.c = GX_FIFO_CMD_INVAL_VTX;
+    WGPIPE_WRITE(c, GX_FIFO_CMD_INVAL_VTX);
 }
 
 void GXSetTexCoordGen2(GXTexCoordID id, GXTexGenType type, GXTexGenSrc src,

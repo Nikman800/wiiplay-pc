@@ -118,7 +118,7 @@ MSL_SRCS := \
     src/MSL_C/wmem.c
 
 HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp src/host_mtx.cpp \
-    src/host_gxtexobj.cpp
+    src/host_gxtexobj.cpp src/host_wgpipe.cpp
 
 # POINTERS.md step 4 sites (§5.1): compiled (not linked; most of RPKernel and
 # RPParty does not build on the host yet) so the host forms keep building.
@@ -678,29 +678,46 @@ $(AURORA_STAMP): $(HOST)/aurora/CMakeLists.txt
 	    || { tail -30 $(AURORA_BUILD)/configure.log; exit 1; }
 	@touch $@
 
-# Always handed to CMake, which rebuilds only what changed (the library's
-# timestamp moves only when it is relinked).
+# One CMake build for both GX targets (the glue library and Aurora's tests),
+# always handed to CMake, which rebuilds only what changed (the library's
+# timestamp moves only when it is relinked). A single recipe: two parallel
+# `cmake --build` runs in one tree both re-run the configure step after a
+# submodule change and fail ("Configuring incomplete").
 $(WPGX_LIB): $(AURORA_STAMP) FORCE
-	@$(CMAKE) --build $(AURORA_BUILD) --target wiiplay_gx -j $(AURORA_JOBS) > $(AURORA_BUILD)/build.log 2>&1 \
-	    || { grep -E "error|FAILED" $(AURORA_BUILD)/build.log | head -20; tail -5 $(AURORA_BUILD)/build.log; exit 1; }
+	@$(CMAKE) --build $(AURORA_BUILD) --target wiiplay_gx gx_fifo_tests -j $(AURORA_JOBS) > $(AURORA_BUILD)/build.log 2>&1 \
+	    || { grep -E "error|FAILED|CMake Error" $(AURORA_BUILD)/build.log | head -20; tail -5 $(AURORA_BUILD)/build.log; exit 1; }
 
 $(OUT)/gx_harness: $(HOST)/tests/gx_harness.cpp $(HOST)/tests/disc_walk.h $(HOST)/aurora/wpgx.h $(WPGX_LIB) $(LIB)
 	$(CXX) $(CXXFLAGS) -I$(HOST)/aurora -MMD $< $(LIB) -L$(AURORA_BUILD) -lwiiplay_gx \
 	    -Wl,-rpath,$(AURORA_BUILD) -o $@
 
+# The decomp's GX SDK as the command encoder (docs/HOST_BUILD.md §26): the real
+# units, plus host GXFifo/GXMisc (src/host_gxfifo.cpp, host_gxmisc.cpp) in place of
+# the hardware FIFO and PE interrupt code. GNU89 inline: the SDK's plain `inline`
+# helpers (GXTransform.c) also get an out-of-line copy, as with CodeWarrior.
+GX_SDK_SRCS := $(addprefix src/revolution/GX/,GXAttr.c GXBump.c GXDisplayList.c GXGeometry.c \
+    GXInit.c GXLight.c GXPixel.c GXTev.c GXTexture.c GXTransform.c GXFrameBuf.c GXPerf.c)
+GX_SDK_DECOMP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(GX_SDK_SRCS))
+$(GX_SDK_DECOMP_OBJS): CFLAGS += -fgnu89-inline
+GX_SDK_OBJS := $(GX_SDK_DECOMP_OBJS) $(OUT)/host/src/host_gxfifo.cpp.o $(OUT)/host/src/host_gxmisc.cpp.o
+
+# The health and safety screen through lyt, the GX SDK and Aurora (§26).
+$(OUT)/gxlyt_harness: $(HOST)/tests/gxlyt_harness.cpp $(HOST)/aurora/wpgx.h $(GX_SDK_OBJS) $(WPGX_LIB) $(LIB)
+	$(CXX) $(CXXFLAGS) -I$(HOST)/aurora -MMD $< $(GX_SDK_OBJS) $(LIB) -L$(AURORA_BUILD) -lwiiplay_gx \
+	    -Wl,-rpath,$(AURORA_BUILD) -o $@
+
 .PHONY: gx gx-aurora-tests FORCE
 FORCE:
-all: $(OUT)/gx_harness
+all: $(OUT)/gx_harness $(OUT)/gxlyt_harness
 # Aurora's own GX FIFO encoder/decoder tests (googletest), from our build.
-gx-aurora-tests: $(AURORA_STAMP)
-	@$(CMAKE) --build $(AURORA_BUILD) --target gx_fifo_tests -j $(AURORA_JOBS) > $(AURORA_BUILD)/build_tests.log 2>&1 \
-	    || { grep -E "error|FAILED" $(AURORA_BUILD)/build_tests.log | head -20; exit 1; }
+gx-aurora-tests: $(WPGX_LIB)
 	@$(AURORA_BUILD)/aurora/tests/gx_fifo_tests --gtest_brief=1 > $(AURORA_BUILD)/gx_fifo_tests.log 2>&1 \
 	    || { tail -30 $(AURORA_BUILD)/gx_fifo_tests.log; exit 1; }
 	@echo "gx_fifo_tests: $$(grep -E 'PASSED|tests ran' $(AURORA_BUILD)/gx_fifo_tests.log | tr '\n' ' ')"
 # The bring-up render on lavapipe (software Vulkan; --gpu for the real adapter).
-gx: $(OUT)/gx_harness gx-aurora-tests
+gx: $(OUT)/gx_harness $(OUT)/gxlyt_harness gx-aurora-tests
 	python3 $(HOST)/tests/test_gx.py --harness $(OUT)/gx_harness --disc $(DISC) --scratch $(GX_SCRATCH)
+	python3 $(HOST)/tests/test_gxlyt.py --harness $(OUT)/gxlyt_harness --disc $(DISC) --scratch $(GX_SCRATCH)
 test: gx
 else
 .PHONY: gx gx-aurora-tests

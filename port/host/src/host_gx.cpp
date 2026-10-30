@@ -82,57 +82,58 @@ void PSMTXRotRad(Mtx m, char axis, f32 rad) {
     }
 }
 
-/* GX: no-ops until the Phase 7 GX layer */
-void GXBegin(GXPrimitive, GXVtxFmt, u16) {}
+/* GX: no-ops for the harnesses that do not draw. Weak: the GX harnesses link
+ * the real SDK (src/revolution/GX, docs/HOST_BUILD.md §26). */
+__attribute__((weak)) void GXBegin(GXPrimitive, GXVtxFmt, u16) {}
 /* ScnRoot::CalcView invalidates the GPU's vertex cache before the view
  * matrices are computed: nothing to invalidate on the host. */
-void GXInvalidateVtxCache(void) {}
-void GXClearVtxDesc(void) {}
-void GXLoadPosMtxImm(const Mtx, u32) {}
-void GXLoadTexMtxImm(const Mtx, u32, GXMtxType) {}
-void GXLoadTexObj(const GXTexObj*, GXTexMapID) {}
-void GXLoadTlut(const GXTlutObj*, u32) {}
-void GXSetAlphaCompare(GXCompare, u8, GXAlphaOp, GXCompare, u8) {}
-void GXSetBlendMode(GXBlendMode, GXBlendFactor, GXBlendFactor, GXLogicOp) {}
-void GXSetChanCtrl(GXChannelID, GXBool, GXColorSrc, GXColorSrc, GXLightID, GXDiffuseFn,
+__attribute__((weak)) void GXInvalidateVtxCache(void) {}
+__attribute__((weak)) void GXClearVtxDesc(void) {}
+__attribute__((weak)) void GXLoadPosMtxImm(const Mtx, u32) {}
+__attribute__((weak)) void GXLoadTexMtxImm(const Mtx, u32, GXMtxType) {}
+__attribute__((weak)) void GXLoadTexObj(const GXTexObj*, GXTexMapID) {}
+__attribute__((weak)) void GXLoadTlut(const GXTlutObj*, u32) {}
+__attribute__((weak)) void GXSetAlphaCompare(GXCompare, u8, GXAlphaOp, GXCompare, u8) {}
+__attribute__((weak)) void GXSetBlendMode(GXBlendMode, GXBlendFactor, GXBlendFactor, GXLogicOp) {}
+__attribute__((weak)) void GXSetChanCtrl(GXChannelID, GXBool, GXColorSrc, GXColorSrc, GXLightID, GXDiffuseFn,
                    GXAttnFn) {}
-void GXSetChanMatColor(GXChannelID, GXColor) {}
-void GXSetCurrentMtx(u32) {}
-void GXSetFog(GXFogType, f32, f32, f32, f32, GXColor) {}
-void GXSetIndTexCoordScale(GXIndTexStageID, GXIndTexScale, GXIndTexScale) {}
-void GXSetIndTexMtx(GXIndTexMtxID, const f32[2][3], s8) {}
-void GXSetIndTexOrder(GXIndTexStageID, GXTexCoordID, GXTexMapID) {}
-void GXSetNumChans(u8) {}
-void GXSetNumIndStages(u8) {}
-void GXSetNumTevStages(u8) {}
-void GXSetNumTexGens(u8) {}
-void GXSetTevAlphaIn(GXTevStageID, GXTevAlphaArg, GXTevAlphaArg, GXTevAlphaArg,
+__attribute__((weak)) void GXSetChanMatColor(GXChannelID, GXColor) {}
+__attribute__((weak)) void GXSetCurrentMtx(u32) {}
+__attribute__((weak)) void GXSetFog(GXFogType, f32, f32, f32, f32, GXColor) {}
+__attribute__((weak)) void GXSetIndTexCoordScale(GXIndTexStageID, GXIndTexScale, GXIndTexScale) {}
+__attribute__((weak)) void GXSetIndTexMtx(GXIndTexMtxID, const f32[2][3], s8) {}
+__attribute__((weak)) void GXSetIndTexOrder(GXIndTexStageID, GXTexCoordID, GXTexMapID) {}
+__attribute__((weak)) void GXSetNumChans(u8) {}
+__attribute__((weak)) void GXSetNumIndStages(u8) {}
+__attribute__((weak)) void GXSetNumTevStages(u8) {}
+__attribute__((weak)) void GXSetNumTexGens(u8) {}
+__attribute__((weak)) void GXSetTevAlphaIn(GXTevStageID, GXTevAlphaArg, GXTevAlphaArg, GXTevAlphaArg,
                      GXTevAlphaArg) {}
-void GXSetTevAlphaOp(GXTevStageID, GXTevOp, GXTevBias, GXTevScale, GXBool, GXTevRegID) {}
-void GXSetTevColor(GXTevRegID, GXColor) {}
-void GXSetTevColorIn(GXTevStageID, GXTevColorArg, GXTevColorArg, GXTevColorArg,
+__attribute__((weak)) void GXSetTevAlphaOp(GXTevStageID, GXTevOp, GXTevBias, GXTevScale, GXBool, GXTevRegID) {}
+__attribute__((weak)) void GXSetTevColor(GXTevRegID, GXColor) {}
+__attribute__((weak)) void GXSetTevColorIn(GXTevStageID, GXTevColorArg, GXTevColorArg, GXTevColorArg,
                      GXTevColorArg) {}
-void GXSetTevColorOp(GXTevStageID, GXTevOp, GXTevBias, GXTevScale, GXBool, GXTevRegID) {}
-void GXSetTevColorS10(GXTevRegID, GXColorS10) {}
-void GXSetTevDirect(GXTevStageID) {}
-void GXSetTevIndirect(GXTevStageID, GXIndTexStageID, GXIndTexFormat, GXIndTexBiasSel,
+__attribute__((weak)) void GXSetTevColorOp(GXTevStageID, GXTevOp, GXTevBias, GXTevScale, GXBool, GXTevRegID) {}
+__attribute__((weak)) void GXSetTevColorS10(GXTevRegID, GXColorS10) {}
+__attribute__((weak)) void GXSetTevDirect(GXTevStageID) {}
+__attribute__((weak)) void GXSetTevIndirect(GXTevStageID, GXIndTexStageID, GXIndTexFormat, GXIndTexBiasSel,
                       GXIndTexMtxID, GXIndTexWrap, GXIndTexWrap, GXBool, GXBool,
                       GXIndTexAlphaSel) {}
-void GXSetTevKAlphaSel(GXTevStageID, GXTevKAlphaSel) {}
-void GXSetTevKColor(GXTevKColorID, GXColor) {}
-void GXSetTevKColorSel(GXTevStageID, GXTevKColorSel) {}
-void GXSetTevOp(GXTevStageID, GXTevMode) {}
-void GXSetTevOrder(GXTevStageID, GXTexCoordID, GXTexMapID, GXChannelID) {}
-void GXSetTevSwapMode(GXTevStageID, GXTevSwapSel, GXTevSwapSel) {}
-void GXSetTevSwapModeTable(GXTevSwapSel, GXTevColorChan, GXTevColorChan, GXTevColorChan,
+__attribute__((weak)) void GXSetTevKAlphaSel(GXTevStageID, GXTevKAlphaSel) {}
+__attribute__((weak)) void GXSetTevKColor(GXTevKColorID, GXColor) {}
+__attribute__((weak)) void GXSetTevKColorSel(GXTevStageID, GXTevKColorSel) {}
+__attribute__((weak)) void GXSetTevOp(GXTevStageID, GXTevMode) {}
+__attribute__((weak)) void GXSetTevOrder(GXTevStageID, GXTexCoordID, GXTexMapID, GXChannelID) {}
+__attribute__((weak)) void GXSetTevSwapMode(GXTevStageID, GXTevSwapSel, GXTevSwapSel) {}
+__attribute__((weak)) void GXSetTevSwapModeTable(GXTevSwapSel, GXTevColorChan, GXTevColorChan, GXTevColorChan,
                            GXTevColorChan) {}
-void GXSetTexCoordGen2(GXTexCoordID, GXTexGenType, GXTexGenSrc, u32, GXBool, u32) {}
-void GXSetVtxAttrFmt(GXVtxFmt, GXAttr, GXCompCnt, GXCompType, u8) {}
-void GXSetVtxDesc(GXAttr, GXAttrType) {}
-void GXSetZTexture(GXZTexOp, GXTexFmt, u32) {}
+__attribute__((weak)) void GXSetTexCoordGen2(GXTexCoordID, GXTexGenType, GXTexGenSrc, u32, GXBool, u32) {}
+__attribute__((weak)) void GXSetVtxAttrFmt(GXVtxFmt, GXAttr, GXCompCnt, GXCompType, u8) {}
+__attribute__((weak)) void GXSetVtxDesc(GXAttr, GXAttrType) {}
+__attribute__((weak)) void GXSetZTexture(GXZTexOp, GXTexFmt, u32) {}
 /* linked by nw4r::g3d resource code (drawing and set-up paths) */
-void GXCallDisplayList(void*, u32) {}
-void GXSetArray(GXAttr, const void*, u8) {}
+__attribute__((weak)) void GXCallDisplayList(void*, u32) {}
+__attribute__((weak)) void GXSetArray(GXAttr, const void*, u8) {}
 
 
 } // extern "C"

@@ -1,9 +1,14 @@
 #include <revolution/GX.h>
 
+#include <port/resptr.h>
+#if defined(PORT_HOST)
+#include <port/gxsink.h>
+#endif
+
 void __GetImageTileCount(GXTexFmt fmt, u16 wd, u16 ht, u32* rowTiles,
                          u32* colTiles, u32* cmpTiles);
 
-#define GX_PHY_ADDR(a) ((u32)(a) & 0x3FFFFFFF)
+#define GX_PHY_ADDR(a) (PORT_PTR_TO_U32(a) & 0x3FFFFFFF)
 
 void GXSetDispCopySrc(u16 left, u16 top, u16 wd, u16 ht) {
     gxdt->cpDispSrc = 0;
@@ -318,6 +323,11 @@ void GXCopyDisp(void* dest, GXBool clear) {
     }
 
     gxdt->lastWriteWasXF = FALSE;
+
+#if defined(PORT_HOST)
+    // The frame is in the EFB: present it (the host has no XFB/VI scan-out)
+    PortGXDisplayCopied(dest, clear);
+#endif
 }
 
 void GXCopyTex(void* dest, GXBool clear) {

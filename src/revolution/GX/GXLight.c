@@ -1,5 +1,10 @@
 #include <revolution/GX.h>
 
+// Host forms of the asm blocks: port/host/include/decomp/compat.h
+#ifndef ASM_VOLATILE_PS
+#define ASM_VOLATILE_PS(name) ASM_VOLATILE
+#endif
+
 #include <math.h>
 
 #define XF_MEM_LOBJ_SIZE 16
@@ -198,7 +203,7 @@ inline void WriteLightObj(register volatile void* dst,
     register u32 color;
     register f32 ps_0, ps_1, ps_2, ps_3, ps_4, ps_5;
 
-    ASM_VOLATILE(
+    ASM_VOLATILE_PS(WriteLightObj) (
         lwz color, src->color
         xor r6, r6, r6 // make zero
         psq_l ps_0, GXLightObjImpl.aa(src),   0, 0
@@ -252,28 +257,28 @@ void GXSetChanAmbColor(GXChannelID chan, GXColor color) {
     switch (chan) {
     case GX_COLOR0:
         ambColor =
-            GX_BITSET_TRUNC(*(u32*)&gxdt->ambColors[0], 0, 24, *(u32*)&color);
+            GX_BITSET_TRUNC(BE_GET(*(be_u32*)&gxdt->ambColors[0]), 0, 24, BE_GET(*(be_u32*)&color));
         colorId = 0;
         break;
     case GX_COLOR1:
         ambColor =
-            GX_BITSET_TRUNC(*(u32*)&gxdt->ambColors[1], 0, 24, *(u32*)&color);
+            GX_BITSET_TRUNC(BE_GET(*(be_u32*)&gxdt->ambColors[1]), 0, 24, BE_GET(*(be_u32*)&color));
         colorId = 1;
         break;
     case GX_ALPHA0:
-        ambColor = GX_BITSET_TRUNC(*(u32*)&gxdt->ambColors[0], 24, 8, color.a);
+        ambColor = GX_BITSET_TRUNC(BE_GET(*(be_u32*)&gxdt->ambColors[0]), 24, 8, color.a);
         colorId = 0;
         break;
     case GX_ALPHA1:
-        ambColor = GX_BITSET_TRUNC(*(u32*)&gxdt->ambColors[1], 24, 8, color.a);
+        ambColor = GX_BITSET_TRUNC(BE_GET(*(be_u32*)&gxdt->ambColors[1]), 24, 8, color.a);
         colorId = 1;
         break;
     case GX_COLOR0A0:
-        ambColor = *(u32*)&color;
+        ambColor = BE_GET(*(be_u32*)&color);
         colorId = 0;
         break;
     case GX_COLOR1A1:
-        ambColor = *(u32*)&color;
+        ambColor = BE_GET(*(be_u32*)&color);
         colorId = 1;
         break;
     default:
@@ -281,7 +286,7 @@ void GXSetChanAmbColor(GXChannelID chan, GXColor color) {
     }
 
     gxdt->gxDirtyFlags |= GX_DIRTY_AMB_COLOR0 << colorId;
-    *(u32*)&gxdt->ambColors[colorId] = ambColor;
+    BE_SET(*(be_u32*)&gxdt->ambColors[colorId], ambColor);
 }
 
 void GXSetChanMatColor(GXChannelID chan, GXColor color) {
@@ -291,28 +296,28 @@ void GXSetChanMatColor(GXChannelID chan, GXColor color) {
     switch (chan) {
     case GX_COLOR0:
         matColor =
-            GX_BITSET_TRUNC(*(u32*)&gxdt->matColors[0], 0, 24, *(u32*)&color);
+            GX_BITSET_TRUNC(BE_GET(*(be_u32*)&gxdt->matColors[0]), 0, 24, BE_GET(*(be_u32*)&color));
         colorId = 0;
         break;
     case GX_COLOR1:
         matColor =
-            GX_BITSET_TRUNC(*(u32*)&gxdt->matColors[1], 0, 24, *(u32*)&color);
+            GX_BITSET_TRUNC(BE_GET(*(be_u32*)&gxdt->matColors[1]), 0, 24, BE_GET(*(be_u32*)&color));
         colorId = 1;
         break;
     case GX_ALPHA0:
-        matColor = GX_BITSET_TRUNC(*(u32*)&gxdt->matColors[0], 24, 8, color.a);
+        matColor = GX_BITSET_TRUNC(BE_GET(*(be_u32*)&gxdt->matColors[0]), 24, 8, color.a);
         colorId = 0;
         break;
     case GX_ALPHA1:
-        matColor = GX_BITSET_TRUNC(*(u32*)&gxdt->matColors[1], 24, 8, color.a);
+        matColor = GX_BITSET_TRUNC(BE_GET(*(be_u32*)&gxdt->matColors[1]), 24, 8, color.a);
         colorId = 1;
         break;
     case GX_COLOR0A0:
-        matColor = *(u32*)&color;
+        matColor = BE_GET(*(be_u32*)&color);
         colorId = 0;
         break;
     case GX_COLOR1A1:
-        matColor = *(u32*)&color;
+        matColor = BE_GET(*(be_u32*)&color);
         colorId = 1;
         break;
     default:
@@ -320,7 +325,7 @@ void GXSetChanMatColor(GXChannelID chan, GXColor color) {
     }
 
     gxdt->gxDirtyFlags |= GX_DIRTY_MAT_COLOR0 << colorId;
-    *(u32*)&gxdt->matColors[colorId] = matColor;
+    BE_SET(*(be_u32*)&gxdt->matColors[colorId], matColor);
 }
 
 void GXSetNumChans(u8 num) {

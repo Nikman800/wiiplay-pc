@@ -45,6 +45,8 @@ extern volatile union {
     float f;
 } WGPIPE DECL_ADDRESS(0xCC008000);
 
+#include <port/wgpipe.h>
+
 /**
  * FIFO commands
  */
@@ -88,8 +90,8 @@ typedef enum {
         __GX_FIFO_SET_LOAD_INDX_DST(cmd, dst);                                 \
         __GX_FIFO_SET_LOAD_INDX_NELEM(cmd, nelem);                             \
         __GX_FIFO_SET_LOAD_INDX_INDEX(cmd, index);                             \
-        WGPIPE.c = reg;                                                        \
-        WGPIPE.i = cmd;                                                        \
+        WGPIPE_WRITE(c, reg);                                                        \
+        WGPIPE_WRITE(i, cmd);                                                        \
     }
 
 #define GX_FIFO_LOAD_INDX_A(dst, nelem, index)                                 \
@@ -116,8 +118,8 @@ typedef enum {
  * Load immediate value into BP register
  */
 #define GX_BP_LOAD_REG(data)                                                   \
-    WGPIPE.c = GX_FIFO_CMD_LOAD_BP_REG;                                        \
-    WGPIPE.i = (data);
+    WGPIPE_WRITE(c, GX_FIFO_CMD_LOAD_BP_REG);                                        \
+    WGPIPE_WRITE(i, (data));
 
 /**
  * Set BP command opcode (first 8 bits)
@@ -139,9 +141,9 @@ typedef enum {
  * Load immediate value into CP register
  */
 #define GX_CP_LOAD_REG(addr, data)                                             \
-    WGPIPE.c = GX_FIFO_CMD_LOAD_CP_REG;                                        \
-    WGPIPE.c = (addr);                                                         \
-    WGPIPE.i = (data);
+    WGPIPE_WRITE(c, GX_FIFO_CMD_LOAD_CP_REG);                                        \
+    WGPIPE_WRITE(c, (addr));                                                         \
+    WGPIPE_WRITE(i, (data));
 
 #define GX_CP_CMD_SZ (sizeof(u8) + sizeof(u8) + sizeof(u32))
 
@@ -167,15 +169,15 @@ typedef enum {
  * Header for an XF register load
  */
 #define GX_XF_LOAD_REG_HDR(addr)                                               \
-    WGPIPE.c = GX_FIFO_CMD_LOAD_XF_REG;                                        \
-    WGPIPE.i = (addr);
+    WGPIPE_WRITE(c, GX_FIFO_CMD_LOAD_XF_REG);                                        \
+    WGPIPE_WRITE(i, (addr));
 
 /**
  * Load immediate value into XF register
  */
 #define GX_XF_LOAD_REG(addr, data)                                             \
     GX_XF_LOAD_REG_HDR(addr);                                                  \
-    WGPIPE.i = (data);
+    WGPIPE_WRITE(i, (data));
 
 #define GX_XF_CMD_SZ (sizeof(u8) + sizeof(u32) + sizeof(u32))
 

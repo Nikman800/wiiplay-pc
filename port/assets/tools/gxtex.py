@@ -135,9 +135,10 @@ def _indexed_formats() -> frozenset[str]:
 
 def _texel(fmt: str, source: bytes, palette: list[tuple[int, int, int, int]], index: int) -> tuple[int, int, int, int]:
     if fmt in ("I4", "I8", "IA4"):
+        # GX intensity textures replicate the intensity into alpha (I4, I8).
         if fmt == "I8":
             value = source[index]
-            return value, value, value, 255
+            return value, value, value, value
         if fmt == "IA4":
             value = source[index]
             intensity = value & 0xF
@@ -145,7 +146,7 @@ def _texel(fmt: str, source: bytes, palette: list[tuple[int, int, int, int]], in
             return intensity, intensity, intensity, _expand(value >> 4, 4)
         value = (source[index >> 1] >> (4 if index & 1 == 0 else 0)) & 0xF
         value |= value << 4
-        return value, value, value, 255
+        return value, value, value, value
     if fmt == "IA8":
         value = int.from_bytes(source[index * 2 : index * 2 + 2], "big")
         intensity = value >> 8
@@ -161,19 +162,23 @@ def _decode_cmp_block(block: bytes) -> list[tuple[int, int, int, int]]:
     c1 = int.from_bytes(block[0:2], "big")
     c2 = int.from_bytes(block[2:4], "big")
     endpoints = [_palette_color("RGB565", c1), _palette_color("RGB565", c2)]
+    # The GX texture unit blends CMPR endpoints in eighths, (5 * a + 3 * b) >> 3, not
+    # thirds; in the 3-colour mode the fourth entry is the midpoint with alpha 0
+    # (as Dolphin and Aurora decode it).
     if c1 > c2:
         palette = [
             endpoints[0],
             endpoints[1],
-            _average_rgb(endpoints[0], endpoints[1], 2, 1),
-            _average_rgb(endpoints[0], endpoints[1], 1, 2),
+            _average_rgb(endpoints[0], endpoints[1], 5, 3),
+            _average_rgb(endpoints[0], endpoints[1], 3, 5),
         ]
     else:
+        half = _average_rgb(endpoints[0], endpoints[1], 1, 1)
         palette = [
             endpoints[0],
             endpoints[1],
-            _average_rgb(endpoints[0], endpoints[1], 1, 1),
-            (0, 0, 0, 0),
+            half,
+            (half[0], half[1], half[2], 0),
         ]
     colors: list[tuple[int, int, int, int]] = []
     codes = int.from_bytes(block[4:8], "big")

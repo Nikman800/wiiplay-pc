@@ -534,6 +534,12 @@ check in §2 confirms all of them.
 | `include/nw4r/g3d/res/g3d_resmdl.h`, `src/nw4r/g3d/g3d_workmem.cpp` | §20: `ResMdlInfo::GetNodeIDFromMtxID` reads the matrix-to-node table as `be_s32`; the work-memory accessors take `&sTemp.x[0]` (GCC rejects `static_cast` from a base-class array to a derived pointer). Type tokens / the same address. |
 | `src/nw4r/snd/snd_WaveFile.cpp`, `snd_AxManager.cpp`, `src/revolution/AX/AXVPB.c` | §21: `ReadWaveParam` copies the file's `AdpcmInfo` into the runtime `ChannelParam` through `be_u16` under `#if PORT_BE_WRAPPED` (the Wii line is the original struct copy); `AxManager::Init` puts the DSP's zero buffer on the M0 arena under `#if defined(PORT_HOST)`; `AXSetVoiceAddr`'s `gain` / `pred_scale` word is `GAIN_WORD(0x0800)` / `GAIN_WORD(0x0100)` (Wii: `0x08000000` / `0x01000000`, the same constants). |
 | `src/revolution/DVD/dvdfs.c`, `src/egg/core/eggStream.cpp`, `src/Pack/RPSystem/RPSysSaveData.cpp`, `include/revolution/NAND/nand.h`, `src/Pack/RPKernel/RPSysSystem.cpp`, `include/port/be.h` | §22: `entryToPath` reads the name through `DVDNodeGetName` (the bitfield is little-endian-ordered on the host); `EGG::Stream`'s binary reads go through `be_*` locals and its writes through `BE_STORED(T, value)` (new macro, `(v)` on the Wii); the save checksum reads `be_u16`; `NANDBanner`'s `magic`, `flags`, `iconSpeed` are `be_u32` / `be_u16`; `RPSysSystem::initialize` rounds through `uintptr_t` instead of `u32` (64-bit compile only; on the Wii both are `unsigned long`). |
+| `include/port/wgpipe.h` | **New** (§26). The Wii side of the write-gather pipe: `WGPIPE_WRITE(m, v)` is `(WGPIPE.m = (v))`, `PORT_GP_STATIC(p, size)` is `(p)`. |
+| `include/revolution/GX/GXHardware.h`, `GXVert.h`, `GXDisplayList.h`, `src/revolution/GX/GXAttr.c`, `GXDisplayList.c`, `GXGeometry.c`, `GXInit.c`, `GXTransform.c` | §26: every `WGPIPE.x = y;` is `WGPIPE_WRITE(x, y);` (`GXHardware.h` includes `<port/wgpipe.h>`). |
+| `src/revolution/GX/GXTransform.c`, `GXLight.c` | §26: the write-gather asm blocks are `ASM_VOLATILE_PS(name)` (`ASM_VOLATILE` on the Wii). |
+| `include/revolution/GX/GXInternal.h`, `src/revolution/GX/GXTexture.c` | §26: `GXTexObjImpl`/`GXTlutObjImpl` members `be_*`, `BE_ENUM`, `RES_PTR(void)`; field accesses `BE_GET`/`BE_SET`; `GX_PHY_ADDR` through `PORT_PTR_TO_U32`; `GXGetTexObjAll`'s host form. |
+| `src/revolution/GX/GXTev.c`, `GXGeometry.c`, `GXLight.c`, `GXPixel.c`, `include/nw4r/g3d/platform/g3d_gpu.h` | §26: colours read or stored as one word through `BE_GET`/`BE_SET(*(be_u32*)&...)`; `GXSetTevColorS10`'s host form. |
+| `src/revolution/GX/GXAttr.c`, `GXFrameBuf.c`, `GXInit.c`, `GXGeometry.c` | §26: `PORT_PTR_TO_U32` for `GXSetArray`'s base and `GX_PHY_ADDR`; `GXCopyDisp` ends with `PortGXDisplayCopied` (host only); `PORT_GP_STATIC` for `GXInit`'s static texture and array base and host-only prototypes; `__GXSetGenMode`'s host form. |
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
 
@@ -2685,7 +2691,7 @@ real material's display lists headless, checked against an independent model.
 
 `make gx` (and `make test` on 64-bit) configures `build/aurora` once (stamp
 `build/aurora/.configured`, log `configure.log`) and then always hands the build to CMake, which
-rebuilds only what changed (`build.log`). The Makefile links `libwiiplay_gx.so` into the GX
+rebuilds only what changed (`build.log`; one `cmake --build` for the library and the tests, §26). The Makefile links `libwiiplay_gx.so` into the GX
 targets only (`gx_harness`, with an rpath to `build/aurora`); nothing else changes, and the
 matching build is untouched. `M32=1` prints `gx: skipped (the GX layer is 64-bit only)`;
 `NO_GX=1` skips it on 64-bit. `make clean` keeps `build/aurora` (`make distclean` removes it).
@@ -2786,7 +2792,7 @@ unchanged).
 Expected output:
 
 ```
-gx_fifo_tests: [  PASSED  ] 232 tests.
+gx_fifo_tests: [  PASSED  ] 239 tests.
 test_gx: 640x480 after 3 frames on llvmpipe (LLVM 21.1.8, 256 bits); inputs match the disc (banner.tpl 192x64 format 5, a_a_lake_mat_v: 2 TEV stages)
   top: 110592 pixels, max diff 0.00
   bottom: 110592 pixels, max diff 0.47, 0 of 12288 texels alpha-tested out
@@ -2796,7 +2802,7 @@ errors: 0
 OK
 ```
 
-### Next (milestone 2)
+### Next (milestone 2, done: §26)
 
 The game's own GX SDK as the encoder, Aurora as command processor and renderer: redirect
 WGPIPE writes into Aurora's FIFO; host `GXInit`/Fifo/Misc/FrameBuf on top of it; an address
@@ -2804,3 +2810,205 @@ resolver from emulated Wii (physical/cached) addresses to host pointers for CP a
 (0xA0-0xAF, rejected by Aurora's command processor today), nested `CALL_DL` and texture/TLUT
 loads (`GXLoadTexObj`/`GXLoadTlut` words → a side table of texture data); target: the health
 screen layout drawn through `lyt`.
+
+## 26. Aurora milestone 2: the game's GX SDK drives Aurora
+
+The decomp's own GX SDK (`src/revolution/GX`, the matching code) is now the command encoder on
+the host: its write-gather pipe stores go, big-endian, into Aurora's FIFO, and Aurora is the
+command processor and renderer. The Wii-layout GX objects (§11) and the SDK's shadow state
+(`gxdt`) stay authoritative; nothing calls Aurora's own GX API on this path. Target reached: the
+health and safety screen (`RPSysBootScene`'s layout) is built and drawn by the real `nw4r::lyt`
+code through the real SDK, read back headless and matched pixel for pixel against an
+independent model.
+
+### The write-gather pipe
+
+On the Wii every GX command is a store to `WGPIPE` (0xCC008000). Those stores now go through
+`WGPIPE_WRITE(member, value)`:
+
+| Build | Header | `WGPIPE_WRITE(c, v)` |
+|---|---|---|
+| Wii | `include/port/wgpipe.h` | `(WGPIPE.c = (v))`: the store it replaces |
+| host | `port/host/include/port/wgpipe.h` | appends `v` big-endian to the current CPU FIFO (`port_wgpipe_u8/u16/u32/f32`); member `p` sends the pointer's 32-bit emulated address (`port_vaddr`) |
+
+The current CPU FIFO (`src/host_wgpipe.cpp`, in the loader library so every unit that includes
+the GX headers links) is either
+
+- the **stream**: when the CPU FIFO is the GP FIFO (as after `GXInit`). Bytes are gathered in a
+  64 KiB buffer and handed in order to a *sink* (`port/gxsink.h`: `write(data, size)`,
+  `sync(kind)`). The SDK only synchronises between commands, so every sync point is a command
+  boundary: `PORT_GX_SYNC_FLUSH` (GXFlush), `PORT_GX_SYNC_DRAWDONE` (GXDrawDone,
+  GXSetDrawSync, GXAbortFrame), `PORT_GX_SYNC_DISPLAY` (GXCopyDisp). Without a sink (every
+  harness that does not draw) the stream is counted and dropped;
+- **memory**: any other CPU FIFO, i.e. `GXBeginDisplayList`'s buffer. The bytes land in that
+  Wii buffer exactly as the gather pipe would write them; leaving the FIFO pads to 32 bytes with
+  `GX_NOP` (the pipe's burst size); writing past the end sets the FIFO's wrap flag, so
+  `GXEndDisplayList` returns 0 as on the Wii.
+
+The decomp side is mechanical: every `WGPIPE.x = y;` in the GX headers (`GXHardware.h` macros,
+`GXVert.h` inline vertex writers, `GXDisplayList.h`'s `GXFastCallDisplayList`) and the compiled
+SDK units became `WGPIPE_WRITE(x, y);`. The paired-single writers of `GXTransform.c` (matrix and
+projection loads) and `GXLight.c` (`WriteLightObj`) are opened with
+`ASM_VOLATILE_PS(name)` (Wii: `ASM_VOLATILE`); their host forms in
+`port/host/include/decomp/compat.h` write the same words in the same order.
+
+### Host replacements for the hardware-facing SDK
+
+| Unit | Host form |
+|---|---|
+| `GXInit.c` | **Real.** It runs and programs every register through the stream (Aurora's own shadow registers start at zero, so this matters). Its register pointers (`__piReg`, `__cpReg`, `__peReg`, `__memReg`) come from `OSPhysicalToUncached(0x0C00xxxx)`, which the host `OSAddress.h` maps to a plain 64 KiB block (`port_hw_regs`, writes stick). Two `PORT_GP_STATIC(p, size)` wraps (Wii: `(p)`) give its static default texture and placeholder array base an M0 copy (`PortArenaStatic`), so they have emulated addresses. |
+| `GXFifo.c` | `src/host_gxfifo.cpp`: `GXInitFifoBase`, `GXSet/GetCPUFifo`, `GXSet/GetGPFifo`, `GXGetFifoPtrs/Count/Wrap`, `GXGetGPStatus` (always idle), breakpoints (none), `__GXFifoInit`, `__GXIsGPFifoReady`, `__GXCleanGPFifo`, `__GXSaveFifo`, `GXGetCurrentGXThread`. The FIFO objects are `GXFifoObjImpl` runtime objects (native pointers). |
+| `GXMisc.c` | `src/host_gxmisc.cpp`: the same register writes (`GXSetDrawSync`'s BP 0x48/0x47, `GXDrawDone`'s BP 0x45, `GXFlush`'s 32 bytes of padding, `GXPixModeSync`); the waiting is synchronous: the sink runs everything up to the sync point, then the PE token register (`__peReg[7]`) is set and the game's token / draw-done callback is called before returning, as the interrupt handlers would. `GXPoke*` are no-ops (no CPU EFB access yet). Also: the SDK's four render modes (`GXNtsc480IntDf` etc.: GXFrameBuf data not decompiled yet) and weak `OSDisableInterrupts`, `OSRestoreInterrupts`, `OSGetTime`, `OSRegisterVersion`, `OSRegisterShutdownFunction`, `VIGetTvFormat` (NTSC), `PPCMfhid2/Mthid2/Mtwpar/Sync`. |
+| `GXFrameBuf.c` | **Real** (copy source/destination, clamp, filter, clear colour encoders). `GXCopyDisp` ends with a host-only `PortGXDisplayCopied(dest, clear)` (`#if defined(PORT_HOST)`): the frame is complete. The GX harness's sink maps it to `wpgx_end_frame()`; the harness calls `wpgx_begin_frame()` at the start of the next frame. There is no XFB or VI scan-out on the host: `VISetNextFrameBuffer`/`VIFlush`/`VIWaitForRetrace` stay host stubs, and Aurora's display-copy BP write is a no-op ("STUB: display copy", a warning). Aurora clears the EFB at each frame start to the copy clear colour, which matches `GXCopyDisp(..., GX_TRUE)`; a copy without clear is not emulated yet. |
+| `GXAttr.c`, `GXBump.c`, `GXDisplayList.c`, `GXGeometry.c`, `GXLight.c`, `GXPixel.c`, `GXTev.c`, `GXTexture.c`, `GXTransform.c`, `GXPerf.c` | **Real**, built with `-fgnu89-inline` (the SDK's plain `inline` helpers also get an out-of-line copy, as with CodeWarrior). |
+
+The GX harnesses link these objects (`GX_SDK_OBJS` in the Makefile) before the loader library;
+the no-op GX functions of `src/host_gx.cpp` and the CPU-side texture object functions of
+`src/host_gxtexobj.cpp` are now weak, so the real SDK replaces them there and every other
+harness is unchanged.
+
+### Decomp changes for the host (all byte-identical on the Wii, `check_matching`)
+
+- **Texture and TLUT objects keep the Wii byte order** (the §11 contract): `GXTexObjImpl` and
+  `GXTlutObjImpl` (`GXInternal.h`) have `be_u32`/`be_u16`/`BE_ENUM` members and
+  `RES_PTR(void) userData`, and every field access in `GXTexture.c`'s object functions is
+  `BE_GET`/`BE_SET`. The decomp's `GXInitTexObj` etc. therefore produce the same words as
+  `src/host_gxtexobj.cpp`, and `GXLoadTexObj` sends them. `GX_PHY_ADDR` (`GXTexture.c`,
+  `GXFrameBuf.c`) and `GXSetArray` convert with `PORT_PTR_TO_U32`. `GXGetTexObjAll` returns
+  the image as a host pointer on the host (`OSPhysicalToCached`; the Wii returns the physical
+  address cast to a pointer).
+- **Colours sent as words**: `*(u32*)&color` (a `GXColor` read as RGBA) is
+  `BE_GET(*(be_u32*)&color)` in `GXTev.c` (`GXSetTevColor`, `GXSetTevKColor`),
+  `GXGeometry.c` and `GXLight.c` (ambient/material colours, including the stores into
+  `gxdt`), `GXPixel.c` (`GXSetFog`) and `g3d_gpu.h` (`GDSetChanAmbColor`/`MatColor`).
+  `GXSetTevColorS10` reads its two words from the fields on the host (`#if defined(PORT_HOST)`).
+  Found by the test: on a little-endian host the colour channels came out reversed.
+- `GXGeometry.c`: `__GXSetGenMode` is `static inline` after `GXGeometry.h` declared it extern;
+  GCC rejects that, so the host form drops `static`.
+- `GXInit.c`: prototypes for `GXInitFifoBase`/`GXSetGPFifo` under `#if defined(PORT_HOST)`
+  (implicit declarations in the original; adding them to `GXFifo.h` changed CodeWarrior's
+  numbering of local statics in every unit including it, so they stay local).
+- `port/host/include/port/resptr.h`: the C++ part is `extern "C++"` (the GX headers are
+  included inside `extern "C"` blocks).
+- `M_SQRT3` (MSL's `math.h`) is defined in the host `compat.h`.
+
+### Aurora patches (submodule working tree, not committed; series in the job's scratch)
+
+Generic (no project names), each with a one-line message; `gx_fifo_tests` 239 pass.
+
+| # | Commit message | What |
+|---|---|---|
+| 4 | `gx: add AuroraSetAddressResolver for addresses in the command stream` | `GXAurora.h`: a resolver `(u32 address, u32* size, void* user) -> const void*` for raw hardware streams; `fifo::resolve_address(address, minSize)` |
+| 5 | `gx: resolve CP array base registers through the address resolver` | CP 0xA0-0xAF (was "not supported"): the array points at the resolved memory, big-endian. Vertex arrays have no size on the hardware, so each draw's indices are scanned and the uploaded range grows to the largest one (`AttrArray::guest`, `guestAvailable`); matrix/light arrays (indexed XF loads) cover what is mapped |
+| 6 | `gx: run GX_CMD_CALL_DL display lists through the address resolver` | `CALL_DL` (was ignored) runs the resolved list, recursively, at most 8 deep; a draw done inside a list does not end the caller's batch |
+| 7 | `gx: load BP texture images and TLUTs through the address resolver` | below |
+| 8 | `gx: decode the scissor box offset as the hardware does` | BP 0x59 holds (offset + 342) / 2 and is subtracted (Aurora read it as a signed value and added it; its own encoder is changed to match). With the SDK's encoding everything was clipped away |
+| 9 | `gx: use the hardware viewport origin offset of 342` | XF viewport origin: 342 (Aurora used 340 in both its encoder and decoder; with the SDK's encoding the frame was 2 pixels off) |
+| 10 | `tests: cover the address resolver, CALL_DL, TLUT loads and the scissor box offset` | 7 googletest cases |
+
+**Textures and TLUTs: resolver, not object overrides.** Two designs were possible: resolve the
+BP texture registers in Aurora, or override `GXLoadTexObj`/`GXLoadTlut` on the host and feed
+Aurora's `GX_AURORA_LOAD_TEXOBJ` from a side table keyed by the Wii object's address. The
+resolver is the cleaner one: the real `GXLoadTexObj`/`GXLoadTlut` run unchanged (the TMEM
+region callbacks, the `gxdt` texture-size shadow that `__GXSetSUTexRegs` needs), loads recorded
+into display lists or written straight to the FIFO work, and no identity is needed from the
+object: `lyt::Material::SetupGX` and `ut::CharWriter` build their `GXTexObj` on the stack every
+draw, so an object address is no stable key at all. In Aurora (patch 7): a write to a texture
+map's mode/image/TLUT registers marks it; at the next draw the image address (BP 0x94-0x97 /
+0xB4-0xB7), size and format (image0) and mip levels (mode0 filter, mode1 max LOD) give the
+bytes (`GXGetTexBufferSize`), resolved; each distinct (address, image0, levels) gets a stable id,
+and its version changes when an xxHash of the bytes changes, checked again after every texture
+cache invalidation (BP 0x66, `GXInvalidateTexAll`), which is when the hardware re-reads texture
+memory. TLUT loads (BP 0x64 address, BP 0x65 TMEM offset and size, the hardware encoding) fill
+a TLUT slot per TMEM offset; a CI texture finds its TLUT by the TMEM offset and format in its
+BP 0x98-0x9B / 0xB8-0xBB register. Textures loaded through Aurora's own API
+(`GX_AURORA_LOAD_TEXOBJ`) are unaffected. Not covered: memory changed by the CPU without a
+following `GXInvalidateTexAll` (the hardware would show stale cache contents too, but not
+always).
+
+### libwiiplay_gx additions (`wpgx.h`)
+
+`wpgx_fifo_write(data, size)` (append to Aurora's FIFO), `wpgx_fifo_sync(WPGX_SYNC_FLUSH |
+WPGX_SYNC_DRAWDONE)` (publish / drain; outside a frame the commands wait for the next frame,
+because Aurora runs them against the frame's render target), `wpgx_set_address_resolver`.
+`wpgx_init` configures Aurora's VI with the EFB size, so GX viewports and scissors map 1:1
+(Aurora scales GX coordinates from the VI frame buffer size, 640x480 by default). The pipeline
+cache key is 2.
+
+### Makefile
+
+`make gx` built Aurora twice in parallel under `-j` (the glue library and `gx_fifo_tests` were
+separate `cmake --build` runs); after a submodule change both re-ran the configure step in the
+same tree and failed ("Configuring incomplete"). Both targets are now built by one
+`cmake --build --target wiiplay_gx gx_fifo_tests`, and `gx-aurora-tests` only runs the tests.
+
+### The health and safety screen (`gxlyt_harness`, `tests/test_gxlyt.py`)
+
+The game draws it in `RPSysBootScene` (Wii Play is the "PartyPack"): the archive is not on the
+disc but in `main.dol` (`Health_strapArchive`, the whole of `.data6` at 0x802E9E60, Yaz0, 132352
+bytes; the symbol's size of 0xA440 is too small), holding `strap.arc` with `strap_00_<lang>`
+layouts, animations and TPLs; `RPSysLayout` draws it in the 2D view.
+
+`gxlyt_harness <disc files> <out.rgba> <data dir> [--frames N] [--layout NAME] [--clear 0xRRGGBB]
+[--display-list] [--dump-stream FILE] [--log-level N]` does `RPSysBootScene::Init`'s loading on
+the real code (`EGG::Decomp`, `EGG::Archive::mount`, `getFile("strap.arc")`,
+`lyt::ArcResourceAccessor::Attach(arc, "")`, `Layout::Build("strap_00_U.brlyt")`), sets up the
+`DrawInfo` as `RPSysLayout::create`/`calc` do (view rect = layout rect, identity view matrix,
+location adjust, root scale 1 at 4:3), and per frame: `GXSetCopyClear` (white, the boot scene's
+clear colour), viewport and scissor over the 608x456 EFB, the 2D view's orthographic projection
+(`RPGrpRenderer`: the layout rectangle, near -10000, far 10000; set with `C_MTXOrtho` +
+`GXSetProjection` here, not through `EGG::Screen`), `RPSysLayout::drawInit`'s cull/z/clip state,
+`Layout::CalculateMtx` and `Layout::Draw`, `GXDrawDone`, `GXCopyDisp`. With `--display-list`
+the draw is recorded with `GXBeginDisplayList`/`GXEndDisplayList` into M0 and run with
+`GXCallDisplayList` (the CALL_DL and in-list texture load paths). The stream goes to Aurora
+through the sink, with a resolver over M0 (MEM1 above the reserved low block, MEM2).
+
+`test_gxlyt.py` builds the expected frame independently: `wiiarc.py` for the DOL section, Yaz0
+and U8; `fmt_layout.py` for the pane tree (sizes, translate/rotate/scale, base positions,
+visibility, alpha and its inheritance, vertex colours, texture coordinates); the material records
+read from the format (TEV colours, texture map, wrap modes, identity texture SRT, texgen, alpha
+compare; anything else is a model error); `gxtex.py` for the TPLs; a rasteriser of the picture
+quads (pixel centres into each pane, bilinear filtering at texel centres with clamping, lyt's
+one-texture TEV stage `C0 + (C1 - C0) * tex` for colour and alpha, vertex colour times inherited
+alpha, SRCALPHA/INVSRCALPHA over the clear colour, depth-first order). Three runs (white clear,
+blue clear, display list) must match within 3 per channel. Result on lavapipe: **every pixel
+identical after rounding** (max difference 0, mean 0.001 in all three runs). The layout is drawn
+at its file values, which are frame 0 of `strap_00_U.brlan` (it only cross-fades the two
+Nunchuk pictures); `P_mask_00` has TEV colours that make it transparent. No image is stored in
+the repository.
+
+`gxtex.py` fixes found by this test (Dolphin and Aurora agree with the new forms):
+
+- I4 and I8 replicate the intensity into alpha (they returned alpha 255): the Nintendo logo
+  is an I8 alpha mask.
+- CMPR blends its endpoints in eighths, `(5a + 3b) >> 3` and `(3a + 5b) >> 3` (it used exact
+  thirds), and the transparent entry of the 3-colour mode is the midpoint colour with alpha 0
+  (it was black).
+
+Expected output (part of `make test` on 64-bit, after `test_gx`):
+
+```
+test_gxlyt: strap_00_U.brlyt 608x456 after 2 frames on llvmpipe (LLVM 21.1.8, 256 bits); layout rect (-304, 228)-(304, -228); GX stream 11686 bytes
+  pictures drawn: P_back_00 (ht_strapSquare_00.tpl, format 0), P_strap_00 (ht_strap_00.tpl, format 4), P_nunchuck_01 (ht_nunchuck_01.tpl, format 14), P_example_02 (ht_example_02_U.tpl, format 14), P_example_00 (ht_example_00_U.tpl, format 5), P_nintendo_00 (ht_strapNintendo_00.tpl, format 1), P_mask_00 (ht_strapSquare_00.tpl, format 0)
+  white clear: 277248 pixels, max diff 0, mean 0.001, 0 over 3
+  --clear 0x0000FF: 277248 pixels, max diff 0, mean 0.001, 0 over 3
+  --display-list: 277248 pixels, max diff 0, mean 0.001, 0 over 3
+errors: 0
+OK
+```
+
+The milestone-1 test (`test_gx`) is unchanged and still passes: it drives Aurora's own GX API
+through the `wpgx_test_*` helpers, which share the FIFO with the new path.
+
+### Not covered yet (milestone 3)
+
+- CP array bases are only exercised by Aurora's unit tests: lyt draws with direct vertices.
+  The first g3d model drawn will exercise them (and indexed XF matrix loads).
+- EFB copies: `GXCopyTex` into Wii memory (bloom, DOF, shadows, light textures, captures; Aurora
+  keys copies by host pointer, which the resolver now provides) and the CPU-visible ones (the
+  Kokeshi icon into a `ResTIMG`, RFL faces: the copy must be written back in the Wii texture
+  format); a display copy without clear.
+- `GXSetZTexture`, logic ops (OR in DOF), fog range adjustment, the copy filter (anti-aliasing
+  and vertical filter), `GXPoke*`/`GXPeek*`.
+- `EGG::Screen`/`StateGX` for the projection and state set-up (they build on the host; the
+  harness sets the equivalent GX state directly), then one minigame's 3D scene.

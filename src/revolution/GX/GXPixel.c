@@ -73,7 +73,7 @@ void GXSetFog(GXFogType type, f32 start, f32 end, f32 near, f32 far, GXColor col
     GX_BP_SET_FOGPARAM3_FSEL(fogParamReg3, fsel);
     GX_BP_SET_OPCODE(fogParamReg3, GX_BP_REG_FOGPARAM3);
 
-    GX_BP_SET_FOGCOLOR_RGB(fogColorReg, *(u32*)&color >> 8);
+    GX_BP_SET_FOGCOLOR_RGB(fogColorReg, BE_GET(*(be_u32*)&color) >> 8);
     GX_BP_SET_OPCODE(fogColorReg, GX_BP_REG_FOGCOLOR);
 
     GX_BP_LOAD_REG(fogParamReg0);

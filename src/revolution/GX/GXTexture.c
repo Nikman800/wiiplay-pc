@@ -1,6 +1,11 @@
 #include <revolution/GX.h>
 #include <string.h>
 
+#include <port/resptr.h>
+#if defined(PORT_HOST)
+#include <revolution/OS/OSAddress.h>
+#endif
+
 #define GX_TEXOBJ(obj) ((GXTexObjImpl*)(obj))
 #define GX_TLUTOBJ(obj) ((GXTlutObjImpl*)(obj))
 #define GX_TEXREGION(obj) ((GXTexRegionImpl*)(obj))
@@ -8,7 +13,7 @@
 
 #define IS_CI_TEXFMT(fmt) ((fmt) == GX_TF_C4 || (fmt) == GX_TF_C8 || (fmt) == GX_TF_C14X2)
 
-#define GX_PHY_ADDR(a) ((u32)(a) & 0x3FFFFFFF)
+#define GX_PHY_ADDR(a) (PORT_PTR_TO_U32(a) & 0x3FFFFFFF)
 
 u8 GXTexMode0Ids[8] = {0x80, 0x81, 0x82, 0x83, 0xA0, 0xA1, 0xA2, 0xA3};
 u8 GXTexMode1Ids[8] = {0x84, 0x85, 0x86, 0x87, 0xA4, 0xA5, 0xA6, 0xA7};
@@ -134,18 +139,18 @@ void GXInitTexObj(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
 
     memset(t, 0, sizeof(GXTexObjImpl));
 
-    t->mode0 = GX_BITSET(t->mode0, 30, 2, wrap_s);
-    t->mode0 = GX_BITSET(t->mode0, 28, 2, wrap_t);
-    t->mode0 = GX_BITSET(t->mode0, 27, 1, 1);
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 30, 2, wrap_s));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 28, 2, wrap_t));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 27, 1, 1));
 
     if (mipmap) {
         u8 lmax;
 
         t->flags |= 1;
         if (IS_CI_TEXFMT(fmt)) {
-            t->mode0 = GX_BITSET(t->mode0, 24, 3, 5);
+            BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 24, 3, 5));
         } else {
-            t->mode0 = GX_BITSET(t->mode0, 24, 3, 6);
+            BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 24, 3, 6));
         }
 
         if (w > h) {
@@ -155,18 +160,18 @@ void GXInitTexObj(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
         }
 
         lmax = (u8)(16.0f * maxLOD);
-        t->mode1 = GX_BITSET(t->mode1, 16, 8, lmax);
+        BE_SET(t->mode1, GX_BITSET(BE_GET(t->mode1), 16, 8, lmax));
     } else {
-        t->mode0 = GX_BITSET(t->mode0, 24, 3, 4);
+        BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 24, 3, 4));
     }
 
-    t->fmt = fmt;
-    t->image0 = GX_BITSET(t->image0, 22, 10, w - 1);
-    t->image0 = GX_BITSET(t->image0, 12, 10, h - 1);
-    t->image0 = GX_BITSET(t->image0, 8, 4, fmt & 0xF);
+    BE_SET(t->fmt, fmt);
+    BE_SET(t->image0, GX_BITSET(BE_GET(t->image0), 22, 10, w - 1));
+    BE_SET(t->image0, GX_BITSET(BE_GET(t->image0), 12, 10, h - 1));
+    BE_SET(t->image0, GX_BITSET(BE_GET(t->image0), 8, 4, fmt & 0xF));
 
     imageBase = GX_PHY_ADDR(image) >> 5;
-    t->image3 = GX_BITSET(t->image3, 8, 24, imageBase);
+    BE_SET(t->image3, GX_BITSET(BE_GET(t->image3), 8, 24, imageBase));
 
     switch (fmt & 0xF) {
     case GX_TF_I4:
@@ -209,7 +214,7 @@ void GXInitTexObj(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
 
     rowC = (w + (1 << rowT) - 1) >> rowT;
     colC = (h + (1 << colT) - 1) >> colT;
-    t->loadCnt = (rowC * colC) & 0x7FFF;
+    BE_SET(t->loadCnt, (rowC * colC) & 0x7FFF);
     t->flags |= 2;
 }
 
@@ -221,7 +226,7 @@ void GXInitTexObjCI(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
     GXInitTexObj(obj, image, w, h, fmt, wrap_s, wrap_t, mipmap);
 
     t->flags &= ~2;
-    t->tlutName = tlut;
+    BE_SET(t->tlutName, tlut);
 }
 
 void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt, GXTexFilter mag_filt,
@@ -238,14 +243,14 @@ void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt, GXTexFilter mag_filt,
     }
 
     lbias = (u8)(32.0f * lod_bias);
-    t->mode0 = GX_BITSET(t->mode0, 15, 8, lbias);
-    t->mode0 = GX_BITSET(t->mode0, 27, 1, mag_filt == GX_LINEAR ? 1 : 0);
-    t->mode0 = GX_BITSET(t->mode0, 24, 3, GX2HWFiltConv[min_filt]);
-    t->mode0 = GX_BITSET(t->mode0, 23, 1, do_edge_lod ? 0 : 1);
-    t->mode0 = GX_BITSET(t->mode0, 14, 1, 0);
-    t->mode0 = GX_BITSET(t->mode0, 13, 1, 0);
-    t->mode0 = GX_BITSET(t->mode0, 11, 2, max_aniso);
-    t->mode0 = GX_BITSET(t->mode0, 10, 1, bias_clamp);
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 15, 8, lbias));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 27, 1, mag_filt == GX_LINEAR ? 1 : 0));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 24, 3, GX2HWFiltConv[min_filt]));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 23, 1, do_edge_lod ? 0 : 1));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 14, 1, 0));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 13, 1, 0));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 11, 2, max_aniso));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 10, 1, bias_clamp));
 
     if (min_lod < 0.0f) {
         min_lod = 0.0f;
@@ -261,29 +266,29 @@ void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt, GXTexFilter mag_filt,
     }
     lmax = (u8)(16.0f * max_lod);
 
-    t->mode1 = GX_BITSET(t->mode1, 24, 8, lmin);
-    t->mode1 = GX_BITSET(t->mode1, 16, 8, lmax);
+    BE_SET(t->mode1, GX_BITSET(BE_GET(t->mode1), 24, 8, lmin));
+    BE_SET(t->mode1, GX_BITSET(BE_GET(t->mode1), 16, 8, lmax));
 }
 
 void GXInitTexObjWrapMode(GXTexObj* obj, GXTexWrapMode wrap_s,
                           GXTexWrapMode wrap_t) {
     GXTexObjImpl* t = GX_TEXOBJ(obj);
 
-    t->mode0 = GX_BITSET(t->mode0, 30, 2, wrap_s);
-    t->mode0 = GX_BITSET(t->mode0, 28, 2, wrap_t);
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 30, 2, wrap_s));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 28, 2, wrap_t));
 }
 
 void GXInitTexObjTlut(GXTexObj* obj, u32 tlut) {
     GXTexObjImpl* t = GX_TEXOBJ(obj);
-    t->tlutName = tlut;
+    BE_SET(t->tlutName, tlut);
 }
 
 void GXInitTexObjFilter(GXTexObj* obj, GXTexFilter min_filt,
                         GXTexFilter mag_filt) {
     GXTexObjImpl* t = GX_TEXOBJ(obj);
 
-    t->mode0 = GX_BITSET(t->mode0, 27, 1, mag_filt == GX_LINEAR ? 1 : 0);
-    t->mode0 = GX_BITSET(t->mode0, 24, 3, GX2HWFiltConv[min_filt]);
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 27, 1, mag_filt == GX_LINEAR ? 1 : 0));
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 24, 3, GX2HWFiltConv[min_filt]));
 }
 
 void GXGetTexObjAll(const GXTexObj* obj, void** image_ptr, u16* width,
@@ -291,38 +296,43 @@ void GXGetTexObjAll(const GXTexObj* obj, void** image_ptr, u16* width,
                     GXTexWrapMode* wrap_t, GXBool* mipmap) {
     const GXTexObjImpl* t = (const GXTexObjImpl*)obj;
 
+#if defined(PORT_HOST)
+    // The physical address as a host pointer (OSPhysicalToCached)
+    *image_ptr = OSPhysicalToCached(GX_BITGET(BE_GET(t->image3), 8, 24) << 5);
+#else
     *image_ptr = (void*)(GX_BITGET(t->image3, 8, 24) << 5);
-    *width = GX_BITGET(t->image0, 22, 10) + 1;
-    *height = GX_BITGET(t->image0, 12, 10) + 1;
-    *format = t->fmt;
-    *wrap_s = (GXTexWrapMode)GX_BITGET(t->mode0, 30, 2);
-    *wrap_t = (GXTexWrapMode)GX_BITGET(t->mode0, 28, 2);
+#endif
+    *width = GX_BITGET(BE_GET(t->image0), 22, 10) + 1;
+    *height = GX_BITGET(BE_GET(t->image0), 12, 10) + 1;
+    *format = BE_GET(t->fmt);
+    *wrap_s = (GXTexWrapMode)GX_BITGET(BE_GET(t->mode0), 30, 2);
+    *wrap_t = (GXTexWrapMode)GX_BITGET(BE_GET(t->mode0), 28, 2);
     *mipmap = (t->flags & 1) == 1;
 }
 
 u16 GXGetTexObjWidth(const GXTexObj* obj) {
     const GXTexObjImpl* t = GX_TEXOBJ(obj);
-    return GX_BITGET(t->image0, 22, 10) + 1;
+    return GX_BITGET(BE_GET(t->image0), 22, 10) + 1;
 }
 
 u16 GXGetTexObjHeight(const GXTexObj* obj) {
     const GXTexObjImpl* t = GX_TEXOBJ(obj);
-    return GX_BITGET(t->image0, 12, 10) + 1;
+    return GX_BITGET(BE_GET(t->image0), 12, 10) + 1;
 }
 
 GXTexFmt GXGetTexObjFmt(const GXTexObj* obj) {
     const GXTexObjImpl* t = GX_TEXOBJ(obj);
-    return t->fmt;
+    return BE_GET(t->fmt);
 }
 
 GXTexWrapMode GXGetTexObjWrapS(GXTexObj* obj) {
     GXTexObjImpl* t = GX_TEXOBJ(obj);
-    return (GXTexWrapMode)GX_BITGET(t->mode0, 30, 2);
+    return (GXTexWrapMode)GX_BITGET(BE_GET(t->mode0), 30, 2);
 }
 
 GXTexWrapMode GXGetTexObjWrapT(GXTexObj* obj) {
     GXTexObjImpl* t = GX_TEXOBJ(obj);
-    return (GXTexWrapMode)GX_BITGET(t->mode0, 28, 2);
+    return (GXTexWrapMode)GX_BITGET(BE_GET(t->mode0), 28, 2);
 }
 
 GXBool GXGetTexObjMipMap(const GXTexObj* obj) {
@@ -337,20 +347,20 @@ void GXGetTexObjLODAll(const GXTexObj* obj, GXTexFilter* min_filt,
     s16 tmp;
     const GXTexObjImpl* t = (const GXTexObjImpl*)obj;
 
-    *min_filt = (GXTexFilter)HW2GXFiltConv[GX_BITGET(t->mode0, 24, 3)];
-    *mag_filt = (GXTexFilter)GX_BITGET(t->mode0, 27, 1);
-    *min_lod = GX_BITGET(t->mode1, 24, 8) / 16.0f;
-    *max_lod = GX_BITGET(t->mode1, 16, 8) / 16.0f;
-    tmp = (s16)GX_BITGET(t->mode0, 15, 8);
+    *min_filt = (GXTexFilter)HW2GXFiltConv[GX_BITGET(BE_GET(t->mode0), 24, 3)];
+    *mag_filt = (GXTexFilter)GX_BITGET(BE_GET(t->mode0), 27, 1);
+    *min_lod = GX_BITGET(BE_GET(t->mode1), 24, 8) / 16.0f;
+    *max_lod = GX_BITGET(BE_GET(t->mode1), 16, 8) / 16.0f;
+    tmp = (s16)GX_BITGET(BE_GET(t->mode0), 15, 8);
     *lod_bias = (s8)tmp / 32.0f;
-    *bias_clamp = GX_BITGET(t->mode0, 10, 1);
-    *do_edge_lod = !GX_BITGET(t->mode0, 23, 1);
-    *max_aniso = (GXAnisotropy)GX_BITGET(t->mode0, 11, 2);
+    *bias_clamp = GX_BITGET(BE_GET(t->mode0), 10, 1);
+    *do_edge_lod = !GX_BITGET(BE_GET(t->mode0), 23, 1);
+    *max_aniso = (GXAnisotropy)GX_BITGET(BE_GET(t->mode0), 11, 2);
 }
 
 u32 GXGetTexObjTlut(GXTexObj* obj) {
     GXTexObjImpl* t = GX_TEXOBJ(obj);
-    return t->tlutName;
+    return BE_GET(t->tlutName);
 }
 
 void GXLoadTexObjPreLoaded(const GXTexObj* obj, const GXTexRegion* region,
@@ -359,29 +369,29 @@ void GXLoadTexObjPreLoaded(const GXTexObj* obj, const GXTexRegion* region,
     GXTexObjImpl* t = GX_TEXOBJ(obj);
     GXTexRegionImpl* r = GX_TEXREGION(region);
 
-    t->mode0 = GX_BITSET(t->mode0, 0, 8, GXTexMode0Ids[id]);
-    t->mode1 = GX_BITSET(t->mode1, 0, 8, GXTexMode1Ids[id]);
-    t->image0 = GX_BITSET(t->image0, 0, 8, GXTexImage0Ids[id]);
+    BE_SET(t->mode0, GX_BITSET(BE_GET(t->mode0), 0, 8, GXTexMode0Ids[id]));
+    BE_SET(t->mode1, GX_BITSET(BE_GET(t->mode1), 0, 8, GXTexMode1Ids[id]));
+    BE_SET(t->image0, GX_BITSET(BE_GET(t->image0), 0, 8, GXTexImage0Ids[id]));
     r->image1 = GX_BITSET(r->image1, 0, 8, GXTexImage1Ids[id]);
     r->image2 = GX_BITSET(r->image2, 0, 8, GXTexImage2Ids[id]);
-    t->image3 = GX_BITSET(t->image3, 0, 8, GXTexImage3Ids[id]);
+    BE_SET(t->image3, GX_BITSET(BE_GET(t->image3), 0, 8, GXTexImage3Ids[id]));
 
-    GX_BP_LOAD_REG(t->mode0);
-    GX_BP_LOAD_REG(t->mode1);
-    GX_BP_LOAD_REG(t->image0);
+    GX_BP_LOAD_REG(BE_GET(t->mode0));
+    GX_BP_LOAD_REG(BE_GET(t->mode1));
+    GX_BP_LOAD_REG(BE_GET(t->image0));
     GX_BP_LOAD_REG(r->image1);
     GX_BP_LOAD_REG(r->image2);
-    GX_BP_LOAD_REG(t->image3);
+    GX_BP_LOAD_REG(BE_GET(t->image3));
 
     if (!(t->flags & 2)) {
-        tlr = GX_TLUTREGION(gxdt->tlutRegionCallback(t->tlutName));
-        tlr->tlutObj.tlut =
-            GX_BITSET(tlr->tlutObj.tlut, 0, 8, GXTexTlutIds[id]);
-        GX_BP_LOAD_REG(tlr->tlutObj.tlut);
+        tlr = GX_TLUTREGION(gxdt->tlutRegionCallback(BE_GET(t->tlutName)));
+        BE_SET(tlr->tlutObj.tlut,
+               GX_BITSET(BE_GET(tlr->tlutObj.tlut), 0, 8, GXTexTlutIds[id]));
+        GX_BP_LOAD_REG(BE_GET(tlr->tlutObj.tlut));
     }
 
-    gxdt->tImage0[id] = t->image0;
-    gxdt->tMode0[id] = t->mode0;
+    gxdt->tImage0[id] = BE_GET(t->image0);
+    gxdt->tMode0[id] = BE_GET(t->mode0);
     gxdt->gxDirtyFlags |= GX_DIRTY_SU_TEX;
     gxdt->lastWriteWasXF = FALSE;
 }
@@ -394,11 +404,11 @@ void GXLoadTexObj(const GXTexObj* obj, GXTexMapID id) {
 void GXInitTlutObj(GXTlutObj* obj, void* lut, GXTlutFmt fmt, u16 n_entries) {
     GXTlutObjImpl* t = GX_TLUTOBJ(obj);
 
-    t->tlut = 0;
-    t->tlut = GX_BITSET(t->tlut, 20, 2, fmt);
-    t->loadTlut0 = GX_BITSET(t->loadTlut0, 8, 24, GX_PHY_ADDR(lut) >> 5);
-    t->loadTlut0 = GX_BITSET(t->loadTlut0, 0, 8, GX_BP_REG_TMEMTLUTSRC);
-    t->numEntries = n_entries;
+    BE_SET(t->tlut, 0);
+    BE_SET(t->tlut, GX_BITSET(BE_GET(t->tlut), 20, 2, fmt));
+    BE_SET(t->loadTlut0, GX_BITSET(BE_GET(t->loadTlut0), 8, 24, GX_PHY_ADDR(lut) >> 5));
+    BE_SET(t->loadTlut0, GX_BITSET(BE_GET(t->loadTlut0), 0, 8, GX_BP_REG_TMEMTLUTSRC));
+    BE_SET(t->numEntries, n_entries);
 }
 
 void GXLoadTlut(const GXTlutObj* obj, u32 tlut) {
@@ -409,12 +419,12 @@ void GXLoadTlut(const GXTlutObj* obj, u32 tlut) {
     r = GX_TLUTREGION(gxdt->tlutRegionCallback(tlut));
 
     __GXFlushTextureState();
-    GX_BP_LOAD_REG(t->loadTlut0);
+    GX_BP_LOAD_REG(BE_GET(t->loadTlut0));
     GX_BP_LOAD_REG(r->loadTlut1);
     __GXFlushTextureState();
 
     tlut_offset = GX_BITGET(r->loadTlut1, 22, 10);
-    t->tlut = GX_BITSET(t->tlut, 22, 10, tlut_offset);
+    BE_SET(t->tlut, GX_BITSET(BE_GET(t->tlut), 22, 10, tlut_offset));
     r->tlutObj = *t;
 }
 

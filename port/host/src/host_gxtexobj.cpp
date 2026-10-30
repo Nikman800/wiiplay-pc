@@ -13,6 +13,10 @@
  *
  * The bit arithmetic is that of src/revolution/GX/GXTexture.c, computed in host
  * order on a local copy and stored big-endian. No drawing happens here.
+ *
+ * All weak: the GX harnesses link the decomp's GXTexture.c itself, whose
+ * GXTexObjImpl/GXTlutObjImpl are big-endian too (docs/HOST_BUILD.md §26), so
+ * both produce the same words.
  */
 #include <types.h>
 
@@ -86,7 +90,7 @@ inline u8 F32ToU8Wii(f32 f) {
 
 extern "C" {
 
-void GXInitTexObj(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
+__attribute__((weak)) void GXInitTexObj(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
                   GXTexWrapMode wrap_s, GXTexWrapMode wrap_t, GXBool mipmap) {
     u32 mode0 = 0, mode1 = 0, image0 = 0, image3 = 0;
     u8 flags = 0, loadFmt;
@@ -154,7 +158,7 @@ void GXInitTexObj(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
     t->flags = flags;
 }
 
-void GXInitTexObjCI(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
+__attribute__((weak)) void GXInitTexObjCI(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
                     GXTexWrapMode wrap_s, GXTexWrapMode wrap_t, GXBool mipmap,
                     u32 tlut) {
     GXInitTexObj(obj, image, w, h, fmt, wrap_s, wrap_t, mipmap);
@@ -163,7 +167,7 @@ void GXInitTexObjCI(GXTexObj* obj, void* image, u16 w, u16 h, GXTexFmt fmt,
     t->tlutName = tlut;
 }
 
-void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt, GXTexFilter mag_filt,
+__attribute__((weak)) void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt, GXTexFilter mag_filt,
                      f32 min_lod, f32 max_lod, f32 lod_bias, GXBool bias_clamp,
                      GXBool do_edge_lod, GXAnisotropy max_aniso) {
     HostTexObj* t = reinterpret_cast<HostTexObj*>(obj);
@@ -203,23 +207,23 @@ void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter min_filt, GXTexFilter mag_filt,
 }
 
 // The readers below are those of src/revolution/GX/GXTexture.c, on the big-endian words.
-u16 GXGetTexObjWidth(const GXTexObj* obj) {
+__attribute__((weak)) u16 GXGetTexObjWidth(const GXTexObj* obj) {
     return BitGet(reinterpret_cast<const HostTexObj*>(obj)->image0, 22, 10) + 1;
 }
 
-u16 GXGetTexObjHeight(const GXTexObj* obj) {
+__attribute__((weak)) u16 GXGetTexObjHeight(const GXTexObj* obj) {
     return BitGet(reinterpret_cast<const HostTexObj*>(obj)->image0, 12, 10) + 1;
 }
 
-GXTexWrapMode GXGetTexObjWrapS(GXTexObj* obj) {
+__attribute__((weak)) GXTexWrapMode GXGetTexObjWrapS(GXTexObj* obj) {
     return static_cast<GXTexWrapMode>(BitGet(reinterpret_cast<HostTexObj*>(obj)->mode0, 30, 2));
 }
 
-GXTexWrapMode GXGetTexObjWrapT(GXTexObj* obj) {
+__attribute__((weak)) GXTexWrapMode GXGetTexObjWrapT(GXTexObj* obj) {
     return static_cast<GXTexWrapMode>(BitGet(reinterpret_cast<HostTexObj*>(obj)->mode0, 28, 2));
 }
 
-void GXGetTexObjLODAll(const GXTexObj* obj, GXTexFilter* min_filt, GXTexFilter* mag_filt,
+__attribute__((weak)) void GXGetTexObjLODAll(const GXTexObj* obj, GXTexFilter* min_filt, GXTexFilter* mag_filt,
                        f32* min_lod, f32* max_lod, f32* lod_bias, GXBool* bias_clamp,
                        GXBool* do_edge_lod, GXAnisotropy* max_aniso) {
     const HostTexObj* t = reinterpret_cast<const HostTexObj*>(obj);
@@ -236,15 +240,15 @@ void GXGetTexObjLODAll(const GXTexObj* obj, GXTexFilter* min_filt, GXTexFilter* 
     *max_aniso = static_cast<GXAnisotropy>(BitGet(mode0, 11, 2));
 }
 
-void GXInitTexObjTlut(GXTexObj* obj, u32 tlut) {
+__attribute__((weak)) void GXInitTexObjTlut(GXTexObj* obj, u32 tlut) {
     reinterpret_cast<HostTexObj*>(obj)->tlutName = tlut;
 }
 
-u32 GXGetTexObjTlut(GXTexObj* obj) {
+__attribute__((weak)) u32 GXGetTexObjTlut(GXTexObj* obj) {
     return reinterpret_cast<HostTexObj*>(obj)->tlutName;
 }
 
-void GXInitTlutObj(GXTlutObj* obj, void* lut, GXTlutFmt fmt, u16 n_entries) {
+__attribute__((weak)) void GXInitTlutObj(GXTlutObj* obj, void* lut, GXTlutFmt fmt, u16 n_entries) {
     HostTlutObj* t = reinterpret_cast<HostTlutObj*>(obj);
     u32 tlut = 0, loadTlut0 = 0;
 
@@ -305,7 +309,7 @@ static void HostGetTexTileShift(GXTexFmt fmt, u32* rowTileS, u32* colTileS) {
     }
 }
 
-u32 GXGetTexBufferSize(u16 width, u16 height, u32 format, GXBool mipmap, u8 max_lod) {
+__attribute__((weak)) u32 GXGetTexBufferSize(u16 width, u16 height, u32 format, GXBool mipmap, u8 max_lod) {
     u32 tileShiftX, tileShiftY, tileBytes;
     u32 bufferSize, nx, ny, level;
 

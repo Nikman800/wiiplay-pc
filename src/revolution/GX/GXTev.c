@@ -103,7 +103,7 @@ void GXSetTevAlphaOp(GXTevStageID stage, GXTevOp op, GXTevBias bias,
 void GXSetTevColor(GXTevRegID id, GXColor color) {
     u32 rgba, regRA, regBG;
 
-    rgba = *(u32*)&color;
+    rgba = BE_GET(*(be_u32*)&color);
     regRA = (u32)(GX_BP_REG_TEVREG0LO + id * 2) << 24;
     regRA = GX_BITSET(regRA, 24, 8, (rgba >> 24) & 0xFF);
     regRA = GX_BITSET(regRA, 12, 8, rgba & 0xFF);
@@ -120,8 +120,14 @@ void GXSetTevColor(GXTevRegID id, GXColor color) {
 void GXSetTevColorS10(GXTevRegID id, GXColorS10 color) {
     u32 sRG, sBA, regRA, regBG;
 
+#if defined(PORT_HOST)
+    // The two words the Wii loads: (r << 16 | g) and (b << 16 | a)
+    sRG = (u32)(u16)color.r << 16 | (u16)color.g;
+    sBA = (u32)(u16)color.b << 16 | (u16)color.a;
+#else
     sRG = *(u32*)&color;
     sBA = *((u32*)&color + 1);
+#endif
     regRA = (u32)(GX_BP_REG_TEVREG0LO + id * 2) << 24;
     GX_BP_SET_TEVREGLO_RED(regRA, (sRG >> 16) & 0x7FF);
     GX_BP_SET_TEVREGLO_ALPHA(regRA, sBA & 0x7FF);
@@ -138,7 +144,7 @@ void GXSetTevColorS10(GXTevRegID id, GXColorS10 color) {
 void GXSetTevKColor(GXTevKColorID id, GXColor color) {
     u32 rgba, regRA, regBG;
 
-    rgba = *(u32*)&color;
+    rgba = BE_GET(*(be_u32*)&color);
     regRA = (u32)(GX_BP_REG_TEVREG0LO + id * 2) << 24;
     regRA = GX_BITSET(regRA, 24, 8, (rgba >> 24) & 0xFF);
     regRA = GX_BITSET(regRA, 12, 8, rgba & 0xFF);

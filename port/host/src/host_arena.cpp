@@ -11,6 +11,7 @@
  */
 
 #include <port/arena.h>
+#include <revolution/OS/OSAddress.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -268,3 +269,34 @@ void PortArenaBadAddress(u32 v) {
 }
 
 } // extern "C"
+
+// Static data the graphics processor reads (port/wgpipe.h, docs/HOST_BUILD.md §26):
+// an M0 copy per address, made once (the data is constant: GXInit's default
+// texture and placeholder array base), so it has an emulated address.
+extern "C" void* PortArenaStatic(const void* p, u32 size) {
+    struct Entry {
+        const void* src;
+        void* copy;
+    };
+    static Entry entries[16];
+    static int count = 0;
+    for (int i = 0; i < count; i++) {
+        if (entries[i].src == p) {
+            return entries[i].copy;
+        }
+    }
+    if (count == 16) {
+        Fail("PortArenaStatic: too many static blocks");
+    }
+    void* copy = PortArenaAlloc(size, 32);
+    std::memcpy(copy, p, size);
+    entries[count].src = p;
+    entries[count].copy = copy;
+    count++;
+    return copy;
+}
+
+// Hardware register block (revolution/OS/OSAddress.h, OSPhysicalToUncached).
+extern "C" {
+alignas(32) u8 port_hw_regs[PORT_HW_REGS_SIZE];
+}

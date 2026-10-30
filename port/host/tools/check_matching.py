@@ -244,6 +244,24 @@ TOUCHED = [
     "src/Pack/RPSystem/RPSysSaveData.cpp",
     "include/revolution/NAND/nand.h",
     "src/Pack/RPKernel/RPSysSystem.cpp",
+    # §26: the GX SDK as the host's command encoder (WGPIPE_WRITE, Wii-order
+    # texture objects, host forms of the write-gather asm)
+    "include/port/wgpipe.h",
+    "include/revolution/GX/GXHardware.h",
+    "include/revolution/GX/GXVert.h",
+    "include/revolution/GX/GXDisplayList.h",
+    "include/revolution/GX/GXInternal.h",
+    "src/revolution/GX/GXAttr.c",
+    "src/revolution/GX/GXDisplayList.c",
+    "src/revolution/GX/GXGeometry.c",
+    "src/revolution/GX/GXInit.c",
+    "src/revolution/GX/GXLight.c",
+    "src/revolution/GX/GXTexture.c",
+    "src/revolution/GX/GXTransform.c",
+    "src/revolution/GX/GXFrameBuf.c",
+    "src/revolution/GX/GXTev.c",
+    "src/revolution/GX/GXPixel.c",
+    "include/nw4r/g3d/platform/g3d_gpu.h",
 ]
 
 
