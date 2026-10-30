@@ -60,6 +60,12 @@ CFLAGS := -std=gnu11 $(COMMON) -Werror=pointer-to-int-cast
 CXXFLAGS := -std=gnu++17 -fno-exceptions -fno-rtti $(COMMON) \
             -Wno-invalid-offsetof -Wno-subobject-linkage -Wno-reorder
 
+# nw4r::lyt (layouts and layout animations), built and bound without drawing.
+LYT_SRCS := $(addprefix src/nw4r/lyt/,lyt_animation.cpp lyt_arcResourceAccessor.cpp \
+    lyt_bounding.cpp lyt_common.cpp lyt_drawInfo.cpp lyt_group.cpp lyt_init.cpp \
+    lyt_layout.cpp lyt_material.cpp lyt_pane.cpp lyt_picture.cpp \
+    lyt_resourceAccessor.cpp lyt_texMap.cpp lyt_textBox.cpp lyt_window.cpp)
+
 # Real decompiled sources compiled for the host (unmodified unless listed in
 # docs/HOST_BUILD.md).
 DECOMP_SRCS := \
@@ -76,7 +82,13 @@ DECOMP_SRCS := \
     src/nw4r/ut/ut_Font.cpp \
     src/nw4r/ut/ut_ResFont.cpp \
     src/nw4r/ut/ut_ResFontBase.cpp \
-    src/egg/util/eggMsgRes.cpp
+    src/nw4r/ut/ut_LinkList.cpp \
+    src/nw4r/ut/ut_CharWriter.cpp \
+    src/nw4r/ut/ut_TextWriterBase.cpp \
+    src/nw4r/ut/ut_TagProcessorBase.cpp \
+    src/nw4r/math/math_triangular.cpp \
+    src/egg/util/eggMsgRes.cpp \
+    $(LYT_SRCS)
 
 # MSL_C wide-string functions, compiled under port_* names (port/wide.h).
 # Their headers live in include/MSL/internal; include/MSL is searched last so
@@ -85,7 +97,17 @@ MSL_SRCS := \
     src/MSL_C/wstring.c \
     src/MSL_C/wmem.c
 
-HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp
+HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp
+
+# POINTERS.md step 4 sites (§5.1): compiled (not linked; most of RPKernel and
+# RPParty does not build on the host yet) so the host forms keep building.
+# RPPlayerNameTag also needs the g3d headers, which are 64-bit clean only
+# after POINTERS.md step 5, so the 64-bit build skips it.
+STEP4_SRCS := src/Pack/RPKernel/RPSysTagProcessor.cpp
+ifeq ($(M32),1)
+STEP4_SRCS += src/Pack/RPParty/RPPartyCommon/RPPlayerNameTag.cpp
+endif
+STEP4_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(STEP4_SRCS))
 
 DECOMP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(DECOMP_SRCS))
 MSL_OBJS := $(patsubst %,$(OUT)/msl/%.o,$(MSL_SRCS))
@@ -95,8 +117,8 @@ LIB := $(OUT)/libwiiplay_loader.a
 TESTS := $(OUT)/test_be $(OUT)/test_be_c $(OUT)/test_port $(OUT)/test_port_c \
          $(OUT)/test_layout
 
-.PHONY: all test unit archives resources clean
-all: $(OUT)/arc_harness $(OUT)/res_harness $(TESTS)
+.PHONY: all test unit archives resources layouts clean
+all: $(OUT)/arc_harness $(OUT)/res_harness $(OUT)/lyt_harness $(TESTS) $(STEP4_OBJS)
 
 $(OUT)/decomp/%.c.o: $(REPO)/%.c
 	@mkdir -p $(dir $@)
@@ -125,6 +147,9 @@ $(OUT)/res_harness: $(HOST)/tests/res_harness.cpp $(HOST)/tests/rpsysmessage_uni
                    $(HOST)/tests/disc_walk.h $(LIB)
 	$(CXX) $(CXXFLAGS) $(filter %.cpp,$^) $(LIB) -o $@
 
+$(OUT)/lyt_harness: $(HOST)/tests/lyt_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(LIB) -o $@
+
 $(OUT)/test_be: $(HOST)/tests/test_be.cpp $(HOST)/include/port/be.h
 	$(CXX) $(CXXFLAGS) $< -o $@
 
@@ -140,7 +165,7 @@ $(OUT)/test_port_c: $(HOST)/tests/test_port_c.c $(LIB)
 $(OUT)/test_layout: $(HOST)/tests/layout_asserts.cpp
 	$(CXX) $(CXXFLAGS) -MMD $< -o $@
 
-unit: $(TESTS)
+unit: $(TESTS) $(STEP4_OBJS)
 	$(OUT)/test_be
 	$(OUT)/test_be_c
 	$(OUT)/test_port
@@ -153,7 +178,10 @@ archives: $(OUT)/arc_harness
 resources: $(OUT)/res_harness
 	python3 $(HOST)/tests/test_resources.py --harness $(OUT)/res_harness --disc $(DISC)
 
-test: unit archives resources
+layouts: $(OUT)/lyt_harness
+	python3 $(HOST)/tests/test_layouts.py --harness $(OUT)/lyt_harness --disc $(DISC)
+
+test: unit archives resources layouts
 
 clean:
 	rm -rf $(HOST)/build

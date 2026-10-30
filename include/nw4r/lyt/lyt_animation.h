@@ -25,12 +25,12 @@ namespace res {
  ******************************************************************************/
 struct AnimationBlock {
     DataBlockHeader blockHeader; // at 0x0
-    u16 frameSize;               // at 0x8
+    be_u16 frameSize;            // at 0x8
     u8 loop;                     // at 0xA
     u8 PADDING_0xB;              // at 0xB
-    u16 fileNum;                 // at 0xC
-    u16 animContNum;             // at 0xE
-    u32 animContOffsetsOffset;   // at 0x10
+    be_u16 fileNum;               // at 0xC
+    be_u16 animContNum;           // at 0xE
+    be_u32 animContOffsetsOffset; // at 0x10
 };
 
 /******************************************************************************
@@ -39,7 +39,7 @@ struct AnimationBlock {
  *
  ******************************************************************************/
 struct AnimationInfo {
-    u32 kind;                  // at 0x0
+    be_u32 kind;               // at 0x0
     u8 num;                    // at 0x4
     u8 PADDING_0x5[0x8 - 0x5]; // at 0x5
 

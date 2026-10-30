@@ -36,18 +36,18 @@ namespace res {
 struct TextBox : Pane {
     static const u32 SIGNATURE = FOURCC('t', 'x', 't', '1');
 
-    u16 textBufBytes;             // at 0x4C
-    u16 textStrBytes;             // at 0x4E
-    u16 materialIdx;              // at 0x50
-    u16 fontIdx;                  // at 0x52
+    be_u16 textBufBytes;          // at 0x4C
+    be_u16 textStrBytes;          // at 0x4E
+    be_u16 materialIdx;           // at 0x50
+    be_u16 fontIdx;               // at 0x52
     u8 textPosition;              // at 0x54
     u8 textAlignment;             // at 0x55
     u8 PADDING_0x56[0x58 - 0x56]; // at 0x56
-    u32 textStrOffset;            // at 0x58
-    u32 textCols[TEXTCOLOR_MAX];  // at 0x5C
-    Size fontSize;                // at 0x64
-    f32 charSpace;                // at 0x6C
-    f32 lineSpace;                // at 0x70
+    be_u32 textStrOffset;           // at 0x58
+    be_u32 textCols[TEXTCOLOR_MAX]; // at 0x5C
+    Size fontSize;                  // at 0x64
+    be_f32 charSpace;               // at 0x6C
+    be_f32 lineSpace;               // at 0x70
 };
 
 } // namespace res

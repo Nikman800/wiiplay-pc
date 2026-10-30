@@ -40,6 +40,28 @@ TOUCHED = [
     "include/egg/util/eggMsgRes.h",
     "src/egg/util/eggMsgRes.cpp",
     "include/Pack/RPKernel/RPSysMessage.h",
+    # TPL / layouts / step 4 (port/docs/HOST_BUILD.md §4)
+    "include/nw4r/ut/ut_Color.h",
+    "include/nw4r/lyt/lyt_types.h",
+    "include/nw4r/lyt/lyt_common.h",
+    "include/nw4r/lyt/lyt_resources.h",
+    "include/nw4r/lyt/lyt_pane.h",
+    "include/nw4r/lyt/lyt_picture.h",
+    "include/nw4r/lyt/lyt_textBox.h",
+    "include/nw4r/lyt/lyt_window.h",
+    "include/nw4r/lyt/lyt_group.h",
+    "include/nw4r/lyt/lyt_animation.h",
+    "src/nw4r/lyt/lyt_animation.cpp",
+    "src/nw4r/lyt/lyt_arcResourceAccessor.cpp",
+    "src/nw4r/lyt/lyt_common.cpp",
+    "src/nw4r/lyt/lyt_material.cpp",
+    "src/nw4r/lyt/lyt_picture.cpp",
+    "src/nw4r/lyt/lyt_texMap.cpp",
+    "src/nw4r/lyt/lyt_textBox.cpp",
+    "src/nw4r/lyt/lyt_window.cpp",
+    "include/Pack/RPKernel/RPSysSystemWinMgr.h",
+    "src/Pack/RPKernel/RPSysTagProcessor.cpp",
+    "src/Pack/RPParty/RPPartyCommon/RPPlayerNameTag.cpp",
 ]
 
 

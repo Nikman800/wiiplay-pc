@@ -3,6 +3,8 @@
 #include <revolution/GX.h>
 #include <revolution/TPL.h>
 
+#include <port/resptr.h>
+
 namespace nw4r {
 namespace lyt {
 
@@ -30,7 +32,7 @@ void TexMap::Get(GXTlutObj* pTlutObj) const {
 }
 
 void TexMap::Set(TPLPalette* pPalette, u32 id) {
-    if (reinterpret_cast<u32>(pPalette->descriptorArray) < 0x80000000) {
+    if (PORT_PTR_TO_U32(pPalette->descriptorArray) < 0x80000000) {
         TPLBind(pPalette);
     }
 

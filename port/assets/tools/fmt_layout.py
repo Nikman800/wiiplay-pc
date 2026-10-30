@@ -171,8 +171,9 @@ def parse_string_list(data, offset, size, kind):
         resource_type = u8(data, entry_offset + 4, f"{kind} entry {index} type")
         padding = data[entry_offset + 5:entry_offset + 8]
         require(not any(padding), f"{kind} entry {index} padding is not zero")
-        require(entry_offset + name_offset <= len(data), f"{kind} entry {index} name is out of bounds")
-        name = nul_name(data, offset + name_offset, f"{kind} entry {index} name")
+        # nameStrOffset is relative to the first entry (block + 12), as lyt::res::GetStrTableStr reads it
+        require(entries_offset + name_offset < offset + size, f"{kind} entry {index} name is out of bounds")
+        name = nul_name(data, entries_offset + name_offset, f"{kind} entry {index} name")
         entries.append({"nameStrOffset": name_offset, "type": resource_type, "padding": padding, "name": name})
     return {
         "kind": kind,

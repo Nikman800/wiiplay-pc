@@ -5,6 +5,8 @@
 #include <nw4r/math.h>
 #include <nw4r/ut.h>
 
+#include <port/be.h>
+
 #define NW4R_LYT_LIBRARY_VERSION 8
 
 #define NW4R_LYT_RES_NAME_LEN 16
@@ -50,6 +52,16 @@ template <typename T> inline T GetBits(T bits, int pos, int len) {
     T mask = ~(static_cast<T>(-1) << len);
     return bits >> pos & mask;
 }
+
+#if PORT_BE_WRAPPED
+// Big-endian resource fields (MaterialResourceNum::bits).
+template <typename T, typename S> inline bool TestBit(port::be<T, S> bits, int pos) {
+    return TestBit(static_cast<T>(bits), pos);
+}
+template <typename T, typename S> inline T GetBits(port::be<T, S> bits, int pos, int len) {
+    return GetBits(static_cast<T>(bits), pos, len);
+}
+#endif
 
 } // namespace detail
 
@@ -589,6 +601,74 @@ struct TexSRT {
     f32 rotate;           // at 0x8
     math::VEC2 scale;     // at 0xC
 };
+
+namespace res {
+
+/******************************************************************************
+ *
+ * Value types stored in layout files. On the Wii they are the runtime types.
+ * The host build reads them as big-endian fields (port/be.h) and converts to
+ * the runtime type on copy.
+ *
+ ******************************************************************************/
+#if PORT_BE_WRAPPED
+struct VEC2 {
+    be_f32 x; // at 0x0
+    be_f32 y; // at 0x4
+
+    operator math::VEC2() const {
+        return math::VEC2(x, y);
+    }
+};
+
+struct VEC3 {
+    be_f32 x; // at 0x0
+    be_f32 y; // at 0x4
+    be_f32 z; // at 0x8
+
+    operator math::VEC3() const {
+        return math::VEC3(x, y, z);
+    }
+};
+
+struct Size {
+    be_f32 width;  // at 0x0
+    be_f32 height; // at 0x4
+
+    operator lyt::Size() const {
+        return lyt::Size(width, height);
+    }
+};
+
+struct GXColorS10 {
+    be_s16 r, g, b, a;
+
+    operator ::GXColorS10() const {
+        ::GXColorS10 color = {r, g, b, a};
+        return color;
+    }
+};
+
+struct TexSRT {
+    VEC2 translate; // at 0x0
+    be_f32 rotate;  // at 0x8
+    VEC2 scale;     // at 0xC
+
+    operator lyt::TexSRT() const {
+        lyt::TexSRT srt;
+        srt.translate = translate;
+        srt.rotate = rotate;
+        srt.scale = scale;
+        return srt;
+    }
+};
+#else
+typedef math::VEC2 VEC2;
+typedef math::VEC3 VEC3;
+typedef lyt::TexSRT TexSRT;
+#endif
+
+} // namespace res
 
 } // namespace lyt
 } // namespace nw4r

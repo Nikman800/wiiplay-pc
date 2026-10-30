@@ -26,6 +26,15 @@
 #include <cfloat>
 #include <cstdint>
 #include <new>
+#include <cstring>
+#include <strings.h>
+
+// MSL's std::stricmp (ArcResourceAccessor's name lookup); ASCII only, like MSL.
+namespace std {
+inline int stricmp(const char* pLhs, const char* pRhs) {
+    return ::strcasecmp(pLhs, pRhs);
+}
+} // namespace std
 #else
 #include <stdarg.h>
 #include <float.h>

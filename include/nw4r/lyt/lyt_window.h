@@ -28,14 +28,28 @@ struct InflationLRTB {
 
 namespace res {
 
+#if PORT_BE_WRAPPED
+struct InflationLRTB {
+    be_f32 l; // at 0x0
+    be_f32 r; // at 0x4
+    be_f32 t; // at 0x8
+    be_f32 b; // at 0xC
+
+    operator lyt::InflationLRTB() const {
+        lyt::InflationLRTB inflation = {l, r, t, b};
+        return inflation;
+    }
+};
+#endif
+
 /******************************************************************************
  *
  * WindowContent
  *
  ******************************************************************************/
 struct WindowContent {
-    u32 vtxCols[VERTEXCOLOR_MAX]; // at 0x0
-    u16 materialIdx;              // at 0x10
+    be_u32 vtxCols[VERTEXCOLOR_MAX]; // at 0x0
+    be_u16 materialIdx;              // at 0x10
     u8 texCoordNum;               // at 0x12
     u8 PADDING_0x13[0x14 - 0x13]; // at 0x13
 };
@@ -46,8 +60,8 @@ struct WindowContent {
  *
  ******************************************************************************/
 struct WindowFrame {
-    u16 materialIdx; // at 0x0
-    u8 textureFlip;  // at 0x2
+    be_u16 materialIdx; // at 0x0
+    u8 textureFlip;     // at 0x2
     u8 PADDING_0x3;  // at 0x3
 };
 
@@ -64,8 +78,8 @@ struct Window : public Pane {
     u8 PADDING_0x5D;            // at 0x5D
     u8 PADDING_0x5E;            // at 0x5E
     u8 PADDING_0x5F;            // at 0x5F
-    u32 contentOffset;          // at 0x60
-    u32 frameOffsetTableOffset; // at 0x64
+    be_u32 contentOffset;          // at 0x60
+    be_u32 frameOffsetTableOffset; // at 0x64
 };
 
 } // namespace res

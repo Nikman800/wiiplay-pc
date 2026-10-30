@@ -53,6 +53,12 @@ TextBox::TextBox(const res::TextBox* pRes, const ResBlockSet& rBlockSet)
 
         u16 resLen = pRes->textStrBytes / sizeof(wchar_t) - 1;
         SetString(pResStr, 0, resLen);
+#if defined(PORT_HOST)
+        // The file's text is UTF-16BE; the copy is converted to host order.
+        for (u16 i = 0; i < mTextLen; i++) {
+            mTextBuf[i] = port_load_be16(&mTextBuf[i]);
+        }
+#endif
     }
 
     for (int i = 0; i < TEXTCOLOR_MAX; i++) {
@@ -94,7 +100,7 @@ TextBox::TextBox(const res::TextBox* pRes, const ResBlockSet& rBlockSet)
     void* pMaterialBuf = Layout::AllocMemory(sizeof(Material));
 
     if (pMaterialBuf != NULL) {
-        const u32* const pMatOffsetTbl = detail::ConvertOffsToPtr<u32>(
+        const be_u32* const pMatOffsetTbl = detail::ConvertOffsToPtr<be_u32>(
             rBlockSet.pMaterialList, sizeof(res::MaterialList));
 
         const res::Material* const pResMaterial =

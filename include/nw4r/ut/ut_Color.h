@@ -4,6 +4,8 @@
 
 #include <revolution/GX.h>
 
+#include <port/be.h>
+
 namespace nw4r {
 namespace ut {
 
@@ -36,7 +38,7 @@ public:
         return *this;
     }
     Color& operator=(const GXColor& rColor) {
-        *this = *reinterpret_cast<const u32*>(&rColor);
+        *this = *reinterpret_cast<const be_u32*>(&rColor);
         return *this;
     }
 
@@ -47,11 +49,13 @@ public:
         return Color(ToU32() & color);
     }
 
-    u32& ToU32ref() {
-        return *reinterpret_cast<u32*>(this);
+    // The u32 form of a color is 0xRRGGBBAA (the bytes r, g, b, a read
+    // big-endian).
+    be_u32& ToU32ref() {
+        return *reinterpret_cast<be_u32*>(this);
     }
-    const u32& ToU32ref() const {
-        return *reinterpret_cast<const u32*>(this);
+    const be_u32& ToU32ref() const {
+        return *reinterpret_cast<const be_u32*>(this);
     }
 
     u32 ToU32() const {

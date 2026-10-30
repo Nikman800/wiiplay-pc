@@ -279,8 +279,8 @@ Material::Material(const res::Material* pRes, const ResBlockSet& rBlockSet) {
     const res::TexMap* const pResTexMap = detail::ConvertOffsToPtr<res::TexMap>(pRes, offset);
     offset += pRes->resNum.GetTexMapNum() * sizeof(res::TexMap);
 
-    const TexSRT* const pResTexSrt = detail::ConvertOffsToPtr<TexSRT>(pRes, offset);
-    offset += pRes->resNum.GetTexSRTNum() * sizeof(TexSRT);
+    const res::TexSRT* const pResTexSrt = detail::ConvertOffsToPtr<res::TexSRT>(pRes, offset);
+    offset += pRes->resNum.GetTexSRTNum() * sizeof(res::TexSRT);
 
     const TexCoordGen* const pResTexCoordGen = detail::ConvertOffsToPtr<TexCoordGen>(pRes, offset);
     offset += pRes->resNum.GetTexCoordGenNum() * sizeof(TexCoordGen);
@@ -375,14 +375,14 @@ Material::Material(const res::Material* pRes, const ResBlockSet& rBlockSet) {
         if (indTexSrtNum != 0) {
             TexSRT* const pIndTexSrt = GetIndTexSRTAry();
 
-            const TexSRT* const pResIndTexSrt =
-                detail::ConvertOffsToPtr<TexSRT>(pRes, offset);
+            const res::TexSRT* const pResIndTexSrt =
+                detail::ConvertOffsToPtr<res::TexSRT>(pRes, offset);
 
             for (int i = 0; i < indTexSrtNum; i++) {
                 pIndTexSrt[i] = pResIndTexSrt[i];
             }
         }
-        offset += pRes->resNum.GetIndTexSRTNum() * sizeof(TexSRT);
+        offset += pRes->resNum.GetIndTexSRTNum() * sizeof(res::TexSRT);
 
         if (indStageNum != 0) {
             SetIndStageNum(indStageNum);

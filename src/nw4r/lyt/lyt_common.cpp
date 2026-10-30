@@ -92,7 +92,7 @@ void TexCoordAry::SetSize(u8 num) {
 
 void TexCoordAry::Copy(const void* pSrc, u8 num) {
     mNum = ut::Max<u8>(mNum, num);
-    const TexCoord* pSrcCoords = static_cast<const TexCoord*>(pSrc);
+    const res::TexCoord* pSrcCoords = static_cast<const res::TexCoord*>(pSrc);
 
     for (int j = 0; j < num; j++) {
         for (int i = 0; i < VERTEXCOLOR_MAX; i++) {

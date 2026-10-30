@@ -29,6 +29,7 @@ class Pane;
  */
 class RPSysSystemWinMgr {
     RP_SINGLETON_DECL_EX(RPSysSystemWinMgr);
+    friend class RPSysTagProcessor; // sets mSeType from a message tag
 
 public:
     enum E_ALIGN {};

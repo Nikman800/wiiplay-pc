@@ -60,6 +60,19 @@ wchar_t* port_wmemchr(const wchar_t* ptr, wchar_t chr, size_t count);
 }
 #endif
 
+#ifdef __cplusplus
+// std::wcslen and friends (after the macros below) name the same functions.
+namespace std {
+using ::port_wcslen;
+using ::port_wcscpy;
+using ::port_wcsncpy;
+using ::port_wcscmp;
+using ::port_wcschr;
+using ::port_wmemcpy;
+using ::port_wmemchr;
+} // namespace std
+#endif
+
 #define wcslen port_wcslen
 #define wcscpy port_wcscpy
 #define wcsncpy port_wcsncpy

@@ -5,6 +5,8 @@
 #include <nw4r/math.h>
 #include <nw4r/ut.h>
 
+#include <nw4r/lyt/lyt_types.h>
+
 #include <revolution/GX.h>
 
 namespace nw4r {
@@ -103,6 +105,18 @@ inline void SetVerticalPosition(u8* pPacked, u8 value) {
  ******************************************************************************/
 typedef math::VEC2 TexCoord[VERTEXCOLOR_MAX];
 
+} // namespace detail
+
+namespace res {
+#if PORT_BE_WRAPPED
+typedef VEC2 TexCoord[VERTEXCOLOR_MAX];
+#else
+typedef detail::TexCoord TexCoord;
+#endif
+} // namespace res
+
+namespace detail {
+
 class TexCoordAry {
 public:
     TexCoordAry();
@@ -140,11 +154,11 @@ inline bool IsCITexelFormat(GXTexFmt format) {
 }
 
 inline s32 GetSignatureInt(const char* pSignature) {
-    return *reinterpret_cast<const s32*>(pSignature);
+    return *reinterpret_cast<const be_s32*>(pSignature);
 }
 
 inline const char* GetStrTableStr(const void* pTable, int index) {
-    const u32* pOffsetTbl = static_cast<const u32*>(pTable);
+    const be_u32* pOffsetTbl = static_cast<const be_u32*>(pTable);
     const char* pStringPool = static_cast<const char*>(pTable);
     return pStringPool + pOffsetTbl[index];
 }

@@ -40,7 +40,7 @@ struct Group {
 
     DataBlockHeader blockHeader;      // at 0x0
     char name[NW4R_LYT_RES_NAME_LEN]; // at 0x8
-    u16 paneNum;                      // at 0x18
+    be_u16 paneNum;                   // at 0x18
     u8 PADDING_0x1A[0x1C - 0x1A];     // at 0x1A
 };
 

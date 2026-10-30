@@ -30,7 +30,7 @@ Picture::Picture(const res::Picture* pRes, const ResBlockSet& rBlockSet)
     void* pMaterialBuf = Layout::AllocMemory(sizeof(Material));
 
     if (pMaterialBuf != NULL) {
-        const u32* const pMatOffsetTbl = detail::ConvertOffsToPtr<u32>(
+        const be_u32* const pMatOffsetTbl = detail::ConvertOffsToPtr<be_u32>(
             rBlockSet.pMaterialList, sizeof(res::MaterialList));
 
         const res::Material* const pResMaterial =

@@ -22,8 +22,8 @@ namespace res {
 struct Picture : Pane {
     static const u32 SIGNATURE = FOURCC('p', 'i', 'c', '1');
 
-    u32 vtxCols[VERTEXCOLOR_MAX]; // at 0x4C
-    u16 materialIdx;              // at 0x5C
+    be_u32 vtxCols[VERTEXCOLOR_MAX]; // at 0x4C
+    be_u16 materialIdx;              // at 0x5C
     u8 texCoordNum;               // at 0x5E
     u8 PADDING_0x5F;              // at 0x5F
 };

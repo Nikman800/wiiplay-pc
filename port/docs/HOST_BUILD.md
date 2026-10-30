@@ -1,7 +1,8 @@
 # Host build: the loader harnesses, the big-endian field wrapper and pointer slots
 
 Status (2026-10-30): the first pieces of the game that run natively on a PC are the disc load
-path, the font loader and the message loader.
+path, the font loader, the message loader, TPL binding and the layout loader (`nw4r::lyt`
+build and animation binding, no drawing yet).
 
 - The decompiled Yaz0 decoder and U8 archive code, compiled with GCC for Linux x86-64, open every
   archive on the player's disc and read every file inside. The result matches
@@ -10,9 +11,16 @@ path, the font loader and the message loader.
   Menu fonts inside layout archives) and answers glyph lookups for every code point exactly as an
   independent Python decoder does.
 - The real `RPSysMessage` / `EGG::MsgRes` reads both BMG files with a 16-bit `wchar_t`.
+- `TPLBind` relocates every `.tpl` on the disc (471, all inside layout archives) in place with
+  M0 addresses, and `lyt::TexMap` reads them back.
+- The real `lyt::Layout::Build` builds all 140 `.brlyt` files on the disc (4120 panes, 2633
+  materials, 207 groups), and every `.brlan` (604) is bound to every layout of its archive
+  through `Layout::CreateAnimTransform` / `AnimTransformBasic` (4248 binds). Everything matches
+  an independent decoding with `port/assets/tools/fmt_layout.py` (§1, the layout harness).
 
-`POINTERS.md` steps 0 to 2 are implemented: M0 (emulated Wii addresses for all host heap memory),
-`RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, and ResFont (§5 to §7 below).
+`POINTERS.md` steps 0 to 4 are implemented: M0 (emulated Wii addresses for all host heap memory),
+`RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, ResFont (§5 to §7 below), TPL
+and the layout resource structs (§9), and the two hard-coded runtime offsets (§10).
 
 ## 1. Build and run
 
@@ -21,7 +29,7 @@ Requirements: GCC/G++ (tested with 15.2), GNU make and Python 3. CMake is not ne
 
 ```sh
 cd port/host
-make                       # 64-bit (primary): build/host64/{arc_harness,res_harness,test_*}
+make                       # 64-bit (primary): build/host64/{arc_harness,res_harness,lyt_harness,test_*}
 make test                  # unit tests + archive and resource comparisons (DISC defaults to ~/wii-play/extracted/files)
 make test DISC=/path/to/extracted/files
 make M32=1 test            # same code built with -m32 into build/host32 (cross-check)
@@ -48,16 +56,22 @@ files: BRFNT 8, BMG 2
 lines: F 8/8, C 8/8, W 8/8, G 1983/1983, A 8/8, M 714/714 (harness/python)
 missing 0, extra 0
 OK
+lyt_harness: 471 TPL files (443 already bound by a layout), 140 layouts (4120 panes), 604 animations (4248 binds, 8086 bound contents), 0 errors (pointer size 8)
+files: TPL 471, BRLYT 140, BRLAN 604
+lines: T 471/471, TD 472/472, L 140/140, P 4120/4120, M 2633/2633, G 207/207, A 4248/4248, AC 41949/41949 (harness/python)
+missing 0, extra 0
+OK
 ```
 
 | Target | What it runs |
 |---|---|
-| `unit` | `test_be`, `test_be_c` (wrapper), `test_port`, `test_port_c` (M0 arena, `RES_PTR`, wide functions, C++ and C), `test_layout` (compile-time struct layout checks) |
+| `unit` | `test_be`, `test_be_c` (wrapper), `test_port`, `test_port_c` (M0 arena, `RES_PTR`, wide functions, C++ and C), `test_layout` (compile-time struct layout checks); also compiles the step 4 units (§10) |
 | `archives` | `arc_harness` + `tests/test_archives.py` |
 | `resources` | `res_harness` + `tests/test_resources.py` |
+| `layouts` | `lyt_harness` + `tests/test_layouts.py` |
 
 The harnesses take well under a second each. The Python reference walks take about 13 s
-(archives, which hashes every file) and 3 s (resources). Nothing is written to disk except the
+(archives, which hashes every file), 3 s (resources) and 3 s (layouts). Nothing is written to disk except the
 build directory, which is ignored by git. Disc data never leaves the extracted folder.
 
 ### What the harness does
@@ -135,7 +149,41 @@ as relative to the current block, whereas `Rebuild` resolves it from the start o
 also read direct maps' base index from +0x8 instead of +0xC. All 8 fonts parse now; the report is
 `port/assets/formats/text_font.report.txt`.
 
-### Host stand-ins (`src/host_sdk.cpp`, `src/host_arena.cpp`, `src/host_text.cpp`)
+### The layout harness (`tests/lyt_harness.cpp`)
+
+For every mounted archive with a `blyt` directory (at the root, as in the game's layout
+archives, or under `arc/`, as in the HOME Menu archives) it attaches a real
+`lyt::ArcResourceAccessor` (root `""` or `"arc"`; the game passes `""`,
+`RPSysLytResAccessor::mountArchive`), then for every `.brlyt`:
+
+- `Layout::Build`: panes, pictures, text boxes (fonts from the archive through `ResFont`),
+  windows, boundings, groups and materials. Each material fetches its `timg/*.tpl` and calls
+  `TexMap::Set(TPLPalette*, 0)`, which runs `TPLBind` (§9) the first time.
+- It prints the pane tree depth-first (kind from `ut::DynamicCast`, name, user data, visibility,
+  alpha, base position, translate/rotate/scale/size, material; text length, hash, font,
+  font size, spacing and colours for text boxes; vertex colours; window frame materials), every
+  material (TEV colours and constant colours, texture SRT 0, every texture's TPL size, format
+  and wrap modes through `TexMap`), and every group with its panes.
+- For every `.brlan` of the same archive: `Layout::CreateAnimTransform` and
+  `Layout::BindAnimation`. It prints `GetFrameSize`, `IsLoopData`, and for each animation
+  content whether `AnimTransformBasic::Bind` linked it to a pane or material.
+
+Layouts are allocated through `Layout::SetAllocator` with an `MEMAllocator` whose functions call
+the M0 arena. For every `.tpl` leaf it calls `TPLBind` itself unless a layout already bound it
+(the "already bound" test of `TexMap::Set`, which therefore runs on both branches: 443 palettes
+are bound by layouts first, 28 by the harness), and reads every descriptor back through `TPLGet`
+and `lyt::TexMap::Set(TPLPalette*, id)`, which must agree.
+
+`tests/test_layouts.py` builds the same lines from `port/assets/tools/fmt_layout.py` (imported
+read-only; BRLYT, BRLAN and TPL decoded from the file format) and `wiiarc.py`. The rules that
+decide a line (block nesting, `grp1` depth 1 only, the `GX_MAX_TEXMAP` and `MAX_TEX_SRT`
+clamps, the text buffer length, name matching for binding) are written out from the format.
+One `fmt_layout.py` bug turned up: `parse_string_list` resolves `txl1`/`fnl1` name offsets
+from the block start, but they are relative to the first entry (block + 12, as
+`Material` and `TextBox` resolve them), so its `name` fields are empty or wrong; the test
+reads the names itself.
+
+### Host stand-ins (`src/host_sdk.cpp`, `src/host_arena.cpp`, `src/host_text.cpp`, `src/host_tpl.cpp`, `src/host_gx.cpp`)
 
 These are deliberately minimal and synchronous. The Phase 7 platform layer replaces them.
 
@@ -160,6 +208,12 @@ These are deliberately minimal and synchronous. The Phase 7 platform layer repla
   physical address as a `u32` (`vaddr & 0x3FFFFFFF`). On the Wii it returns a pointer that every
   caller casts to `u32`.
 - **Text**: `PortSwapBmgText` (§6).
+- **TPL**: `TPLBind` / `TPLGet` (§9).
+- **GX**: every GX call that `lyt` and `ut::CharWriter` link is a no-op (`src/host_gx.cpp`).
+- **MTX**: `PSMTXCopy`, `Concat`, `Scale`, `TransApply` and `RotRad` in plain C++ (the decomp's
+  versions are paired-single assembly).
+- **MEM**: `MEMAllocFromAllocator` / `MEMFreeToAllocator` dispatch through the allocator's
+  function table, as `src/revolution/MEM/mem_allocator.c` does.
 - **VI, DC**: no-ops.
 
 ## 2. The big-endian field wrapper
@@ -228,9 +282,11 @@ Rules:
     the decomp's `build.ninja`, writing to a temporary directory.
   - It compares each object byte for byte with the decomp checkout's object.
   - It skips a unit when any of its other dependencies differs between the two checkouts.
-- **Result on 2026-10-30, after the ResFont/BMG changes.** All 734 units that depend on the
-  touched files (§4; the list is `TOUCHED` in the script) are byte-identical, and none were
-  skipped. Run it after every change to a decomp file:
+- **Result on 2026-10-30, after the TPL, layout and step 4 changes.** All 734 units that
+  depend on the touched files (§4; the list is `TOUCHED` in the script, 34 files) are
+  byte-identical, and none were skipped. They include every `nw4r/lyt` unit,
+  `RPPlayerNameTag.o` and the unlinked `RPSysTagProcessor.o` (identical to the decomp's object,
+  so its 4 differences from the target are unchanged). Run it after every change to a decomp file:
 
   ```sh
   python3 port/host/tools/check_matching.py --decomp ~/wii-play -j 16    # ~1 min
@@ -248,6 +304,11 @@ All of these live in `port/host/include`, which shadows `include/` on the host o
 | `port/be.h`, `port/host.h` | The wrapper; `PortHostSetDiscRoot`, `PortSwapBmgText`. |
 | `port/arena.h`, `port/resptr.h`, `port/wide.h` | M0, `RES_PTR`, 16-bit `wchar_t` (§5, §6). |
 | `revolution/OS/OSAddress.h` | Physical/cached conversions through M0 (§1, host stand-ins). |
+| `revolution/TPL/TPL.h` | The TPL structs with `be_*`, `BE_ENUM` and `RES_PTR` members (§9). |
+
+`types.h` also defines `std::stricmp` (MSL has it; `ArcResourceAccessor`'s name lookup uses it)
+as `strcasecmp`, and `port/wide.h` adds `std::` using-declarations for the `port_wcs*`
+functions so `std::wcslen` resolves after the renaming macros.
 
 Build flags: `-DPORT_HOST=1 -DNONMATCHING -DREVOLUTION -DNDEBUG=1 -DVERSION_RHAE01
 -DVERSION_RHAE01_01`, `-std=gnu++17 -fno-exceptions -fno-rtti` (C: `-std=gnu11`),
@@ -313,6 +374,22 @@ check in §2 confirms all of them.
 | `include/egg/util/eggMsgRes.h` | `#include <port/be.h>`. The BMG header, block, INF1 entry and MID1 numeric members are `be_u32`/`be_u16` (`mContent` of MID1 is `be_u32[]`). `wchar_t mContent[1]` (DAT1) is unchanged; `-fshort-wchar` gives it the Wii layout. |
 | `src/egg/util/eggMsgRes.cpp` | Two `#if defined(PORT_HOST)` blocks: the block-bounds assert at `#line 77` compares `const u8*` instead of `(u32)` casts, and `analyzeTag` reads the tag id with `port_load_be32` (tag payloads stay big-endian, §6). The Wii branches are the original lines with the original `#line`. |
 | `include/Pack/RPKernel/RPSysMessage.h` | `RPSysMessage::Entry::scale` is `be_u16`. |
+| `include/nw4r/ut/ut_Color.h` | `#include <port/be.h>`. `ToU32ref()` returns `be_u32&` (and `operator=(const GXColor&)` reads through `be_u32`): the u32 form of a colour is `0xRRGGBBAA` on every host, so colours read from `be_u32` file fields (vertex and text colours) land in the right bytes. Type tokens only. |
+| `include/nw4r/lyt/lyt_types.h` | `#include <port/be.h>`. `detail::TestBit` / `GetBits` overloads for `port::be<T, S>` under `#if PORT_BE_WRAPPED`. A `res` block after `TexSRT`: on the host the file value types `res::VEC2`, `VEC3`, `Size`, `GXColorS10`, `TexSRT` (big-endian members, each converting to the runtime type); on the Wii `typedef`s of `math::VEC2`, `math::VEC3` and `TexSRT` (`res::Size` and `res::GXColorS10` are host-only; on the Wii the unqualified names in `res` find the runtime types as before). |
+| `include/nw4r/lyt/lyt_common.h` | Includes `lyt_types.h`. `res::TexCoord` (host: `res::VEC2[4]`, Wii: `typedef detail::TexCoord`). `GetSignatureInt` reads `be_s32`, `GetStrTableStr` reads a `be_u32` offset table. |
+| `include/nw4r/lyt/lyt_resources.h` | `BinaryFileHeader`, `DataBlockHeader`, `Texture`, `Font`, the three list headers, `res::TexMap` and `MaterialResourceNum::bits`: `be_u16`/`be_u32`. |
+| `include/nw4r/lyt/lyt_pane.h` | `res::Pane`: `math::VEC3`/`math::VEC2` → `VEC3`/`VEC2` (resolved in `res`; the same types on the Wii). |
+| `include/nw4r/lyt/lyt_picture.h`, `lyt_textBox.h`, `lyt_group.h`, `lyt_animation.h` | `res::Picture`, `res::TextBox`, `res::Group`, `res::AnimationBlock`, `res::AnimationInfo`: integer and float members `be_*`. |
+| `include/nw4r/lyt/lyt_window.h` | `res::WindowContent`, `WindowFrame`, `Window` members `be_*`; a host-only `res::InflationLRTB` under `#if PORT_BE_WRAPPED`. |
+| `src/nw4r/lyt/lyt_animation.cpp` | `res::AnimationTarget`, `StepKey`, `HermiteKey` members `be_*`; the offset tables are read as `be_u32` (`ConvertOffsToPtr<be_u32>`, `const be_u32*`). |
+| `src/nw4r/lyt/lyt_picture.cpp`, `lyt_textBox.cpp`, `lyt_window.cpp` | Material and frame offset tables read as `be_u32`. `lyt_textBox.cpp` also has one `#if defined(PORT_HOST)` block after `SetString` that converts the copied text from UTF-16BE (the file stays as it is). |
+| `src/nw4r/lyt/lyt_material.cpp` | The texture SRTs in the file are read as `res::TexSRT` (3 lines). |
+| `src/nw4r/lyt/lyt_common.cpp` | `TexCoordAry::Copy` reads `res::TexCoord`. |
+| `src/nw4r/lyt/lyt_texMap.cpp` | `#include <port/resptr.h>`; the bound test `reinterpret_cast<u32>(descriptorArray) < 0x80000000` → `PORT_PTR_TO_U32(...)` (POINTERS.md §3.1). |
+| `src/nw4r/lyt/lyt_arcResourceAccessor.cpp` | `GetResourceSub`'s `unsigned long* pSize` → `u32* pSize` (the declaration's type; `u32` is `unsigned long` on the Wii). |
+| `src/Pack/RPKernel/RPSysTagProcessor.cpp` | §10. |
+| `include/Pack/RPKernel/RPSysSystemWinMgr.h` | `friend class RPSysTagProcessor;` (§10). |
+| `src/Pack/RPParty/RPPartyCommon/RPPlayerNameTag.cpp` | §10: an `#if defined(PORT_HOST)` include and an `#if defined(PORT_HOST)` argument. |
 
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
@@ -376,7 +453,7 @@ Design: `POINTERS.md` §2. Implementation:
   and id with `port_load_be32` on the host. Call it after loading and before constructing
   `RPSysMessage`; the Phase 7 loader will call it where the game creates `RPSysMessage`
   (for example `RPTnkLyt`, `RPDucHud`, `RPBomLyt`, `RPPnpGame`, `RPHkyGame`).
-  BRLYT `txt1` strings need the same treatment when lyt is brought up.
+  BRLYT `txt1` strings are converted by `lyt::TextBox` when it copies them (§4).
 
 ## 7. Layout checks
 
@@ -384,18 +461,23 @@ Design: `POINTERS.md` §2. Implementation:
 `offsetof(...)` checks, taken from the `// at 0xNN` comments in the headers, for every struct
 moved to `be_*`/`RES_PTR` so far: `BinaryFileHeader`, `BinaryBlockHeader`, `CharWidths`,
 `FontTextureGlyph`, `FontWidth`, `FontCodeMap`, `FontInformation`, the `EGG::MsgRes` block
-structs (checked from a derived class because they are protected), and `RPSysMessage::Entry`. It
-also checks that DAT1 text elements are 2 bytes. The checks run when the file compiles, in both
+structs (checked from a derived class because they are protected), `RPSysMessage::Entry`, the
+four TPL structs, the `lyt::res` blocks and value types (`AnimationTarget`, `StepKey` and
+`HermiteKey` are local to `lyt_animation.cpp`; the layout harness covers them), and
+`ut::Color`. It also checks that DAT1 text elements are 2 bytes. The decomp's `TPL.h` comments
+`TPLClutHeader.unpacked` as `at 0x1`; it is at 0x2 (after the `u16`), on the Wii too. The checks run when the file compiles, in both
 the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrapper types.
 
 ## 8. Next steps
 
-- `POINTERS.md` step 3: TPL (shadow `TPL.h` with `RES_PTR`/`be_*`, a host `TPL.c`, and
-  `lyt_texMap.cpp:33` → `PORT_PTR_TO_U32`), then the layouts.
+- `POINTERS.md` step 5 (g3d). It also makes `RPPlayerNameTag.cpp` build in the 64-bit host
+  build: `g3d_obj.h` and `eggCpuTexture.h` cast pointers to `u32`.
+- Drawing layouts needs the Phase 7 GX layer behind `src/host_gx.cpp`, and the
+  `nw4r::math` inline-assembly helpers: `math_arithmetic.h` `FAbs` (and others written as
+  `register` + asm) return an uninitialised value on the host, because `ASM(...)` compiles away.
+  Nothing on the build/bind path calls them.
 - Move the next loaders onto `be_*` as they are brought up. Each needs the type declarations, a
   small number of C `BE_GET`s, a `layout_asserts.cpp` block and a `check_matching.py` run:
-  - TPL headers (C)
-  - `lyt::res::*`
   - `g3d::Res*Data`
   - `ef` headers
   - `snd` file structs
@@ -403,3 +485,42 @@ the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrap
 - Replace `src/host_sdk.cpp` with the Phase 7 OS/DVD/heap layer: real threads, message queues
   that block, and MEM heaps (the decomp's `src/revolution/MEM` could compile as-is once the OS
   layer exists), carved from the M0 arena.
+
+## 9. TPL and layouts
+
+- **TPL.** `port/host/include/revolution/TPL/TPL.h` shadows the SDK header: the scalar fields
+  are `be_*`, the GX enum fields `BE_ENUM(E, u32)`, and the five pointer slots
+  (`descriptorArray`, `textureHeader`, `CLUTHeader`, both `data`) `RES_PTR`. `revolution/TPL.h`
+  includes it inside `extern "C"`, so it pulls in the wrapper headers under `extern "C++"`.
+  `src/host_tpl.cpp` is `TPLBind`/`TPLGet` with the algorithm of `src/revolution/TPL/TPL.c`
+  (same order, the same `unpacked` guards), storing `palette + offset` through `RES_PTR`, i.e.
+  as M0 addresses: a bound palette is the Wii image of the palette, and `TexMap::Set`'s test
+  `PORT_PTR_TO_U32(descriptorArray) < 0x80000000` (the raw slot value) works on every host.
+  The decomp's `TPL.c` is not compiled on the host (its casts through `u32` cannot be expressed
+  with the wrapper in C); image and palette bytes stay GX-native.
+- **Layout resource structs.** Every integer and float field that the CPU reads from a BRLYT or
+  BRLAN is `be_*` (§4). Fields that are copied into runtime objects whole (`math::VEC2/VEC3`,
+  `Size`, `TexSRT`, `GXColorS10`, `InflationLRTB`, texture coordinates) have a `res::` file type
+  on the host that converts on copy, and are the runtime type itself on the Wii. Fields of one
+  byte (most material GX state) are unchanged and copied as bytes. Colours stored as `u32`
+  (vertex and text colours) go through `ut::Color`'s `be_u32` view. The animation keys are read
+  big-endian on every `Animate`, so the file is never swapped or rewritten.
+
+## 10. Hard-coded runtime offsets (POINTERS.md step 4)
+
+- **`RPSysTagProcessor.cpp` (message tag `0x20002`).** Was
+  `*reinterpret_cast<bool*>(reinterpret_cast<u32>(RPSysSystemWinMgr::instance()) + idx + 0xD4)`.
+  Now `reinterpret_cast<uintptr_t>(instance()) + idx + offsetof(RPSysSystemWinMgr, mSeType)`:
+  the same sum, with the member named and the address in an integer as wide as a pointer. On
+  the Wii `uintptr_t` and `size_t` are `unsigned long` and `offsetof` is `0xD4`, so CodeWarrior
+  emits the same code (the natural `instance()->mSeType[idx] = true` still swaps registers, so
+  the NONMATCHING-DEBT note stays). `RPSysSystemWinMgr` declares `RPSysTagProcessor` a friend
+  for the `offsetof` of the private member. No `#if`; the unit compiles in both host builds
+  (`make` builds its object).
+- **`RPPlayerNameTag.cpp` (the Mii name of each player).** Was
+  `reinterpret_cast<const wchar_t*>(reinterpret_cast<u32>(pHeads[mPlayer]) + 0x68)`, i.e.
+  `RPSysAvatar::mAdditionalInfo.name`. The Wii build cannot include the class (its header chain
+  adds g3d data this unit does not have), so the host form sits in `#if defined(PORT_HOST)`:
+  `pParams->pHeads[mPlayer]->mAdditionalInfo.name`, with `RPKokeshiMgr.h` (the
+  `RPKokeshiHead` definition) included under the same guard. The Wii branch is the original line.
+  It compiles in the `-m32` host build; the 64-bit build waits for the g3d headers (§8).

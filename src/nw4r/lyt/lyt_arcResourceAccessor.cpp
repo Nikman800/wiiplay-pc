@@ -40,7 +40,7 @@ s32 FindNameResource(ARCHandle* pHandle, const char* pName) {
 }
 
 void* GetResourceSub(ARCHandle* pHandle, const char* pRootDir, u32 type,
-                     const char* pName, unsigned long* pSize) {
+                     const char* pName, u32* pSize) {
 
     s32 entrynum = -1;
 

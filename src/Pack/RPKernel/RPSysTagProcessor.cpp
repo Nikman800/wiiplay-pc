@@ -89,11 +89,13 @@ void RPSysTagProcessor::PreProcessEx(const wchar_t* pSrc, wchar_t* pDst,
                 pMgr->mHoverButton[2] = v;
                 pMgr->mHoverButton[3] = v;
             } else if (tagId == 0x20002) {
-                // NONMATCHING-DEBT: byte offset to RPSysSystemWinMgr::mSeType (0xD4). The natural
+                // NONMATCHING-DEBT: RPSysSystemWinMgr::mSeType[index] as an address sum. The natural
                 // RPSysSystemWinMgr::instance()->mSeType[*static_cast<u8*>(pParam)] = true (also via
                 // a local manager pointer, a local index, pointer arithmetic) swaps r0/r4 for the
                 // instance and the index (3 words in PreProcessEx).
-                *reinterpret_cast<bool*>(reinterpret_cast<u32>(RPSysSystemWinMgr::instance()) + *static_cast<u8*>(pParam) + 0xD4) = true;
+                *reinterpret_cast<bool*>(reinterpret_cast<uintptr_t>(RPSysSystemWinMgr::instance()) +
+                                         *static_cast<u8*>(pParam) +
+                                         offsetof(RPSysSystemWinMgr, mSeType)) = true;
             } else if (tagId == 0x20003) {
                 u8 page = *static_cast<u8*>(pParam);
                 RPSysSystemWinMgr::instance()->setMessagePage(page);

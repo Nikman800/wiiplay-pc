@@ -28,26 +28,26 @@ struct AnimationTarget {
     u8 target;                 // at 0x1
     u8 curveType;              // at 0x2
     u8 PADDING_0x3;            // at 0x3
-    u16 keyNum;                // at 0x4
+    be_u16 keyNum;             // at 0x4
     u8 PADDING_0x6[0x8 - 0x6]; // at 0x6
-    u32 keysOffset;            // at 0x8
+    be_u32 keysOffset;         // at 0x8
 };
 
 /******************************************************************************
  * StepKey
  ******************************************************************************/
 struct StepKey {
-    f32 frame;       // at 0x0
-    u16 value;       // at 0x4
+    be_f32 frame;    // at 0x0
+    be_u16 value;    // at 0x4
     u16 PADDING_0x6; // at 0x6
 };
 /******************************************************************************
  * HermiteKey
  ******************************************************************************/
 struct HermiteKey {
-    f32 frame; // at 0x0
-    f32 value; // at 0x4
-    f32 slope; // at 0x8
+    be_f32 frame; // at 0x0
+    be_f32 value; // at 0x4
+    be_f32 slope; // at 0x8
 };
 
 } // namespace res
@@ -155,7 +155,7 @@ f32 GetHermiteCurveValue(f32 frame, const res::HermiteKey* pKeys, u32 numKey) {
 
 // @typo
 void AnimatePainSRT(Pane* pPane, const res::AnimationInfo* pAnimInfo,
-                    const u32* pTargetOffsetTbl, f32 frame) {
+                    const be_u32* pTargetOffsetTbl, f32 frame) {
 
     for (int i = 0; i < pAnimInfo->num; i++) {
         const res::AnimationTarget* pTarget =
@@ -173,7 +173,7 @@ void AnimatePainSRT(Pane* pPane, const res::AnimationInfo* pAnimInfo,
 }
 
 void AnimateVisibility(Pane* pPane, const res::AnimationInfo* pAnimInfo,
-                       const u32* pTargetOffsetTbl, f32 frame) {
+                       const be_u32* pTargetOffsetTbl, f32 frame) {
 
     for (int i = 0; i < pAnimInfo->num; i++) {
         const res::AnimationTarget* pTarget =
@@ -189,7 +189,7 @@ void AnimateVisibility(Pane* pPane, const res::AnimationInfo* pAnimInfo,
 }
 
 void AnimateVertexColor(Pane* pPane, const res::AnimationInfo* pAnimInfo,
-                        const u32* pTargetOffsetTbl, f32 frame) {
+                        const be_u32* pTargetOffsetTbl, f32 frame) {
 
     for (int i = 0; i < pAnimInfo->num; i++) {
         const res::AnimationTarget* pTarget =
@@ -211,7 +211,7 @@ void AnimateVertexColor(Pane* pPane, const res::AnimationInfo* pAnimInfo,
 
 void AnimateMaterialColor(Material* pMaterial,
                           const res::AnimationInfo* pAnimInfo,
-                          const u32* pTargetOffsetTbl, f32 frame) {
+                          const be_u32* pTargetOffsetTbl, f32 frame) {
 
     for (int i = 0; i < pAnimInfo->num; i++) {
         const res::AnimationTarget* pTarget =
@@ -235,7 +235,7 @@ void AnimateMaterialColor(Material* pMaterial,
 }
 
 void AnimateTextureSRT(Material* pMaterial, const res::AnimationInfo* pAnimInfo,
-                       const u32* pTargetOffsetTbl, f32 frame) {
+                       const be_u32* pTargetOffsetTbl, f32 frame) {
 
     for (int i = 0; i < pAnimInfo->num; i++) {
         const res::AnimationTarget* pTarget =
@@ -256,7 +256,7 @@ void AnimateTextureSRT(Material* pMaterial, const res::AnimationInfo* pAnimInfo,
 
 void AnimateTexturePattern(Material* pMaterial,
                            const res::AnimationInfo* pAnimInfo,
-                           const u32* pTargetOffsetTbl, f32 frame,
+                           const be_u32* pTargetOffsetTbl, f32 frame,
                            void** ppTexPalettes) {
 
     for (int i = 0; i < pAnimInfo->num; i++) {
@@ -279,7 +279,7 @@ void AnimateTexturePattern(Material* pMaterial,
 }
 
 void AnimateIndTexSRT(Material* pMaterial, const res::AnimationInfo* pAnimInfo,
-                      const u32* pTargetOffsetTbl, f32 frame) {
+                      const be_u32* pTargetOffsetTbl, f32 frame) {
 
     for (int i = 0; i < pAnimInfo->num; i++) {
         const res::AnimationTarget* pTarget =
@@ -349,7 +349,7 @@ void AnimTransformBasic::SetResource(const res::AnimationBlock* pBlock,
             Layout::AllocMemory(mpRes->fileNum * sizeof(void*)));
 
         if (mpFileResAry != NULL) {
-            const u32* pStrTable = detail::ConvertOffsToPtr<u32>(
+            const be_u32* pStrTable = detail::ConvertOffsToPtr<be_u32>(
                 mpRes, sizeof(res::AnimationBlock));
 
             for (int i = 0; i < mpRes->fileNum; i++) {
@@ -377,8 +377,8 @@ void AnimTransformBasic::SetResource(const res::AnimationBlock* pBlock,
 }
 
 void AnimTransformBasic::Bind(Pane* pPane, bool recursive) {
-    const u32* const pContentOffsetTbl =
-        detail::ConvertOffsToPtr<u32>(mpRes, mpRes->animContOffsetsOffset);
+    const be_u32* const pContentOffsetTbl =
+        detail::ConvertOffsToPtr<be_u32>(mpRes, mpRes->animContOffsetsOffset);
 
     for (u16 i = 0; i < mpRes->animContNum; i++) {
         const res::AnimationContent& rContent =
@@ -405,8 +405,8 @@ void AnimTransformBasic::Bind(Pane* pPane, bool recursive) {
 }
 
 void AnimTransformBasic::Bind(Material* pMaterial) {
-    const u32* const pContentOffsetTbl =
-        detail::ConvertOffsToPtr<u32>(mpRes, mpRes->animContOffsetsOffset);
+    const be_u32* const pContentOffsetTbl =
+        detail::ConvertOffsToPtr<be_u32>(mpRes, mpRes->animContOffsetsOffset);
 
     for (u16 i = 0; i < mpRes->animContNum; i++) {
         const res::AnimationContent& rContent =
@@ -424,20 +424,20 @@ void AnimTransformBasic::Bind(Material* pMaterial) {
 
 void AnimTransformBasic::Animate(u32 idx, Pane* pPane) {
     u32 contentOffset =
-        detail::ConvertOffsToPtr<u32>(mpRes, mpRes->animContOffsetsOffset)[idx];
+        detail::ConvertOffsToPtr<be_u32>(mpRes, mpRes->animContOffsetsOffset)[idx];
 
     const res::AnimationContent* pContent =
         detail::ConvertOffsToPtr<res::AnimationContent>(mpRes, contentOffset);
 
-    const u32* pInfoOffsetTbl =
-        detail::ConvertOffsToPtr<u32>(pContent, sizeof(res::AnimationContent));
+    const be_u32* pInfoOffsetTbl =
+        detail::ConvertOffsToPtr<be_u32>(pContent, sizeof(res::AnimationContent));
 
     for (int i = 0; i < pContent->num; i++) {
         const res::AnimationInfo* pAnimInfo =
             detail::ConvertOffsToPtr<res::AnimationInfo>(pContent,
                                                          pInfoOffsetTbl[i]);
 
-        const u32* pTargetOffsetTbl = detail::ConvertOffsToPtr<u32>(
+        const be_u32* pTargetOffsetTbl = detail::ConvertOffsToPtr<be_u32>(
             pAnimInfo, sizeof(res::AnimationInfo));
 
         switch (pAnimInfo->kind) {
@@ -461,20 +461,20 @@ void AnimTransformBasic::Animate(u32 idx, Pane* pPane) {
 
 void AnimTransformBasic::Animate(u32 idx, Material* pMaterial) {
     u32 contentOffset =
-        detail::ConvertOffsToPtr<u32>(mpRes, mpRes->animContOffsetsOffset)[idx];
+        detail::ConvertOffsToPtr<be_u32>(mpRes, mpRes->animContOffsetsOffset)[idx];
 
     const res::AnimationContent* pContent =
         detail::ConvertOffsToPtr<res::AnimationContent>(mpRes, contentOffset);
 
-    const u32* pInfoOffsetTbl =
-        detail::ConvertOffsToPtr<u32>(pContent, sizeof(res::AnimationContent));
+    const be_u32* pInfoOffsetTbl =
+        detail::ConvertOffsToPtr<be_u32>(pContent, sizeof(res::AnimationContent));
 
     for (int i = 0; i < pContent->num; i++) {
         const res::AnimationInfo* pAnimInfo =
             detail::ConvertOffsToPtr<res::AnimationInfo>(pContent,
                                                          pInfoOffsetTbl[i]);
 
-        const u32* pTargetOffsetTbl = detail::ConvertOffsToPtr<u32>(
+        const be_u32* pTargetOffsetTbl = detail::ConvertOffsToPtr<be_u32>(
             pAnimInfo, sizeof(res::AnimationInfo));
 
         switch (pAnimInfo->kind) {

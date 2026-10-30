@@ -234,7 +234,7 @@ Window::Window(const res::Window* pRes, const ResBlockSet& rBlockSet)
 
     mContentInflation = pRes->inflation;
 
-    const u32* const pMatOffsetTbl = detail::ConvertOffsToPtr<u32>(
+    const be_u32* const pMatOffsetTbl = detail::ConvertOffsToPtr<be_u32>(
         rBlockSet.pMaterialList, sizeof(res::MaterialList));
 
     const res::WindowContent* pResContent =
@@ -276,7 +276,7 @@ Window::Window(const res::Window* pRes, const ResBlockSet& rBlockSet)
         if (mFrames != NULL) {
             mFrameNum = pRes->frameNum;
 
-            const u32* const pFrmOffsetTbl = detail::ConvertOffsToPtr<u32>(
+            const be_u32* const pFrmOffsetTbl = detail::ConvertOffsToPtr<be_u32>(
                 pRes, pRes->frameOffsetTableOffset);
 
             for (int i = 0; i < mFrameNum; i++) {

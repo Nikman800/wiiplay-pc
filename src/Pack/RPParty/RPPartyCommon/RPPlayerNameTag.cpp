@@ -8,6 +8,9 @@
 #include <Pack/RPKernel/RPSysLytTextBox.h>
 #include <egg/core/eggController.h>
 #include <egg/math/eggVector.h>
+#if defined(PORT_HOST)
+#include <Pack/RPParty/RPPartyCommon/RPKokeshiMgr.h>
+#endif
 
 extern "C" void Lyt_setPaneColorFromTable(nw4r::lyt::Pane* pPane, u32 player);
 
@@ -137,11 +140,16 @@ void RPPlayerNameTag::Show(bool show) {
     }
 
     // The Mii name, RPSysAvatar::mAdditionalInfo (0x68) of the head. Not reached through the
-    // class: its header chain (RPSysKokeshiGenInfo.h -> RPSysKokeshiManager.h) adds g3d header
-    // data (GetAnmPlayPolicy's policyTable, fifo::cm2hw) that this unit does not have.
+    // class in the Wii build: its header chain (RPSysKokeshiGenInfo.h -> RPSysKokeshiManager.h)
+    // adds g3d header data (GetAnmPlayPolicy's policyTable, fifo::cm2hw) that this unit does not
+    // have. The host build has no such constraint and the offset differs there.
     mpLayout->findTextBox("T_name_00")
         ->setMessage(RPPlayerConfirm::sInstance->mpMessage, 0x280, 0,
+#if defined(PORT_HOST)
+                     pParams->pHeads[mPlayer]->mAdditionalInfo.name);
+#else
                      reinterpret_cast<const wchar_t*>(reinterpret_cast<u32>(pParams->pHeads[mPlayer]) + 0x68));
+#endif
 
     if (RPPlayerConfirm::sInstance->mNoABPress == 0) {
         mpLayout->findPane("P_bg_00")->SetVisible(true);
