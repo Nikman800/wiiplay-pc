@@ -122,20 +122,20 @@ public:
                                         bool ignoreLifeStatus = false) {
         ForeachParticleManager(
             ParticleManager::ModifierTravFunc_SetSimpleLightAmbient,
-            reinterpret_cast<u32>(&rColor), ignoreLifeStatus);
+            reinterpret_cast<ForEachParam>(&rColor), ignoreLifeStatus);
     }
 
     // @bug Surely meant to be a const reference...
     void Modifier_SetScale(math::VEC2& rScale, bool ignoreLifeStatus = false) {
         ForeachParticleManager(ParticleManager::ModifierTravFunc_SetScale,
-                               reinterpret_cast<u32>(&rScale),
+                               reinterpret_cast<ForEachParam>(&rScale),
                                ignoreLifeStatus);
     }
 
     void Modifier_SetRotate(const math::VEC3& rRot,
                             bool ignoreLifeStatus = false) {
         ForeachParticleManager(ParticleManager::ModifierTravFunc_SetRotate,
-                               reinterpret_cast<u32>(&rRot), ignoreLifeStatus);
+                               reinterpret_cast<ForEachParam>(&rRot), ignoreLifeStatus);
     }
 
     bool GetFlagDisableCalc() const {

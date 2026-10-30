@@ -28,7 +28,7 @@ public:
 
     typedef void (*ChannelCallback)(Channel* pDropChannel,
                                     ChannelCallbackStatus status,
-                                    u32 callbackArg);
+                                    uintptr_t callbackArg);
 
     enum LfoTarget { LFO_TARGET_PITCH, LFO_TARGET_VOLUME, LFO_TARGET_PAN };
 
@@ -36,7 +36,7 @@ public:
     Channel();
     ~Channel();
 
-    void InitParam(ChannelCallback pCallback, u32 callbackArg);
+    void InitParam(ChannelCallback pCallback, uintptr_t callbackArg);
     void Update(bool periodic);
     void Start(const WaveData& rData, int length, u32 offset);
     void Release();
@@ -178,7 +178,7 @@ public:
     }
 
     static Channel* AllocChannel(int channels, int voices, int priority,
-                                 ChannelCallback pCallback, u32 callbackArg);
+                                 ChannelCallback pCallback, uintptr_t callbackArg);
     static void FreeChannel(Channel* pChannel);
 
 private:
@@ -241,7 +241,7 @@ private:
     PanCurve mPanCurve; // at 0xD0
 
     ChannelCallback mCallback; // at 0xD4
-    u32 mCallbackData;         // at 0xD8
+    uintptr_t mCallbackData;   // at 0xD8
 
     Voice* mVoice;      // at 0xDC
     Channel* mNextLink; // at 0xE0

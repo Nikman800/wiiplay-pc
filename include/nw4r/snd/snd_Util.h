@@ -4,6 +4,8 @@
 
 #include <nw4r/snd/snd_Types.h>
 
+#include <port/be.h>
+
 namespace nw4r {
 namespace snd {
 namespace detail {
@@ -63,8 +65,8 @@ public:
     struct DataRef {
         u8 refType;   // at 0x0
         u8 dataType;  // at 0x1
-        u16 reserved; // at 0x2
-        u32 value;    // at 0x4
+        be_u16 reserved; // at 0x2
+        be_u32 value; // at 0x4
     };
 
     template <typename T0, typename T1, typename T2, typename T3>
@@ -101,7 +103,7 @@ public:
      *
      ******************************************************************************/
     template <typename T> struct Table {
-        u32 count;  // at 0x0
+        be_u32 count; // at 0x0
         T items[1]; // at 0x4
     };
 

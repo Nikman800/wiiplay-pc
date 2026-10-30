@@ -162,6 +162,59 @@ void AxVoice::VoiceCallback(void* pArg) {
     AxVoiceManager::GetInstance().ReserveForFreeAxVoice(p);
 }
 
+#if defined(PORT_HOST)
+// PC port: the host OSCachedToPhysical returns the physical address as a u32
+// (an emulated Wii address, port/host/include/revolution/OS/OSAddress.h), so
+// the arithmetic below takes it from a u32 instead of a pointer cast.
+u32 AxVoice::GetDspAddressBySample(const void* pBase, u32 samples, Format fmt) {
+    u32 base = pBase != NULL ? OSCachedToPhysical(pBase) : 0;
+    u32 addr = 0;
+
+    switch (fmt) {
+    case FORMAT_ADPCM: {
+        addr = (samples / AX_ADPCM_SAMPLES_PER_FRAME * AX_ADPCM_NIBBLES_PER_FRAME) +
+               (samples % AX_ADPCM_SAMPLES_PER_FRAME) + (base * sizeof(u16)) +
+               sizeof(u16);
+        break;
+    }
+    case FORMAT_PCM8: {
+        addr = base + samples;
+        break;
+    }
+    case FORMAT_PCM16: {
+        addr = base / sizeof(u16) + samples;
+        break;
+    }
+    }
+
+    return addr;
+}
+
+u32 AxVoice::GetSampleByDspAddress(const void* pBase, u32 addr, Format fmt) {
+    u32 base = pBase != NULL ? OSCachedToPhysical(pBase) : 0;
+    u32 samples = 0;
+
+    switch (fmt) {
+    case FORMAT_ADPCM: {
+        samples = addr - base * sizeof(u16);
+        samples = (samples % AX_ADPCM_NIBBLES_PER_FRAME) +
+                  (samples / AX_ADPCM_NIBBLES_PER_FRAME * AX_ADPCM_SAMPLES_PER_FRAME) -
+                  sizeof(u16);
+        break;
+    }
+    case FORMAT_PCM8: {
+        samples = addr - base;
+        break;
+    }
+    case FORMAT_PCM16: {
+        samples = addr - base / sizeof(u16);
+        break;
+    }
+    }
+
+    return samples;
+}
+#else
 u32 AxVoice::GetDspAddressBySample(const void* pBase, u32 samples, Format fmt) {
     if (pBase != NULL) {
         pBase = OSCachedToPhysical(pBase);
@@ -225,6 +278,8 @@ u32 AxVoice::GetSampleByDspAddress(const void* pBase, u32 addr, Format fmt) {
 
     return samples;
 }
+
+#endif
 
 u32 AxVoice::GetSampleByByte(u32 addr, Format fmt) {
     u32 samples = 0;

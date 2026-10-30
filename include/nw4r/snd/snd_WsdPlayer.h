@@ -113,7 +113,7 @@ private:
 
     static void ChannelCallbackFunc(Channel* pDropChannel,
                                     Channel::ChannelCallbackStatus status,
-                                    u32 callbackArg);
+                                    uintptr_t callbackArg);
 
 private:
     bool mActiveFlag;             // at 0x8C

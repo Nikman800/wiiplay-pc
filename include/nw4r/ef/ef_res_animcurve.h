@@ -4,6 +4,8 @@
 
 #include <nw4r/math.h>
 
+#include <port/be.h>
+
 #define NW4R_EF_MAGIC_ANIMCURVE 0xAC
 #define NW4R_EF_MAGIC_ANIMBAKED 0xAB
 
@@ -106,41 +108,41 @@ struct AnimCurveHeader {
     u8 kindEnable;   // at 0x3
     u8 processFlag;  // at 0x4
     u8 loopCount;    // at 0x5
-    u16 randomSeed;  // at 0x6
-    u16 frameLength; // at 0x8
-    u16 PADDING_0xA; // at 0xA
-    u32 keyTable;    // at 0xC
-    u32 rangeTable;  // at 0x10
-    u32 randomTable; // at 0x14
-    u32 nameTable;   // at 0x18
-    u32 infoTable;   // at 0x1C
+    be_u16 randomSeed;  // at 0x6
+    be_u16 frameLength; // at 0x8
+    be_u16 PADDING_0xA; // at 0xA
+    be_u32 keyTable;    // at 0xC
+    be_u32 rangeTable;  // at 0x10
+    be_u32 randomTable; // at 0x14
+    be_u32 nameTable;   // at 0x18
+    be_u32 infoTable;   // at 0x1C
 };
 
 struct AnimCurveKey {
-    u16 count;       // at 0x0
-    u16 PADDING_0x2; // at 0x2
+    be_u16 count;       // at 0x0
+    be_u16 PADDING_0x2; // at 0x2
     u8 datas[1];     // at 0x4
 };
 
 struct AnimCurveRandom {
-    u16 count;       // at 0x0
-    u16 PADDING_0x2; // at 0x2
+    be_u16 count;       // at 0x0
+    be_u16 PADDING_0x2; // at 0x2
     u8 datas[1];     // at 0x4
 };
 
 struct AnimCurveRandomTable {
-    u16 count;       // at 0x0
-    u16 PADDING_0x2; // at 0x2
+    be_u16 count;       // at 0x0
+    be_u16 PADDING_0x2; // at 0x2
     u8 datas[1];     // at 0x4
 };
 
 struct AnimCurveNameTable {
     struct Name {
-        u32 work; // at 0x0
+        be_u32 work; // at 0x0
     };
 
-    u16 count;       // at 0x0
-    u16 PADDING_0x2; // at 0x2
+    be_u16 count;       // at 0x0
+    be_u16 PADDING_0x2; // at 0x2
     Name datas[1];   // at 0x4
 };
 

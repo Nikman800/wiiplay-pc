@@ -201,7 +201,7 @@ def _count_table(data: bytes, offset: int, end: int, what: str) -> tuple[int, in
 
 
 def _anim_name_table(data: bytes, offset: int, end: int, what: str) -> dict[str, Any]:
-    padding, count = _unpack(data, offset, "HH", what)
+    count, padding = _unpack(data, offset, "HH", what)  # AnimCurveNameTable: u16 count at 0x0, padding at 0x2 (include/nw4r/ef/ef_res_animcurve.h)
     cursor = offset + ANIM_TABLE_HEADER_SIZE + count * ANIM_NAME_ENTRY_SIZE
     if cursor > end:
         raise FormatError(f"{what} count {count} exceeds curve")

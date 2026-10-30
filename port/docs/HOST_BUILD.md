@@ -23,11 +23,25 @@ check, init and bind, no drawing yet).
   array commands), `Bind` (textures, palettes, PAT0) and `ResAnmScn::Bind`. Each set-up file is
   the Wii's in-memory image of that file, and every model, texture, palette and animation
   matches `port/assets/tools/fmt_brres_model.py` and an animation reader in the test (§11).
+- The real `nw4r::ef::Resource` registers every BREFF/BREFT pair on the disc (13 each) the way
+  `RPSysEffectCreator` does (`Add`, `AddTexture`, `RelocateCommand`; `RemoveEffectProject`,
+  `RemoveTextureProject`, `RelocateCommand`), with the cursor and static pairs linked to each
+  scene pair in turn. Every emitter, track and texture matches
+  `port/assets/tools/fmt_effect.py`, and after every step each registered file is
+  byte-identical to the Wii's in-memory copy: list links, name, track, texture and
+  cross-file slots hold big-endian emulated addresses (§12).
+- The real `nw4r::snd` code opens all 11 sound archives on the disc the way the game does
+  (`EGG::ArcPlayer` over `DvdSoundArchive` / `MemorySoundArchive`, `SoundArchivePlayer::Setup`),
+  reads every sound, bank, player, group and file with its name, loads every group into a
+  `SoundHeap` and parses every loaded RSEQ, RBNK and RWSD through the real readers (no
+  playback). Everything matches an independent reading of the bytes and, where it parses,
+  `port/assets/tools/fmt_sound.py` (§13).
 
-`POINTERS.md` steps 0 to 5 are implemented: M0 (emulated Wii addresses for all host heap memory),
+`POINTERS.md` steps 0 to 7 are implemented: M0 (emulated Wii addresses for all host heap memory),
 `RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, ResFont (§5 to §7 below), TPL
-and the layout resource structs (§9), the two hard-coded runtime offsets (§10), and g3d with the
-GX texture-object contract (§11).
+and the layout resource structs (§9), the two hard-coded runtime offsets (§10), g3d with the
+GX texture-object contract (§11), the `nw4r::ef` resources with `RES_LINK` (§12), and the
+`nw4r::snd` callback cookies and sound archive readers (§13).
 
 ## 1. Build and run
 
@@ -36,7 +50,7 @@ Requirements: GCC/G++ (tested with 15.2), GNU make and Python 3. CMake is not ne
 
 ```sh
 cd port/host
-make                       # 64-bit (primary): build/host64/{arc_harness,res_harness,lyt_harness,g3d_harness,test_*}
+make                       # 64-bit (primary): build/host64/{arc_harness,res_harness,lyt_harness,g3d_harness,ef_harness,test_*}
 make test                  # unit tests + archive and resource comparisons (DISC defaults to ~/wii-play/extracted/files)
 make test DISC=/path/to/extracted/files
 make M32=1 test            # same code built with -m32 into build/host32 (cross-check)
@@ -46,6 +60,7 @@ make clean
 Expected `make test` output (`make M32=1 test` prints the same with pointer size 4):
 
 ```
+test_ef: OK (pointer size 8)
 test_be (C++): OK
 test_be (C): OK
 test_port: OK (pointer size 8, wchar_t 2)
@@ -73,10 +88,16 @@ files: BRRES 132; animations: CHR0 147, CLR0 27, PAT0 10, SCN0 16, SRT0 22
 lines: F 132/132, G 314/314, M 177/177, T 564/564, P 5/5, A 222/222 (harness/python)
 missing 0, extra 0
 OK
+ef_harness: 13 BREFF (373 emitters, 1168 tracks), 13 BREFT (159 textures), 24 stages, 6773 changed runs, 4002 particle texture slots and 202 curve slots checked (90 into another pair's file), 3 capture slots; 0 errors (pointer size 8)
+files: BREFF 13, BREFT 13 (scene pairs 11)
+lines: EF 13/13, E 373/373, ED 373/373, PD 373/373, K 1168/1168, TF 13/13, T 159/159, STAGE 24/24, FILE 138/138, W 6773/6773, CAP 3/3 (harness/python)
+missing 0, extra 0
+OK
 ```
 
 The number of changed bytes depends on the emulated addresses the arena hands out, so it
-differs slightly between the 64-bit and `-m32` builds (48690 there); everything else is the same.
+differs slightly between the 64-bit and `-m32` builds (48690 there; 6774 changed runs for
+`ef_harness`); everything else is the same.
 
 | Target | What it runs |
 |---|---|
@@ -85,6 +106,8 @@ differs slightly between the 64-bit and `-m32` builds (48690 there); everything 
 | `resources` | `res_harness` + `tests/test_resources.py` |
 | `layouts` | `lyt_harness` + `tests/test_layouts.py` |
 | `models` | `g3d_harness` + `tests/test_models.py` (§11) |
+| `sound` | `snd_harness` + `tests/test_sound.py` (§13) |
+| `effects` | `ef_harness` + `tests/test_effects.py` (§12); `test_ef` (`RES_LIST`, ef slots) runs with `unit` |
 
 The harnesses take well under a second each. The Python reference walks take about 13 s
 (archives, which hashes every file), 3 s (resources) and 3 s (layouts). Nothing is written to disk except the
@@ -225,6 +248,7 @@ These are deliberately minimal and synchronous. The Phase 7 platform layer repla
   caller casts to `u32`.
 - **Text**: `PortSwapBmgText` (§6).
 - **TPL**: `TPLBind` / `TPLGet` (§9).
+- **ef lists**: `RES_LIST_*` (`src/host_reslist.cpp`, §12).
 - **GX objects**: `GXInitTexObj`, `GXInitTexObjCI`, `GXInitTexObjLOD`, `GXInitTexObjTlut`,
   `GXGetTexObjTlut` and `GXInitTlutObj` fill the Wii-layout objects with big-endian words and
   emulated physical addresses (`src/host_gxtexobj.cpp`, §11).
@@ -304,9 +328,14 @@ Rules:
     the decomp's `build.ninja`, writing to a temporary directory.
   - It compares each object byte for byte with the decomp checkout's object.
   - It skips a unit when any of its other dependencies differs between the two checkouts.
-- **Result on 2026-10-30, after the g3d changes (§11).** All 734 units that
-  depend on the touched files (§4; the list is `TOUCHED` in the script, 65 files) are
-  byte-identical, and none were skipped. They include every `nw4r/lyt` and `nw4r/g3d` unit
+- **Result on 2026-10-30, after the ef changes (§12).** All 734 units that
+  depend on the files touched up to step 6 (§4; the `TOUCHED` entries before the step 7
+  `snd` block in the script, 75 files) are byte-identical, and none were skipped. 320 of them
+  depend on the ef files, among them every `nw4r/ef` unit (including the unlinked
+  `ef_animcurve.o`) and `RPSysEffectMgr.o`, `RPSysEffectCreator.o` and `RPSysEffectBase.o`.
+  (Run on a copy of the tree with the parallel `snd` work reverted to the decomp's files; the
+  full current list, 745 units, was also identical.) Before the ef changes, after the g3d
+  changes (§11), the same 734 units were byte-identical with 65 files in `TOUCHED`. They include every `nw4r/lyt` and `nw4r/g3d` unit
   (508 units depend on the g3d files),
   `RPPlayerNameTag.o` and the unlinked `RPSysTagProcessor.o` (identical to the decomp's object,
   so its 4 differences from the target are unchanged). Run it after every change to a decomp file:
@@ -328,6 +357,7 @@ All of these live in `port/host/include`, which shadows `include/` on the host o
 | `port/arena.h`, `port/resptr.h`, `port/wide.h` | M0, `RES_PTR`, 16-bit `wchar_t` (§5, §6). |
 | `revolution/OS/OSAddress.h` | Physical/cached conversions through M0 (§1, host stand-ins). |
 | `revolution/TPL/TPL.h` | The TPL structs with `be_*`, `BE_ENUM` and `RES_PTR` members (§9). |
+| `port/reslist.h` | `RES_LINK` / `RES_LIST` and the `RES_LIST_*` functions (M2, §12). |
 
 `types.h` also defines `std::stricmp` (MSL has it; `ArcResourceAccessor`'s name lookup uses it)
 as `strcasecmp`, and `port/wide.h` adds `std::` using-declarations for the `port_wcs*`
@@ -421,6 +451,29 @@ check in §2 confirms all of them.
 | `src/nw4r/g3d/res/g3d_resanmtexpat.cpp` | §11: `PAT0_TEX_SLOT` / `PAT0_PLTT_SLOT` (Wii: `typedef ResTex` / `ResPltt`; host: a 4-byte `res_ptr` that assigns from `ResTex`/`ResPltt`, under `#if defined(PORT_HOST)`) replace `ResTex`/`ResPltt` as the array element type in `GetAnmResult`, `Bind` and `Release`; the name arrays are read as `be_s32`. |
 | `include/nw4r/g3d/platform/g3d_cpu.h` | `#include <port/be.h>`; under `#if PORT_BE_WRAPPED`, `fastcast::U16_0ToF32`, `S7_8ToF32` and `S10_5ToF32` overloads for `be_u16*`/`be_s16*` (CHR0 key frames). |
 | `include/nw4r/g3d/g3d_obj.h`, `include/egg/gfxe/eggCpuTexture.h` | §3: `uintptr_t` under `#if defined(PORT_HOST)`. |
+| `include/nw4r/snd/snd_SoundArchiveFile.h`, `snd_SeqFile.h`, `snd_BankFile.h`, `snd_WsdFile.h`, `snd_WaveFile.h` | §13: every `u16`/`s16`/`u32`/`s32`/`f32` member of the file structs is `be_*` (`StringTable` is `Util::Table<be_u32>`). Type tokens only. |
+| `include/nw4r/snd/snd_Util.h` | §13: `#include <port/be.h>`; `DataRef::reserved`/`value` and `Table::count` are `be_u16`/`be_u32`. Type tokens only. |
+| `include/nw4r/snd/snd_SoundArchive.h` | §13: `#include <port/be.h>`; `FilePos` members are `be_u32` (`ReadFilePos` copies it whole out of the file). |
+| `include/nw4r/snd/snd_Types.h` | §13: `VOLUME_MIN_DB`/`MAX_DB`/`RANGE_DB` are `constexpr` under `#if defined(PORT_HOST)` (GCC needs it for float constants in constant expressions). |
+| `include/nw4r/snd/snd_SoundStartable.h`, `snd_SoundArchivePlayer.h`, `include/egg/audio/eggAudioArcPlayerMgr.h` | §13: the `unsigned int` overloads of `StartSound`/`HoldSound`/`PrepareSound`/`LoadGroup` and `ArcPlayer::startSound`/`prepareSound`/`holdSound` under `#if !defined(PORT_HOST)`: `u32` is `unsigned int` on the host, so they would redeclare the `u32` ones. |
+| `include/egg/audio/eggAudioHeapMgr.h` | §13: `stateProc` casts `OSMessage` to `s32` through `intptr_t` under `#if defined(PORT_HOST)`. |
+| `include/nw4r/ut/ut_algorithm.h` | §13: the pointer `RoundUp`/`RoundDown` round a `uintptr_t` (mask widened first) under `#if defined(PORT_HOST)`. |
+| `include/nw4r/snd/snd_Channel.h`, `snd_NoteOnCallback.h`, `snd_SeqTrack.h`, `snd_WsdPlayer.h`, `src/nw4r/snd/snd_Channel.cpp`, `snd_SeqTrack.cpp`, `snd_WsdPlayer.cpp` | §13 (POINTERS.md §5.2): the channel callback argument, `Channel::mCallbackData` and `NoteOnInfo::channelCallbackData` are `uintptr_t`, and `reinterpret_cast<u32>(this)` is `reinterpret_cast<uintptr_t>(this)`. Type tokens only (`uintptr_t` is `unsigned long` on the Wii, like `u32`). |
+| `src/nw4r/snd/snd_SoundThread.cpp`, `snd_AxManager.cpp`, `snd_AxVoiceManager.cpp` | §13: the thread message, aux-callback context and voice cookies cast through `uintptr_t`. Type tokens only. |
+| `include/revolution/AX/AXAlloc.h`, `AXVPB.h`, `src/revolution/AX/AXAlloc.c` | §13: `AXAcquireVoice`'s `userContext` and `AXVPB::userContext` are `uintptr_t`. Type tokens only. |
+| `include/nw4r/snd/snd_AxfxImpl.h`, `src/nw4r/snd/snd_AxfxImpl.cpp` | §13: `AxfxImpl::Alloc` takes `size_t` (the `AXFXAllocHook` parameter type). Type tokens only. |
+| `src/nw4r/snd/snd_AxVoice.cpp` | §13: host forms of `GetDspAddressBySample` / `GetSampleByDspAddress` under `#if defined(PORT_HOST)` (the host `OSCachedToPhysical` returns a `u32`); the Wii functions are unchanged in `#else`. |
+| `src/nw4r/snd/snd_Util.cpp` | §13: `#include <port/resptr.h>`; the `REFTYPE_ADDRESS` DataRef goes through `PORT_U32_TO_PTR` (Wii: the same `reinterpret_cast`). |
+| `src/nw4r/snd/snd_WaveFile.cpp` | §13: the channel offset table is read as `const be_u32*`. |
+| `include/port/reslist.h` | **New.** The Wii side of M2: `RES_LINK` is `nw4r::ut::Link`, `RES_LIST` is `nw4r::ut::List`, `RES_LIST_Init/Append/Remove/GetFirst/GetLast/GetNext/GetPrev` are the `nw4r::ut::List_*` functions (§12). |
+| `include/nw4r/ef/ef_resource.h` | §12: includes `<port/be.h>`, `<port/reslist.h>`. `EffectProject` / `TextureProject`: `headersize` `be_u32`, `projectlink` `RES_LINK`, `projectnameLen` `be_u16`; `Resource::mBREFFList` / `mBREFTList` `RES_LIST`. Type tokens only. |
+| `include/nw4r/ef/ef_res_texture.h` | §12 (ef-4): `TextureData.name`, `.texture`, `.tlut` `RES_PTR(...)`; `width`, `height`, `dataSize`, `tlutEntries`, `tlutSize` `be_*`. Type tokens only. |
+| `include/nw4r/ef/ef_res_emitter.h` | §12 (ef-2, ef-3): `EmitterResource.name` `RES_PTR(char)`, `headersize` `be_u32`; the scalar members of `EmitterDesc`, `EmitterDrawSetting` and `Lighting` `be_*` (the `math::VEC3` members stay plain); the track count and size reads through `be_u16*`/`be_u32*`; `Get{Ptcl,Emit}TrackTbl` return `RES_PTR(u8)*`; `LocateTracks` uses `be_u32*` tables and `PORT_STORE_PTR32` for the two pointer stores. |
+| `include/nw4r/ef/ef_res_animcurve.h` | §12 (ef-7): `AnimCurveHeader` `u16`/`u32` members, the four table `count`/padding members and `AnimCurveNameTable::Name::work` `be_*`. Type tokens only. |
+| `include/nw4r/ef/ef_particle.h` | §12 (ef-6): `ParticleParameterDesc.mTexture[3]` `RES_PTR(TextureData)`; `textureRotate`, `textureWrap`, `rotateOffset` `be_*`. The runtime `ParticleParameter` is unchanged. |
+| `src/nw4r/ef/ef_resource.cpp` | §12: the local `FileHeader`, `BlockHeader`, `NameTable` members `be_*`; the 14 `ut::List_*` calls are `RES_LIST_*` and `sizeof(ut::Link)` is `sizeof(RES_LINK)` (ef-1); the name slot store casts to `RES_PTR(char)*` (ef-2); the two curve `work` stores use `PORT_PTR_TO_U32` (ef-7); `ppWork` is `RES_PTR(TextureData)*` (ef-6); three `u16` reads are through `be_u16*`. |
+| `src/nw4r/ef/ef_animcurve.cpp` | §12 (ef-7, unlinked unit): the texture name table is read as `AnimCurveTable<RES_PTR(TextureData)>`, the child curve's `work` through `PORT_U32_TO_PTR(EmitterResource*, ...)`. 3 lines. |
+| `include/nw4r/ef/ef_types.h`, `include/nw4r/ef/ef_effect.h` | §12 (POINTERS.md §5.2 cookie): `ForEachParam` is `uintptr_t` under `#if defined(PORT_HOST)` (Wii: `u32`), and `Effect::Modifier_SetSimpleLightAmbient/SetScale/SetRotate` cast `&x` to `ForEachParam` instead of `u32`. |
 
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
@@ -498,7 +551,10 @@ four TPL structs, the `lyt::res` blocks and value types (`AnimationTarget`, `Ste
 `HermiteKey` are local to `lyt_animation.cpp`; the layout harness covers them), and
 `ut::Color`, and the g3d file structs (dictionary, file, MDL0 and its info, node, vertex
 arrays, pre-primitive DL, shape, material with its GX objects, TEV, TEX0, PLT0, every animation
-header and info block, light set, key frames) plus `GXTexObj`/`GXTlutObj` sizes. It also checks
+header and info block, light set, key frames) plus `GXTexObj`/`GXTlutObj` sizes, and the ef
+resource structs (`RES_LINK`, `EffectProject`, `TextureProject`, `EmitterResource`,
+`TextureData`, `Lighting` under `#pragma pack(1)`, `EmitterDrawSetting`, `EmitterDesc`,
+`ParticleParameterDesc`, `AnimCurveHeader`, `AnimCurveNameTable`). It also checks
 that DAT1 text elements are 2 bytes. The decomp's `TPL.h` comments
 `TPLClutHeader.unpacked` as `at 0x1`; it is at 0x2 (after the `u16`), on the Wii too. The checks run when the file compiles, in both
 the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrapper types.
@@ -518,8 +574,10 @@ the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrap
 - Move the next loaders onto `be_*` as they are brought up. Each needs the type declarations, a
   small number of C `BE_GET`s, a `layout_asserts.cpp` block and a `check_matching.py` run:
   - `g3d::Res*Data`
-  - `ef` headers
   - `snd` file structs
+- ef beyond loading (§12): the `math::VEC2`/`VEC3` members of `EmitterDesc`,
+  `ParticleParameterDesc` and `Lighting`, and the curve keys read by `ef_animcurve.cpp`, are
+  still plain, and particle evaluation and drawing are not validated.
 - Route `swprintf`/`vswprintf` to `src/MSL_C/wprintf.c` (§6) when the first caller is built.
 - Replace `src/host_sdk.cpp` with the Phase 7 OS/DVD/heap layer: real threads, message queues
   that block, and MEM heaps (the decomp's `src/revolution/MEM` could compile as-is once the OS
@@ -653,3 +711,170 @@ on any difference:
 
 The `math::_VEC3`, `_VEC2` and `_MTX34` members of the file structs stay plain (§8), and
 animation evaluation is not validated. Neither is on the load path.
+
+## 12. ef resources (POINTERS.md step 6)
+
+### What runs
+
+`tests/ef_harness.cpp` registers every BREFF/BREFT pair on the disc with the real
+`nw4r::ef::Resource` (`src/nw4r/ef/ef_resource.cpp`, `ef_res_emitter_ac.cpp`,
+`ef_res_animcurve_ac.cpp`, linked with `src/host_reslist.cpp`), in the game's order:
+
+1. Boot (`RPSysEffectMgr`, Party Pack): the cursor creator gets `nw4r_defcursor_pack`, then the
+   static creator `basic_common`, both from `Common/PartyStatic/common.carc`. Each
+   `RPSysEffectCreator::setEffectResource` is `Resource::Add`, `AddTexture`,
+   `RelocateCommand`.
+2. For every other archive with an `X.breff` / `X.breft` pair at its root (the 11 scene pairs:
+   fishing, billiards, tank, ping-pong, cow, hockey, shooting, bomb, wanted, select menu,
+   `pack_sequence`), the scene creator sets the pair (three projects in each list), the
+   harness calls `setCaptureEfb`'s body for the three creators (ef-5), and
+   `resetEffectResource` removes the pair (`RemoveEffectProject`, `RemoveTextureProject`,
+   `RelocateCommand`) before the archive is unmounted.
+
+The files are used in place inside the mounted archive, as
+`RPSysResourceManager::GetFileFromArchive` returns them. `RelocateCommand` reports 0 errors at
+all 24 stages: every particle texture name and every texture and child curve name resolves.
+Over the 24 stages the harness reads back 4002 particle texture slots and 202 curve slots; 90
+of those resolve into the file of another pair (`_FindTexture` and `_FindEmitter` search every
+registered project, from the last one back), so the cross-file links are exercised.
+`FindTexture("dummy_tex", project)` falls back to every registered BREFT, so during the
+billiards scene all three creators write the capture buffer into `basic_billiards.breft`.
+
+After each registration it prints, through the decompiled accessors, every emitter
+(`_GetEmitterIndexOf`, `GetName`, `FindEmitter`, the track counts, `EmitterDesc` and
+`ParticleParameterDesc` fields through `be_*`), every particle and emit track
+(`GetPtclTrack`, `GetEmitTrack`, `ResEmitter::GetPtclTrack`, `AnimCurveHeader`), and every
+texture (`FindTexture`, `TextureData`, the `texture`/`tlut` slots read back through
+`RES_PTR`). After every `RelocateCommand` it prints the two project lists (walked with
+`RES_LIST_*`), the emulated base address of each registered file, and every run of bytes that
+differs from the disc file. It also reads every particle texture slot and curve `work` slot
+back (the latter both as `be_u32` and through the `RES_PTR(TextureData)` view of
+`ef_animcurve.cpp`) and requires the target `_FindTexture` / `_FindEmitter` returns.
+
+`tests/test_effects.py` builds the same lines from `port/assets/tools/fmt_effect.py`
+(read-only) and an independent model of the relocation, written from the format and the call
+sequence: links (`+0x4` prev, `+0x8` next: big-endian emulated addresses of the neighbouring
+project headers, also in the other files), name, track and texture/tlut slots, particle
+texture and curve name resolution searching the registered projects from the last back,
+unlinking, and the capture writes. Its predicted changed runs equal the harness's, so each
+registered file is, at every stage, byte-identical to the Wii's in-memory copy of that file at
+the same emulated address. The emulated base addresses come from the harness and are only
+checked to lie in MEM1/MEM2. It also checks that the scene pairs found on the disc are exactly
+the 11 the scene code passes to `setEffectResource`, and that all 13 BREFF and 13 BREFT were
+registered.
+
+One `fmt_effect.py` bug turned up: `_anim_name_table` unpacks the curve name table header as
+(padding, count), but the count is the first `u16` (`AnimCurveNameTable`), so its name lists
+are always empty (and `workOffsets` too). The test reads the name tables itself.
+
+### Slots and types
+
+| # | Slot | Host form |
+|---|---|---|
+| ef-1 | `EffectProject` / `TextureProject` `projectlink` (+0x4) | `RES_LINK`: two `RES_PTR(void)` (8 bytes, alignment 4). `Resource::mBREFFList` / `mBREFTList` are `RES_LIST` (a runtime list head with native pointers and the link offset). `port::res_list_*` in `src/host_reslist.cpp` is `ut_list.cpp` over these types, so `Add` writes the neighbour's link in the other file exactly as the Wii does. |
+| ef-2 | `EmitterResource.name` | `RES_PTR(char)`; the store in `breffRelocate` casts to `RES_PTR(char)*`. |
+| ef-3 | track pointer tables | `Get{Ptcl,Emit}TrackTbl` return `RES_PTR(u8)*`; `LocateTracks` stores with `PORT_STORE_PTR32` into `be_u32` and reads the size tables as `be_u32`. The stride stays 4. |
+| ef-4 | `TextureData.name`, `.texture`, `.tlut` | `RES_PTR(...)`; `breftRelocate` is unchanged. |
+| ef-5 | `setCaptureEfb` | Covered by ef-4: the assignment stores the heap buffer's emulated address. `RPSysEffectMgr.cpp` is not built on the host; the harness runs the same four assignments. |
+| ef-6 | `ParticleParameterDesc.mTexture[3]` | `RES_PTR(TextureData)`; `RelocateCommand`'s `ppWork` is `RES_PTR(TextureData)*`. |
+| ef-7 | curve `AnimCurveNameTable::Name::work` | `be_u32`, stored with `PORT_PTR_TO_U32`; `ef_animcurve.cpp` reads texture names through `AnimCurveTable<RES_PTR(TextureData)>` and child emitters through `PORT_U32_TO_PTR`. |
+
+Everything else the resource code reads from the files is `be_*` (§4). `Effect::Modifier_*`
+pass pointers through `ForEachParam`, which is `uintptr_t` on the host (POINTERS.md §5.2).
+`ef_animcurve.cpp` (curve evaluation; an unlinked unit in the decomp, its CodeWarrior object
+identical to the decomp's) is compiled on the host but not linked or run (`make` builds the
+object).
+
+`tests/test_ef.cpp` (`make unit`) checks `RES_LIST` on objects in the arena: the links hold
+big-endian emulated addresses, bytes around them are untouched, and `Remove` rewrites the
+neighbours; and the `TextureData` and track-slot stores.
+
+### Not covered yet
+
+Particle evaluation and drawing: the `math::VEC2`/`VEC3` members of the emitter and particle
+descriptors and the curve key data that `ef_animcurve.cpp` reads are still plain, and the
+draw strategies need the Phase 7 GX layer.
+
+## 13. Sound archives (POINTERS.md step 7)
+
+### Byte order: the wrapper, not `ReadBigEndian`
+
+`nw4r::snd` has its own little-endian path, `Util::ReadBigEndian` under the misspelled
+`NW4R_LITLE_ENDIAN`, but only 6 reads use it (`GetDataRefAddressImpl` and `SeqFileReader`);
+every other reader (`SoundArchiveFileReader`, `BankFileReader`, `WsdFileReader`,
+`WaveFileReader`) reads struct members directly. So the file structs use `be_*` (§4) and the
+macro stays undefined: `ReadBigEndian` is then the identity on a value the wrapper has already
+converted, and nothing is swapped twice. `Util::DataRef` and `Util::Table` are `be_*` too; their
+one runtime user (`SoundArchivePlayer::GroupTable`) only goes through the wrapper.
+`SoundArchive::FilePos` is `be_u32` because `ReadFilePos` copies it whole out of the file.
+Payloads stay as they are: the `AdpcmInfo` block that `WaveFileReader` copies into
+`ChannelParam` stays big-endian (DSP data for the Phase 7 mixer), and so do the samples and the
+sequence (MML) bytes. `StrmFile.h` (BRSTM, never read on the disc path, ASSETS.md §2.6) is not
+converted: its own members are still plain; only the `DataRef`/`Table` it uses are `be_*`.
+
+### Pointer-size sites (POINTERS.md §5.2)
+
+The channel callback data (`SeqTrack`, `WsdPlayer` → `Channel`), the sound-thread messages, the
+aux-callback context and the AX voice user context are `uintptr_t` (§4); `AxVoice`'s DSP address
+arithmetic takes the `u32` physical address. The `REFTYPE_ADDRESS` DataRef (an absolute
+address; the disc only has NULL ones) decodes an M0 address. All of `src/nw4r/snd` compiles in
+both host builds.
+
+### What runs
+
+`tests/snd_harness.cpp` links `libwiiplay_snd.a`: the whole snd library, the `ut` file
+streams, `EGG::ArcPlayer`, `EGG::CntFile` and the SDK `MEM` frame heap behind `snd::FrameHeap`
+(`mem_frameHeap.c`, `mem_heapCommon.c`, `mem_list.c`, compiled unmodified with
+`-D__abs=__builtin_abs`), plus the stubs in `src/host_snd.cpp` (AX/AI no-ops with no voices,
+threads never started, `OSSleepThread` aborts, NAND and channel content fail to open).
+
+1. The 10 disc-level archives (`Sound/<Scene>/<name>.brsar`): `ArcPlayer::openArchive(path,
+   heap, SARC_STORAGE_DVD)`, which is what `RPSndAudioMgr::openArchiveRP` calls for the default
+   storage (`RPSysProjectLocal`: `EStorage_DVDStream`): `DvdSoundArchive::Open`, `LoadHeader`,
+   `SoundArchivePlayer::GetRequiredMemSize` / `Setup` (sound players, player heaps, sound and
+   track pools), `LoadLabelStringData`. The `SoundHeap` sits on M0 memory.
+2. `HomeButtonSe.brsar` (inside `Common/PartyStatic/common.carc`): `ArcPlayer::setupMemoryArchive`
+   on the mounted buffer, as `RPSysHomeMenuMgr` → `RPSndHomeMenuArcMgr::setupArchive` does.
+3. Through `SoundArchive`: every sound (`ReadSoundInfo`, `GetSoundType`, the SEQ/WAVE/STRM
+   info, 3D parameters, user parameter, label), bank, player, group with its items, file with
+   its positions, and the player info. Names come from the SYMB patricia trees (walked with the
+   file structs and `SoundArchiveFileReader::GetString`) and are checked against
+   `GetSoundLabelString` and `ConvertLabelStringTo{Sound,Player,Group}Id`.
+4. `ArcPlayer::loadGroup` for every group `0 .. GetGroupCount() - 1` (`SoundArchiveLoader`
+   through the archive's file stream). Empty groups (size and wave size 0) are skipped: a
+   0-length group stream means "the whole archive" to `DvdFileStream`/`MemoryFileStream`.
+5. Every file through `SoundArchivePlayer::detail_GetFileAddress` /
+   `detail_GetFileWaveDataAddress`: RSEQ (`SeqFileReader`), RBNK
+   (`BankFileReader::ReadInstInfo` for every program, key and velocity, `ReadWaveParam` for
+   every wave), RWSD (`ReadWaveSoundInfo`, `ReadWaveSoundNoteInfo`, `ReadWaveParam`), and the
+   head of each file's wave data.
+
+`ArcPlayer` is constructed in zeroed storage: its destructor closes the (never opened, for the
+memory archive) `DvdSoundArchive`, and the host `DVDClose` needs a zeroed `DVDFileInfo`.
+
+Result (the `-m32` build prints the same with pointer size 4; about 10 s):
+
+```
+snd_harness: 11 archives, 1124 sounds, 79 banks, 91 players, 24 groups (12 loaded), 273 files (RSEQ 184, RBNK 77, RWSD 8), 85 wave areas (0 RWAR), 87405 instrument lines, 1613 wave params, 23 notes; 0 errors (pointer size 8)
+archives: 11 (RSAR); fmt_sound.py cross-checks: 1074, disagreements 0
+lines: A 11/11, S 1124/1124, B 79/79, P 91/91, G 24/24, GI 277/277, F 273/273, L 13/13, X 273/273, Q 184/184, K 77/77, KI 87405/87405, KW 1591/1591, W 8/8, WS 23/23, WN 23/23, WW 22/22, R 85/85 (harness/python)
+missing 0, extra 0
+OK
+```
+
+`tests/test_sound.py` rebuilds every line from the bytes (INFO/SYMB, DataRefs, the bank region
+walk, the sample arithmetic of `AxVoice::GetSampleByDspAddress`, the version defaults), and
+cross-checks the archive-level fields and the embedded files' counts with `fmt_sound.py`
+wherever that parses (it is being extended; its parse failures are printed as notes, grouped
+by reason). `test_layout` checks the snd file struct layouts. Findings:
+
+- The wave area of these v1.1 archives holds raw sample data, not RWAR containers; WaveInfo
+  `dataOffset + channelDataOffset` index into it.
+- `WaveInfo.channelInfoTableOffset` points straight at the channel offsets (no count), as
+  `WaveFileReader` reads them; `fmt_sound.py` reads a count first and rejects most banks.
+- `fmt_sound.py` reads a sound's SEQ `dataOffset` / WAVE `subNo` at SoundCommonInfo + 0x30
+  instead of through `soundInfoRef` (wrong for every sound, so not compared), rejects every
+  RSEQ (it requires one block; they have DATA and LABL), and rejects NULL (`refType` 0, value 0)
+  instrument and graph-envelope DataRefs.
+- One file of `rp_Wly_sound.brsar` is only in the last, unnamed group, which
+  `GetGroupCount()` leaves out, so `detail_GetFileAddress` finds nothing for it (`X ... none`).

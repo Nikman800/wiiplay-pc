@@ -1642,8 +1642,8 @@ void AnimCurveExecuteTexture(u8* pCmdList, Particle* pParticle, u32 tick,
     AnimCurveTable<AnimCurveRandomTexture>* pRandomTbl =
         reinterpret_cast<AnimCurveTable<AnimCurveRandomTexture>*>(
             reinterpret_cast<u8*>(pRangeTbl) + pHeader->rangeTable);
-    AnimCurveTable<TextureData*>* pNameTbl =
-        reinterpret_cast<AnimCurveTable<TextureData*>*>(
+    AnimCurveTable<RES_PTR(TextureData)>* pNameTbl =
+        reinterpret_cast<AnimCurveTable<RES_PTR(TextureData)>*>(
             reinterpret_cast<u8*>(pRandomTbl) + pHeader->randomTable);
 
     u32 loop;
@@ -1770,7 +1770,7 @@ void createChild(u8* pKeyData, u16 seed, AnimCurveHeader* pHeader,
         }
     }
 
-    EmitterResource* pResource = reinterpret_cast<EmitterResource*>(
+    EmitterResource* pResource = PORT_U32_TO_PTR(EmitterResource*,
         pNameTbl->datas[pChild->resIdx].work);
 
     if (pResource == NULL) {

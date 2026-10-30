@@ -13,10 +13,12 @@
 
 #include <Pack/RPKernel/RPSysMessage.h>
 #include <egg/util/eggMsgRes.h>
+#include <nw4r/ef.h>
 #include <nw4r/g3d.h>
 #include <nw4r/lyt.h>
 #include <nw4r/ut.h>
 #include <revolution/TPL.h>
+#include <nw4r/snd.h>
 
 #include <cstddef>
 #include <cstdio>
@@ -229,6 +231,91 @@ PORT_LAYOUT_SIZE(g3d::ResKeyFrameData, 0xC);
 PORT_LAYOUT_SIZE(g3d::ResAnmChrFrm48Data, 0x6);
 PORT_LAYOUT_SIZE(GXTexObj, 0x20);
 PORT_LAYOUT_SIZE(GXTlutObj, 0xC);
+
+// nw4r::ef (POINTERS.md step 6). FileHeader, BlockHeader and NameTable are
+// local to ef_resource.cpp; ef_harness covers them.
+PORT_LAYOUT_SIZE(RES_LINK, 0x8);
+PORT_LAYOUT_OFFSET(nw4r::ef::EffectProject, projectlink, 0x4);
+PORT_LAYOUT_OFFSET(nw4r::ef::EffectProject, projectnameLen, 0xC);
+PORT_LAYOUT_OFFSET(nw4r::ef::EffectProject, projectname, 0x10);
+PORT_LAYOUT_SIZE(nw4r::ef::EffectProject, 0x14);
+PORT_LAYOUT_OFFSET(nw4r::ef::TextureProject, projectlink, 0x4);
+PORT_LAYOUT_SIZE(nw4r::ef::TextureProject, 0x14);
+PORT_LAYOUT_SIZE(nw4r::ef::EmitterResource, 0x8); // locates the EmitterDesc
+PORT_LAYOUT_OFFSET(nw4r::ef::TextureData, width, 0x4);
+PORT_LAYOUT_OFFSET(nw4r::ef::TextureData, dataSize, 0x8);
+PORT_LAYOUT_OFFSET(nw4r::ef::TextureData, tlutEntries, 0xE);
+PORT_LAYOUT_OFFSET(nw4r::ef::TextureData, tlutSize, 0x10);
+PORT_LAYOUT_OFFSET(nw4r::ef::TextureData, texture, 0x18);
+PORT_LAYOUT_OFFSET(nw4r::ef::TextureData, tlut, 0x1C);
+PORT_LAYOUT_SIZE(nw4r::ef::TextureData, 0x20); // locates the image
+PORT_LAYOUT_OFFSET(nw4r::ef::Lighting, mRadius, 0xA); // #pragma pack(1)
+PORT_LAYOUT_OFFSET(nw4r::ef::Lighting, mPosition, 0xE);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDrawSetting, mAlphaFlickCycle, 0x66);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDrawSetting, mLighting, 0x6A);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDrawSetting, mIndTexOffsetMtx, 0x84);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDrawSetting, ptcltype, 0xA0);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDrawSetting, zOffset, 0xA8);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDesc, emitEmit, 0x10);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDesc, commonParam, 0x1C);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDesc, emitEmitDiv, 0x34);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDesc, velDiffusionSpecDir, 0x50);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDesc, randomSeed, 0x88);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDesc, drawSetting, 0x94);
+PORT_LAYOUT_OFFSET(nw4r::ef::ParticleParameterDesc, textureRotate, 0x44);
+PORT_LAYOUT_OFFSET(nw4r::ef::ParticleParameterDesc, mTexture, 0x68);
+PORT_LAYOUT_OFFSET(nw4r::ef::ParticleParameterDesc, textureWrap, 0x74);
+PORT_LAYOUT_OFFSET(nw4r::ef::ParticleParameterDesc, rotateOffset, 0x7C);
+PORT_LAYOUT_OFFSET(nw4r::ef::ParticleParameterDesc, textureNames, 0x88);
+PORT_LAYOUT_SIZE(nw4r::ef::AnimCurveHeader, 0x20);
+PORT_LAYOUT_OFFSET(nw4r::ef::AnimCurveHeader, randomSeed, 0x6);
+PORT_LAYOUT_OFFSET(nw4r::ef::AnimCurveHeader, keyTable, 0xC);
+PORT_LAYOUT_OFFSET(nw4r::ef::AnimCurveHeader, infoTable, 0x1C);
+PORT_LAYOUT_OFFSET(nw4r::ef::AnimCurveNameTable, datas, 0x4);
+PORT_LAYOUT_SIZE(nw4r::ef::AnimCurveNameTable::Name, 0x4); // work slots, stride 4
+
+// nw4r::snd file structs (POINTERS.md step 7, HOST_BUILD.md §13).
+namespace snd_layout {
+using namespace nw4r::snd;
+using namespace nw4r::snd::detail;
+typedef Util::DataRef<void> Ref;
+PORT_LAYOUT_SIZE(Ref, 0x8);
+PORT_LAYOUT_OFFSET(Ref, value, 0x4);
+PORT_LAYOUT_SIZE(Util::Table<Ref>, 0xC);
+PORT_LAYOUT_SIZE(SoundArchive::FilePos, 0x8);
+PORT_LAYOUT_SIZE(SoundArchiveFile::StringTreeNode, 0x14);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::StringTreeNode, id, 0x10);
+PORT_LAYOUT_SIZE(SoundArchiveFile::StringChunk, 0x14);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::SeqSoundInfo, channelPriority, 0xC);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::WaveSoundInfo, channelPriority, 0x8);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::SoundCommonInfo, param3dRef, 0xC);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::SoundCommonInfo, soundInfoRef, 0x18);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::SoundCommonInfo, userParam, 0x20);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::SoundCommonInfo, panCurve, 0x29);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::PlayerInfo, heapSize, 0x8);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::FileInfo, filePosTableRef, 0x14);
+PORT_LAYOUT_SIZE(SoundArchiveFile::GroupItemInfo, 0x14);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::GroupInfo, itemTableRef, 0x20);
+PORT_LAYOUT_SIZE(SoundArchiveFile::SoundArchivePlayerInfo, 0xE);
+PORT_LAYOUT_OFFSET(SoundArchiveFile::Info, soundArchivePlayerInfoRef, 0x28);
+PORT_LAYOUT_SIZE(SoundArchiveFile::Header, 0x28);
+PORT_LAYOUT_SIZE(SeqFile::Header, 0x20);
+PORT_LAYOUT_OFFSET(SeqFile::DataBlock, baseOffset, 0x8);
+PORT_LAYOUT_OFFSET(BankFile::InstParam, originalKey, 0xC);
+PORT_LAYOUT_OFFSET(BankFile::InstParam, tune, 0x10);
+PORT_LAYOUT_OFFSET(BankFile::IndexTable, ref, 0x4);
+PORT_LAYOUT_OFFSET(BankFile::DataBlock, instTable, 0x8);
+PORT_LAYOUT_SIZE(WaveFile::WaveInfo, 0x1C);
+PORT_LAYOUT_OFFSET(WaveFile::WaveInfo, dataOffset, 0x14);
+PORT_LAYOUT_SIZE(WaveFile::WaveChannelInfo, 0x1C);
+PORT_LAYOUT_SIZE(WsdFile::WsdInfo, 0x20);
+PORT_LAYOUT_OFFSET(WsdFile::NoteInfo, hold, 0x8);
+PORT_LAYOUT_OFFSET(WsdFile::NoteInfo, pitch, 0x10);
+PORT_LAYOUT_SIZE(WsdFile::NoteInfo, 0x30);
+PORT_LAYOUT_OFFSET(WsdFile::DataBlock, refWsd, 0xC);
+PORT_LAYOUT_OFFSET(WsdFile::WaveBlock, offsetTable, 0xC);
+PORT_LAYOUT_SIZE(AdpcmInfo, 0x30);
+} // namespace snd_layout
 
 } // namespace
 

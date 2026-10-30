@@ -17,15 +17,15 @@ namespace SeqFile {
 
 struct Header {
     ut::BinaryFileHeader fileHeader; // at 0x0
-    u32 dataBlockOffset;             // at 0x10
-    u32 dataBlockSize;               // at 0x14
-    u32 labelBlockOffset;            // at 0x18
-    u32 labelBlockSize;              // at 0x1C
+    be_u32 dataBlockOffset;          // at 0x10
+    be_u32 dataBlockSize;            // at 0x14
+    be_u32 labelBlockOffset;         // at 0x18
+    be_u32 labelBlockSize;           // at 0x1C
 };
 
 struct DataBlock {
     ut::BinaryBlockHeader blockHeader; // at 0x0
-    u32 baseOffset;                    // at 0x8
+    be_u32 baseOffset;                 // at 0x8
 };
 
 } // namespace SeqFile

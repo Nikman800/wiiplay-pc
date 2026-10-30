@@ -101,10 +101,12 @@ public:
                    u32 blockSize) {
         return LoadGroup(static_cast<u32>(id), pAllocatable, blockSize);
     }
+#if !defined(PORT_HOST) // PC port: u32 is unsigned int on the host
     bool LoadGroup(unsigned int id, SoundMemoryAllocatable* pAllocatable,
                    u32 blockSize) {
         return LoadGroup(static_cast<u32>(id), pAllocatable, blockSize);
     }
+#endif
 
     u32 GetSoundPlayerCount() const {
         return mSoundPlayerCount;

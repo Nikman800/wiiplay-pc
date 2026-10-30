@@ -56,7 +56,12 @@ enum EvaluateStatus {
     NW4R_EF_ES_SKIP,
 };
 
+#if defined(PORT_HOST)
+// Carries pointers (Effect::Modifier_*); as wide as a pointer on the host.
+typedef uintptr_t ForEachParam;
+#else
 typedef u32 ForEachParam;
+#endif
 typedef void (*ForEachFunc)(void* pObject, ForEachParam param);
 
 inline u8 ConvertF32RadToU8(f32 rad) {

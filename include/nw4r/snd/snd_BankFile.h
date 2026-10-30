@@ -23,7 +23,7 @@ inline u8 ReadByte(const void* pAddr) {
 namespace BankFile {
 
 struct InstParam {
-    s32 waveIndex; // at 0x0
+    be_s32 waveIndex; // at 0x0
     u8 attack;     // at 0x4
     u8 decay;      // at 0x5
     u8 sustain;    // at 0x6
@@ -32,7 +32,7 @@ struct InstParam {
     u8 originalKey; // at 0xC
     u8 volume;      // at 0xD
     u8 pan;         // at 0xE
-    f32 tune;       // at 0x10
+    be_f32 tune;    // at 0x10
 };
 
 struct RangeTable {
@@ -43,7 +43,7 @@ struct RangeTable {
 struct IndexTable {
     u8 min;       // at 0x0
     u8 max;       // at 0x1
-    u16 reserved; // at 0x2
+    be_u16 reserved; // at 0x2
     u8 ref[];     // at 0x4
 };
 
@@ -52,10 +52,10 @@ typedef Util::DataRef<WaveFile::WaveInfo> WaveRegion;
 
 struct Header {
     ut::BinaryFileHeader fileHeader; // at 0x0
-    u32 dataBlockOffset;             // at 0x10
-    u32 dataBlockSize;               // at 0x14
-    u32 waveBlockOffset;             // at 0x18
-    u32 waveBlockSize;               // at 0x1C
+    be_u32 dataBlockOffset;          // at 0x10
+    be_u32 dataBlockSize;            // at 0x14
+    be_u32 waveBlockOffset;          // at 0x18
+    be_u32 waveBlockSize;            // at 0x1C
 };
 
 struct DataBlock {

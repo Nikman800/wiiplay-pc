@@ -93,21 +93,39 @@ template <typename T> inline T RoundUp(T t, unsigned int alignment) {
     return (alignment + t - 1) & ~(alignment - 1);
 }
 
+#if defined(PORT_HOST)
+// PC port: round the full pointer-sized address (the mask is widened first)
+template <typename T> inline void* RoundUp(T* pPtr, unsigned int alignment) {
+    uintptr_t value = reinterpret_cast<uintptr_t>(pPtr);
+    uintptr_t rounded =
+        (alignment + value - 1) & ~static_cast<uintptr_t>(alignment - 1);
+    return reinterpret_cast<void*>(rounded);
+}
+#else
 template <typename T> inline void* RoundUp(T* pPtr, unsigned int alignment) {
     u32 value = reinterpret_cast<u32>(pPtr);
     u32 rounded = (alignment + value - 1) & ~(alignment - 1);
     return reinterpret_cast<void*>(rounded);
 }
+#endif
 
 template <typename T> inline T RoundDown(T t, unsigned int alignment) {
     return t & ~(alignment - 1);
 }
 
+#if defined(PORT_HOST)
+template <typename T> inline void* RoundDown(T* pPtr, unsigned int alignment) {
+    uintptr_t value = reinterpret_cast<uintptr_t>(pPtr);
+    uintptr_t rounded = value & ~static_cast<uintptr_t>(alignment - 1);
+    return reinterpret_cast<void*>(rounded);
+}
+#else
 template <typename T> inline void* RoundDown(T* pPtr, unsigned int alignment) {
     u32 value = reinterpret_cast<u32>(pPtr);
     u32 rounded = value & ~(alignment - 1);
     return reinterpret_cast<void*>(rounded);
 }
+#endif
 
 } // namespace
 } // namespace ut

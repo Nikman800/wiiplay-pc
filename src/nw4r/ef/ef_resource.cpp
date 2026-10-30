@@ -16,8 +16,8 @@ Resource::Resource() {
 }
 
 void Resource::Initialize() {
-    ut::List_Init(&mBREFFList, offsetof(EffectProject, projectlink));
-    ut::List_Init(&mBREFTList, offsetof(TextureProject, projectlink));
+    RES_LIST_Init(&mBREFFList, offsetof(EffectProject, projectlink));
+    RES_LIST_Init(&mBREFTList, offsetof(TextureProject, projectlink));
     mNumEmitter = 0;
     mNumTexture = 0;
 }
@@ -30,21 +30,21 @@ void Resource::Initialize() {
 struct FileHeader {
     char signature[4]; // at 0x0
     u8 byteorder[2];   // at 0x4
-    u16 version;       // at 0x6
-    u32 filesize;      // at 0x8
-    u16 headersize;    // at 0xC
-    u16 blocknum;      // at 0xE
+    be_u16 version;    // at 0x6
+    be_u32 filesize;   // at 0x8
+    be_u16 headersize; // at 0xC
+    be_u16 blocknum;   // at 0xE
 };
 
 struct BlockHeader {
-    char type[4];   // at 0x0
-    u32 headersize; // at 0x4
+    char type[4];      // at 0x0
+    be_u32 headersize; // at 0x4
 };
 
 struct NameTable {
-    u32 tablesize;   // at 0x0
-    u16 numEntry;    // at 0x5
-    u16 PADDING_0x4; // at 0x6
+    be_u32 tablesize;   // at 0x0
+    be_u16 numEntry;    // at 0x5
+    be_u16 PADDING_0x4; // at 0x6
 };
 
 /* static */ void breffRelocate(EffectProject* pEffProject) {
@@ -75,7 +75,7 @@ struct NameTable {
             reinterpret_cast<u8*>(pNameTable) + offset);
 
         // I think they really did this, the member is private...
-        *reinterpret_cast<char**>(pResource) = pName;
+        *reinterpret_cast<RES_PTR(char)*>(pResource) = pName;
 
         pResource->LocateTracks();
     }
@@ -252,8 +252,8 @@ EffectProject* Resource::Add(u8* pData) {
 
     EffectProject* pEffProject = reinterpret_cast<EffectProject*>(pPtr);
 
-    memset(&pEffProject->projectlink, 0, sizeof(ut::Link));
-    ut::List_Append(&mBREFFList, pEffProject);
+    memset(&pEffProject->projectlink, 0, sizeof(RES_LINK));
+    RES_LIST_Append(&mBREFFList, pEffProject);
 
     mNumEmitter += breffNumEmitter(pEffProject);
     breffRelocate(pEffProject);
@@ -280,7 +280,7 @@ EmitterResource* Resource::_FindEmitter(const char* pName,
         }
     }
 
-    pEffProject = static_cast<EffectProject*>(ut::List_GetLast(&mBREFFList));
+    pEffProject = static_cast<EffectProject*>(RES_LIST_GetLast(&mBREFFList));
 
     while (pEffProject != NULL) {
         pResource = breffSearchName(pEffProject, pName);
@@ -289,7 +289,7 @@ EmitterResource* Resource::_FindEmitter(const char* pName,
         }
 
         pEffProject = static_cast<EffectProject*>(
-            ut::List_GetPrev(&mBREFFList, pEffProject));
+            RES_LIST_GetPrev(&mBREFFList, pEffProject));
     }
 
     return NULL;
@@ -318,7 +318,7 @@ TextureData* Resource::_FindTexture(const char* pName,
         }
     }
 
-    pTexProject = static_cast<TextureProject*>(ut::List_GetLast(&mBREFTList));
+    pTexProject = static_cast<TextureProject*>(RES_LIST_GetLast(&mBREFTList));
 
     while (pTexProject != NULL) {
         pTexData = breftSearchName(pTexProject, pName);
@@ -327,7 +327,7 @@ TextureData* Resource::_FindTexture(const char* pName,
         }
 
         pTexProject = static_cast<TextureProject*>(
-            ut::List_GetPrev(&mBREFTList, pTexProject));
+            RES_LIST_GetPrev(&mBREFTList, pTexProject));
     }
 
     return NULL;
@@ -353,7 +353,7 @@ Resource::_GetEmitterIndexOf(u32 idx, EffectProject* pEffProject) const {
         return NULL;
     }
 
-    pEffProject = static_cast<EffectProject*>(ut::List_GetFirst(&mBREFFList));
+    pEffProject = static_cast<EffectProject*>(RES_LIST_GetFirst(&mBREFFList));
 
     while (pEffProject != NULL) {
         u16 numEmitter = breffNumEmitter(pEffProject);
@@ -365,7 +365,7 @@ Resource::_GetEmitterIndexOf(u32 idx, EffectProject* pEffProject) const {
         idx -= numEmitter;
 
         pEffProject = static_cast<EffectProject*>(
-            ut::List_GetNext(&mBREFFList, pEffProject));
+            RES_LIST_GetNext(&mBREFFList, pEffProject));
     }
 
     return NULL;
@@ -382,8 +382,8 @@ TextureProject* Resource::AddTexture(u8* pData) {
 
     TextureProject* pTexProject = reinterpret_cast<TextureProject*>(pPtr);
 
-    memset(&pTexProject->projectlink, 0, sizeof(ut::Link));
-    ut::List_Append(&mBREFTList, pTexProject);
+    memset(&pTexProject->projectlink, 0, sizeof(RES_LINK));
+    RES_LIST_Append(&mBREFTList, pTexProject);
 
     mNumTexture += breftNumTexture(pTexProject);
     breftRelocate(pTexProject);
@@ -414,10 +414,10 @@ u32 Resource::relocateCurveTexture(u8* pCmdList) {
                 pNameTable->count * sizeof(AnimCurveNameTable::Name);
 
     for (int i = 0; i < pNameTable->count; i++) {
-        int size = *reinterpret_cast<u16*>(pName);
+        int size = *reinterpret_cast<be_u16*>(pName);
         pName += sizeof(u16);
 
-        pNameTable->datas[i].work = reinterpret_cast<u32>(
+        pNameTable->datas[i].work = PORT_PTR_TO_U32(
             _FindTexture(reinterpret_cast<const char*>(pName), NULL));
 
         if (pName[0] != 0 && pNameTable->datas[i].work == 0) {
@@ -453,10 +453,10 @@ u32 Resource::relocateCurveChild(u8* pCmdList) {
                 pNameTable->count * sizeof(AnimCurveNameTable::Name);
 
     for (int i = 0; i < pNameTable->count; i++) {
-        int size = *reinterpret_cast<u16*>(pName);
+        int size = *reinterpret_cast<be_u16*>(pName);
         pName += sizeof(u16);
 
-        pNameTable->datas[i].work = reinterpret_cast<u32>(
+        pNameTable->datas[i].work = PORT_PTR_TO_U32(
             _FindEmitter(reinterpret_cast<char*>(pName), NULL));
 
         if (pNameTable->datas[i].work == 0) {
@@ -480,11 +480,11 @@ u32 Resource::RelocateCommand() {
 
         ParticleParameterDesc* pPtclDesc =
             pResource->GetParticleParameterDesc();
-        TextureData** ppWork = pPtclDesc->mTexture;
+        RES_PTR(TextureData)* ppWork = pPtclDesc->mTexture;
         u8* pPtr = pPtclDesc->textureNames;
 
         for (int i = 0; i < TEX_LAYER_MAX; i++) {
-            u16 size = *reinterpret_cast<u16*>(pPtr);
+            u16 size = *reinterpret_cast<be_u16*>(pPtr);
             pPtr += sizeof(u16);
 
             ppWork[i] = _FindTexture(reinterpret_cast<char*>(pPtr), NULL);
@@ -506,7 +506,7 @@ u32 Resource::RelocateCommand() {
             }
 
             // Load curveFlag and kindEnable
-            u16 ctrl = *reinterpret_cast<u16*>(&pTrackAsHeader->curveFlag);
+            u16 ctrl = *reinterpret_cast<be_u16*>(&pTrackAsHeader->curveFlag);
 
             switch (ctrl) {
             case (AC_TYPE_PARTICLE_TEXTURE << 8 | 0b001): {
@@ -534,16 +534,16 @@ u32 Resource::RelocateCommand() {
 
 bool Resource::RemoveEffectProject(EffectProject* pEffProject) {
     EffectProject* pIt =
-        static_cast<EffectProject*>(ut::List_GetFirst(&mBREFFList));
+        static_cast<EffectProject*>(RES_LIST_GetFirst(&mBREFFList));
 
     for (; pIt != NULL; pIt = static_cast<EffectProject*>(
-                            ut::List_GetNext(&mBREFFList, pIt))) {
+                            RES_LIST_GetNext(&mBREFFList, pIt))) {
 
         if (pIt != pEffProject) {
             continue;
         }
 
-        ut::List_Remove(&mBREFFList, pEffProject);
+        RES_LIST_Remove(&mBREFFList, pEffProject);
 
         mNumEmitter -=
             pEffProject != NULL ? breffNumEmitter(pEffProject) : mNumEmitter;
@@ -556,16 +556,16 @@ bool Resource::RemoveEffectProject(EffectProject* pEffProject) {
 
 bool Resource::RemoveTextureProject(TextureProject* pTexProject) {
     TextureProject* pIt =
-        static_cast<TextureProject*>(ut::List_GetFirst(&mBREFTList));
+        static_cast<TextureProject*>(RES_LIST_GetFirst(&mBREFTList));
 
     for (; pIt != NULL; pIt = static_cast<TextureProject*>(
-                            ut::List_GetNext(&mBREFTList, pIt))) {
+                            RES_LIST_GetNext(&mBREFTList, pIt))) {
 
         if (pIt != pTexProject) {
             continue;
         }
 
-        ut::List_Remove(&mBREFTList, pTexProject);
+        RES_LIST_Remove(&mBREFTList, pTexProject);
 
         mNumTexture -=
             pTexProject != NULL ? breftNumTexture(pTexProject) : mNumTexture;

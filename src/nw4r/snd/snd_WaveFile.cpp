@@ -23,7 +23,7 @@ bool WaveFileReader::ReadWaveParam(WaveData* pWaveData,
     pWaveData->loopEnd =
         AxVoice::GetSampleByDspAddress(NULL, mWaveInfo->loopEnd, format) + 1;
 
-    const u32* pInfoOffsetTable = static_cast<const u32*>(
+    const be_u32* pInfoOffsetTable = static_cast<const be_u32*>(
         ut::AddOffsetToPtr(mWaveInfo, mWaveInfo->channelInfoTableOffset));
 
     for (int i = 0; i < mWaveInfo->numChannels; i++) {

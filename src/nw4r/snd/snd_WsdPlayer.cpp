@@ -176,7 +176,7 @@ bool WsdPlayer::StartChannel(const WsdCallback* pCallback, u32 callbackArg) {
 
     Channel* pChannel = Channel::AllocChannel(
         ut::Min<int>(waveData.numChannels, CHANNEL_MAX), GetVoiceOutCount(),
-        priority, ChannelCallbackFunc, reinterpret_cast<u32>(this));
+        priority, ChannelCallbackFunc, reinterpret_cast<uintptr_t>(this));
 
     if (pChannel == NULL) {
         return false;
@@ -303,7 +303,7 @@ void WsdPlayer::UpdateChannel() {
 
 void WsdPlayer::ChannelCallbackFunc(Channel* pDropChannel,
                                     Channel::ChannelCallbackStatus status,
-                                    u32 callbackArg) {
+                                    uintptr_t callbackArg) {
     SoundThread::AutoLock lock;
 
     WsdPlayer* p = reinterpret_cast<WsdPlayer*>(callbackArg);

@@ -25,23 +25,23 @@ struct WaveInfo {
     u8 loopFlag;                // at 0x1
     u8 numChannels;             // at 0x2
     u8 sampleRate24;            // at 0x3
-    u16 sampleRate;             // at 0x4
-    u16 PADDING_0x6;            // at 0x6
-    u32 loopStart;              // at 0x8
-    u32 loopEnd;                // at 0xC
-    u32 channelInfoTableOffset; // at 0x10
-    u32 dataOffset;             // at 0x14
-    u32 reserved;               // at 0x18
+    be_u16 sampleRate;          // at 0x4
+    be_u16 PADDING_0x6;         // at 0x6
+    be_u32 loopStart;           // at 0x8
+    be_u32 loopEnd;             // at 0xC
+    be_u32 channelInfoTableOffset; // at 0x10
+    be_u32 dataOffset;          // at 0x14
+    be_u32 reserved;            // at 0x18
 };
 
 struct WaveChannelInfo {
-    u32 channelDataOffset; // at 0x0
-    u32 adpcmOffset;       // at 0x4
-    u32 volumeFrontLeft;   // at 0x8
-    u32 volumeFrontRight;  // at 0xC
-    u32 volumeRearLeft;    // at 0x10
-    u32 volumeRearRight;   // at 0x14
-    u32 reserved;          // at 0x18
+    be_u32 channelDataOffset; // at 0x0
+    be_u32 adpcmOffset;    // at 0x4
+    be_u32 volumeFrontLeft; // at 0x8
+    be_u32 volumeFrontRight; // at 0xC
+    be_u32 volumeRearLeft; // at 0x10
+    be_u32 volumeRearRight; // at 0x14
+    be_u32 reserved;       // at 0x18
 };
 
 }; // namespace WaveFile

@@ -143,7 +143,7 @@ void AXFreeVoice(AXVPB* vpb) {
     OSRestoreInterrupts(enabled);
 }
 
-AXVPB* AXAcquireVoice(u32 prio, AXVoiceCallback callback, u32 userContext) {
+AXVPB* AXAcquireVoice(u32 prio, AXVoiceCallback callback, uintptr_t userContext) {
     BOOL enabled = OSDisableInterrupts();
     AXVPB* vpb = __AXPopFreeStack();
 

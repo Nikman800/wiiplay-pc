@@ -133,7 +133,7 @@ AxVoice* AxVoiceManager::AcquireAxVoice(u32 priority,
     }
 
     AXVPB* pVpb = AXAcquireVoice(priority, AxVoice::VoiceCallback,
-                                 reinterpret_cast<u32>(pVoice));
+                                 reinterpret_cast<uintptr_t>(pVoice));
     if (pVpb == NULL) {
         Free(pVoice);
         return NULL;

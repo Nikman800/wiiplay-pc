@@ -49,7 +49,12 @@ public:
         OSMessage mesg;
 
         if (OSReceiveMessage(&mLoadStateMesgQueue, &mesg, 0)) {
+#if defined(PORT_HOST)
+            // PC port: OSMessage is a 64-bit pointer on the host
+            s32 id = static_cast<s32>(reinterpret_cast<intptr_t>(mesg));
+#else
             s32 id = reinterpret_cast<s32>(mesg);
+#endif
             OSMessage result = reinterpret_cast<OSMessage>(loadState(id));
             OSSendMessage(&mResponseMesgQueue, result, 0);
         }

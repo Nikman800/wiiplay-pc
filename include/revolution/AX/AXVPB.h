@@ -53,7 +53,7 @@ typedef struct _AXVPB {
     void* next1;              // at 0x8
     u32 priority;             // at 0xC
     AXVoiceCallback callback; // at 0x10
-    u32 userContext;          // at 0x14
+    uintptr_t userContext;    // at 0x14
     u32 index;                // at 0x18
     u32 sync;                 // at 0x1C
     u32 depop;                // at 0x20

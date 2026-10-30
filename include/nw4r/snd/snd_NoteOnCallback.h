@@ -25,7 +25,7 @@ struct NoteOnInfo {
     int priority;                             // at 0x14
     int voiceOutCount;                        // at 0x18
     Channel::ChannelCallback channelCallback; // at 0x1C
-    u32 channelCallbackData;                  // at 0x20
+    uintptr_t channelCallbackData;            // at 0x20
 };
 
 /******************************************************************************

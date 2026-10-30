@@ -10,6 +10,9 @@
 
 #include <revolution/GX.h>
 
+#include <port/be.h>
+#include <port/resptr.h>
+
 namespace nw4r {
 namespace ef {
 
@@ -23,15 +26,15 @@ struct ParticleParameterDesc {
     math::VEC2 scale;                               // at 0x18
     math::VEC3 rotate;                              // at 0x20
     math::VEC2 textureScale[TEX_LAYER_MAX];         // at 0x2C
-    f32 textureRotate[TEX_LAYER_MAX];               // at 0x44
+    be_f32 textureRotate[TEX_LAYER_MAX];            // at 0x44
     math::VEC2 textureTranslate[TEX_LAYER_MAX];     // at 0x50
-    TextureData* mTexture[TEX_LAYER_MAX];           // at 0x68
-    u16 textureWrap;                                // at 0x74
+    RES_PTR(TextureData) mTexture[TEX_LAYER_MAX];   // at 0x68
+    be_u16 textureWrap;                             // at 0x74
     u8 textureReverse;                              // at 0x76
     u8 mACmpRef0;                                   // at 0x77
     u8 mACmpRef1;                                   // at 0x78
     u8 rotateOffsetRandom[AXIS_MAX];                // at 0x79
-    f32 rotateOffset[AXIS_MAX];                     // at 0x7C
+    be_f32 rotateOffset[AXIS_MAX];                  // at 0x7C
     u8 textureNames[1];                             // at 0x88
 };
 

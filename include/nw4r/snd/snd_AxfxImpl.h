@@ -32,7 +32,7 @@ struct AxfxImpl {
     void HookAlloc(AXFXAllocHook* pAllocHook, AXFXFreeHook* pFreeHook);
     void RestoreAlloc(AXFXAllocHook allocHook, AXFXFreeHook freeHook);
 
-    static void* Alloc(u32 size);
+    static void* Alloc(size_t size);
     static void Free(void* pBlock);
 
     static AxfxImpl* mCurrentFx;

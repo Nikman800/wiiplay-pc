@@ -2,6 +2,8 @@
 #include <nw4r/snd.h>
 #include <nw4r/ut.h>
 
+#include <port/resptr.h>
+
 #include <cmath>
 
 namespace nw4r {
@@ -102,7 +104,7 @@ const void* Util::GetDataRefAddressImpl(RefType type, u32 value,
     }
 
     if (type == REFTYPE_ADDRESS) {
-        return reinterpret_cast<void*>(Util::ReadBigEndian(value));
+        return PORT_U32_TO_PTR(void*, Util::ReadBigEndian(value));
     }
 
     return NULL;

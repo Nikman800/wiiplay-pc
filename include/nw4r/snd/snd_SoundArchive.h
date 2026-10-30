@@ -6,6 +6,8 @@
 
 #include <nw4r/ut.h>
 
+#include <port/be.h>
+
 namespace nw4r {
 namespace snd {
 
@@ -87,8 +89,8 @@ public:
         u32 filePosCount;        // at 0xC
     };
     struct FilePos {
-        u32 groupId; // at 0x0
-        u32 index;   // at 0x4
+        be_u32 groupId; // at 0x0
+        be_u32 index; // at 0x4
     };
 
     struct SoundArchivePlayerInfo {

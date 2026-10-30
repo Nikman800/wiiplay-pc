@@ -63,7 +63,7 @@ Channel::Channel()
 
 Channel::~Channel() {}
 
-void Channel::InitParam(ChannelCallback pCallback, u32 callbackArg) {
+void Channel::InitParam(ChannelCallback pCallback, uintptr_t callbackArg) {
     mNextLink = NULL;
 
     mCallback = pCallback;
@@ -376,7 +376,7 @@ void Channel::VoiceCallbackFunc(Voice* pDropVoice,
 }
 
 Channel* Channel::AllocChannel(int channels, int voices, int priority,
-                               ChannelCallback pCallback, u32 callbackArg) {
+                               ChannelCallback pCallback, uintptr_t callbackArg) {
     Channel* pChannel = ChannelManager::GetInstance().Alloc();
     if (pChannel == NULL) {
         return NULL;

@@ -63,9 +63,11 @@ public:
     virtual bool startSound(nw4r::snd::SoundHandle* pHandle, u32 id) {
         return mPlayer->StartSound(pHandle, id);
     } // at 0x38
+#if !defined(PORT_HOST) // PC port: u32 is unsigned int on the host
     virtual bool startSound(nw4r::snd::SoundHandle* pHandle, unsigned int id) {
         return mPlayer->StartSound(pHandle, id);
     } // at 0x3C
+#endif
     virtual bool startSound(nw4r::snd::SoundHandle* pHandle,
                             const char* pName) {
 
@@ -80,10 +82,12 @@ public:
     virtual bool prepareSound(nw4r::snd::SoundHandle* pHandle, u32 id) {
         return mPlayer->PrepareSound(pHandle, id);
     } // at 0x44
+#if !defined(PORT_HOST) // PC port: u32 is unsigned int on the host
     virtual bool prepareSound(nw4r::snd::SoundHandle* pHandle,
                               unsigned int id) {
         return mPlayer->PrepareSound(pHandle, id);
     } // at 0x48
+#endif
     virtual bool prepareSound(nw4r::snd::SoundHandle* pHandle,
                               const char* pName) {
         u32 id = nw4r::snd::SoundArchive::INVALID_ID;
@@ -97,9 +101,11 @@ public:
     virtual bool holdSound(nw4r::snd::SoundHandle* pHandle, u32 id) {
         return mPlayer->HoldSound(pHandle, id);
     } // at 0x50
+#if !defined(PORT_HOST) // PC port: u32 is unsigned int on the host
     virtual bool holdSound(nw4r::snd::SoundHandle* pHandle, unsigned int id) {
         return mPlayer->HoldSound(pHandle, id);
     } // at 0x54
+#endif
     virtual bool holdSound(nw4r::snd::SoundHandle* pHandle, const char* pName) {
         u32 id = nw4r::snd::SoundArchive::INVALID_ID;
         if (mArchive != NULL) {

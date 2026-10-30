@@ -91,7 +91,7 @@ void SoundThread::SoundThreadProc() {
     while (true) {
         OSReceiveMessage(&mMsgQueue, &msg, OS_MSG_BLOCKING);
 
-        if (reinterpret_cast<u32>(msg) == MSG_AX_CALLBACK) {
+        if (reinterpret_cast<uintptr_t>(msg) == MSG_AX_CALLBACK) {
             ut::detail::AutoLock<OSMutex> lock(mMutex);
 
             NW4R_UT_LINKLIST_FOREACH_SAFE (it, mSoundFrameCallbackList,
@@ -117,7 +117,7 @@ void SoundThread::SoundThreadProc() {
             NW4R_UT_LINKLIST_FOREACH_SAFE (it, mSoundFrameCallbackList,
                                            { it->OnEndSoundFrame(); })
 
-        } else if (reinterpret_cast<u32>(msg) == MSG_SHUTDOWN) {
+        } else if (reinterpret_cast<uintptr_t>(msg) == MSG_SHUTDOWN) {
             NW4R_UT_LINKLIST_FOREACH_SAFE (it, mPlayerCallbackList,
                                            { it->OnShutdownSoundThread(); })
 

@@ -134,7 +134,7 @@ private:
 private:
     static void ChannelCallbackFunc(Channel* pDropChannel,
                                     Channel::ChannelCallbackStatus status,
-                                    u32 callbackArg);
+                                    uintptr_t callbackArg);
 
 private:
     u8 mPlayerTrackNo; // at 0x4

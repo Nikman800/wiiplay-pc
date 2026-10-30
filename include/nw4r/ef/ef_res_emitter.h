@@ -9,6 +9,9 @@
 
 #include <revolution/GX.h>
 
+#include <port/be.h>
+#include <port/resptr.h>
+
 namespace nw4r {
 namespace ef {
 
@@ -84,7 +87,7 @@ struct Lighting {
     u8 mType;             // at 0x1
     GXColor mAmbient;     // at 0x2
     GXColor mDiffuse;     // at 0x6
-    f32 mRadius;          // at 0xA
+    be_f32 mRadius;       // at 0xA
     math::VEC3 mPosition; // at 0xE
 };
 #pragma pack(pop)
@@ -153,7 +156,7 @@ struct EmitterDrawSetting {
         DIR_NO_DESIGN = 5,
     };
 
-    u16 mFlags;                     // at 0x0
+    be_u16 mFlags;                  // at 0x0
     u8 mACmpComp0;                  // at 0x2
     u8 mACmpComp1;                  // at 0x3
     u8 mACmpOp;                     // at 0x4
@@ -170,11 +173,11 @@ struct EmitterDrawSetting {
     ColorInput mColorInput;         // at 0x5C
     u8 mZCompareFunc;               // at 0x64
     u8 mAlphaFlickType;             // at 0x65
-    u16 mAlphaFlickCycle;           // at 0x66
+    be_u16 mAlphaFlickCycle;        // at 0x66
     u8 mAlphaFlickRandom;           // at 0x68
     u8 mAlphaFlickAmplitude;        // at 0x69
     Lighting mLighting;             // at 0x6A
-    f32 mIndTexOffsetMtx[2][3];     // at 0x84
+    be_f32 mIndTexOffsetMtx[2][3];  // at 0x84
     s8 mIndTexScaleExp;             // at 0x9C
     s8 pivotX;                      // at 0x9D
     s8 pivotY;                      // at 0x9E
@@ -187,7 +190,7 @@ struct EmitterDrawSetting {
     u8 typeOption1;                 // at 0xA5
     u8 typeOption2;                 // at 0xA6
     u8 PADDING_0xAB;                // at 0xA7
-    f32 zOffset;                    // at 0xA8
+    be_f32 zOffset;                 // at 0xA8
 };
 
 struct EmitterDesc {
@@ -218,31 +221,31 @@ struct EmitterDesc {
         EMIT_FLAG_26 = (1 << 26),
     };
 
-    u32 commonFlag;                 // at 0x0
-    u32 emitFlag;                   // at 0x4
-    u16 emitLife;                   // at 0x8
-    u16 ptclLife;                   // at 0xA
+    be_u32 commonFlag;              // at 0x0
+    be_u32 emitFlag;                // at 0x4
+    be_u16 emitLife;                // at 0x8
+    be_u16 ptclLife;                // at 0xA
     s8 ptclLifeRandom;              // at 0xC
     s8 inheritChildPtclTranslate;   // at 0xD
     s8 emitEmitIntarvalRandom;      // at 0xE
     s8 emitEmitRandom;              // at 0xF
-    f32 emitEmit;                   // at 0x10
-    u16 emitEmitStart;              // at 0x14
-    u16 emitEmitPast;               // at 0x16
-    u16 emitEmitInterval;           // at 0x18
+    be_f32 emitEmit;                // at 0x10
+    be_u16 emitEmitStart;           // at 0x14
+    be_u16 emitEmitPast;            // at 0x16
+    be_u16 emitEmitInterval;        // at 0x18
     s8 inheritPtclTranslate;        // at 0x1A
     s8 inheritChildEmitTranslate;   // at 0x1B
-    f32 commonParam[NUM_PARAMS];    // at 0x1C
-    u16 emitEmitDiv;                // at 0x34
+    be_f32 commonParam[NUM_PARAMS]; // at 0x1C
+    be_u16 emitEmitDiv;             // at 0x34
     s8 velInitVelocityRandom;       // at 0x36
     s8 velMomentumRandom;           // at 0x37
-    f32 velPowerRadiationDir;       // at 0x38
-    f32 velPowerYAxis;              // at 0x3C
-    f32 velPowerRandomDir;          // at 0x40
-    f32 velPowerNormalDir;          // at 0x44
-    f32 velDiffusionEmitterNormal;  // at 0x48
-    f32 velPowerSpecDir;            // at 0x4C
-    f32 velDiffusionSpecDir;        // at 0x50
+    be_f32 velPowerRadiationDir;      // at 0x38
+    be_f32 velPowerYAxis;             // at 0x3C
+    be_f32 velPowerRandomDir;         // at 0x40
+    be_f32 velPowerNormalDir;         // at 0x44
+    be_f32 velDiffusionEmitterNormal; // at 0x48
+    be_f32 velPowerSpecDir;           // at 0x4C
+    be_f32 velDiffusionSpecDir;       // at 0x50
     math::VEC3 velSpecDir;          // at 0x54
     math::VEC3 scale;               // at 0x60
     math::VEC3 rotate;              // at 0x6C
@@ -251,7 +254,7 @@ struct EmitterDesc {
     u8 lodFar;                      // at 0x85
     u8 lodMinEmit;                  // at 0x86
     u8 lodAlpha;                    // at 0x87
-    u32 randomSeed;                 // at 0x88
+    be_u32 randomSeed;              // at 0x88
     u8 userdata[8];                 // at 0x8C
     EmitterDrawSetting drawSetting; // at 0x94
 
@@ -262,8 +265,8 @@ struct EmitterDesc {
 
 struct EmitterResource {
 private:
-    char* name;     // at 0x0
-    u32 headersize; // at 0x4
+    RES_PTR(char) name; // at 0x0
+    be_u32 headersize;  // at 0x4
 
 public:
     /******************************************************************************
@@ -297,7 +300,7 @@ public:
     }
     u8* SkipParticleParameterDesc() {
         u8* pPtr = SkipEmitterDesc();
-        pPtr += *reinterpret_cast<u32*>(pPtr) + sizeof(u32);
+        pPtr += *reinterpret_cast<be_u32*>(pPtr) + sizeof(u32);
         return pPtr;
     }
 
@@ -306,54 +309,54 @@ public:
      ******************************************************************************/
     u16 NumPtclTrack() {
         const u8* pPtr = SkipParticleParameterDesc();
-        u16 numPtclTrack = *(reinterpret_cast<const u16*>(pPtr) + 0);
+        u16 numPtclTrack = *(reinterpret_cast<const be_u16*>(pPtr) + 0);
         return numPtclTrack;
     }
     u16 NumPtclInitTrack() {
         const u8* pPtr = SkipParticleParameterDesc();
-        u16 numPtclTrack = *(reinterpret_cast<const u16*>(pPtr) + 1);
+        u16 numPtclTrack = *(reinterpret_cast<const be_u16*>(pPtr) + 1);
         return numPtclTrack;
     }
 
     u16 NumEmitTrack() {
         const u8* pPtr = SkipParticleParameterDesc();
-        u16 numPtclTrack = *reinterpret_cast<const u16*>(pPtr);
+        u16 numPtclTrack = *reinterpret_cast<const be_u16*>(pPtr);
 
         pPtr += numPtclTrack * 8 + 4;
-        u16 numEmitTrack = *(reinterpret_cast<const u16*>(pPtr) + 0);
+        u16 numEmitTrack = *(reinterpret_cast<const be_u16*>(pPtr) + 0);
 
         return numEmitTrack;
     }
     u16 NumEmitInitTrack() {
         const u8* pPtr = SkipParticleParameterDesc();
-        u16 numPtclTrack = *reinterpret_cast<const u16*>(pPtr);
+        u16 numPtclTrack = *reinterpret_cast<const be_u16*>(pPtr);
 
         pPtr += numPtclTrack * 8 + 4;
-        u16 numEmitTrack = *(reinterpret_cast<const u16*>(pPtr) + 1);
+        u16 numEmitTrack = *(reinterpret_cast<const be_u16*>(pPtr) + 1);
 
         return numEmitTrack;
     }
 
-    u8** GetPtclTrackTbl() {
+    RES_PTR(u8)* GetPtclTrackTbl() {
         u8* pPtr = SkipParticleParameterDesc();
-        u8** ppTbl = reinterpret_cast<u8**>(pPtr + 4);
+        RES_PTR(u8)* ppTbl = reinterpret_cast<RES_PTR(u8)*>(pPtr + 4);
         return ppTbl;
     }
-    u8** GetEmitTrackTbl() {
+    RES_PTR(u8)* GetEmitTrackTbl() {
         u8* pPtr = SkipParticleParameterDesc();
-        u16 numPtclTrack = *reinterpret_cast<const u16*>(pPtr);
+        u16 numPtclTrack = *reinterpret_cast<const be_u16*>(pPtr);
 
         pPtr += numPtclTrack * 8 + 4;
-        u8** ppTbl = reinterpret_cast<u8**>(pPtr + 4);
+        RES_PTR(u8)* ppTbl = reinterpret_cast<RES_PTR(u8)*>(pPtr + 4);
         return ppTbl;
     }
 
     u8* GetPtclTrack(u16 idx) {
-        u8** ppTbl = GetPtclTrackTbl();
+        RES_PTR(u8)* ppTbl = GetPtclTrackTbl();
         return ppTbl[idx];
     }
     u8* GetEmitTrack(u16 idx) {
-        u8** ppTbl = GetEmitTrackTbl();
+        RES_PTR(u8)* ppTbl = GetEmitTrackTbl();
         return ppTbl[idx];
     }
 
@@ -362,22 +365,22 @@ public:
         pTail += NumPtclTrack() * 8 + 4;
         pTail += NumEmitTrack() * 8 + 4;
 
-        u32* pPtclPtrTbl = reinterpret_cast<u32*>(GetPtclTrackTbl());
-        u32* pEmitPtrTbl = reinterpret_cast<u32*>(GetEmitTrackTbl());
+        be_u32* pPtclPtrTbl = reinterpret_cast<be_u32*>(GetPtclTrackTbl());
+        be_u32* pEmitPtrTbl = reinterpret_cast<be_u32*>(GetEmitTrackTbl());
 
-        u32* pPtclSizeTbl =
-            reinterpret_cast<u32*>(GetPtclTrackTbl()) + NumPtclTrack();
-        u32* pEmitSizeTbl =
-            reinterpret_cast<u32*>(GetEmitTrackTbl()) + NumEmitTrack();
+        be_u32* pPtclSizeTbl =
+            reinterpret_cast<be_u32*>(GetPtclTrackTbl()) + NumPtclTrack();
+        be_u32* pEmitSizeTbl =
+            reinterpret_cast<be_u32*>(GetEmitTrackTbl()) + NumEmitTrack();
 
         int i;
         for (i = 0; i < NumPtclTrack(); i++) {
-            pPtclPtrTbl[i] = reinterpret_cast<u32>(pTail);
+            PORT_STORE_PTR32(pPtclPtrTbl[i], pTail);
             pTail += pPtclSizeTbl[i];
         }
 
         for (i = 0; i < NumEmitTrack(); i++) {
-            pEmitPtrTbl[i] = reinterpret_cast<u32>(pTail);
+            PORT_STORE_PTR32(pEmitPtrTbl[i], pTail);
             pTail += pEmitSizeTbl[i];
         }
     }

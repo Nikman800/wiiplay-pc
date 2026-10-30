@@ -353,7 +353,7 @@ void AxManager::AuxCallbackFunc(void* pChans, void* pContext) {
     void* buffer[AX_DPL2_MAX];
 
     void** ppChans = static_cast<void**>(pChans);
-    AuxBus bus = static_cast<AuxBus>(reinterpret_cast<u32>(pContext));
+    AuxBus bus = static_cast<AuxBus>(reinterpret_cast<uintptr_t>(pContext));
 
     if (GetInstance().GetOutputMode() == OUTPUT_MODE_DPL2) {
         num = AX_DPL2_MAX;

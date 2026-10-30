@@ -205,3 +205,65 @@ clean:
 	rm -rf $(HOST)/build
 
 -include $(shell find $(OUT) -name '*.d' 2>/dev/null)
+
+# --- nw4r::ef resources (POINTERS.md step 6; docs/HOST_BUILD.md §12) ---------
+# Resource::Add / AddTexture / RelocateCommand / Remove*, the emitter track
+# tables and ResEmitter/ResAnimCurve accessors, linked into ef_harness with the
+# RES_LIST helper. ef_animcurve.cpp (curve evaluation, an unlinked unit in the
+# decomp) is compiled only, so its RES_PTR/PORT_U32_TO_PTR forms keep building.
+EF_SRCS := src/nw4r/ef/ef_resource.cpp src/nw4r/ef/ef_res_emitter_ac.cpp \
+    src/nw4r/ef/ef_res_animcurve_ac.cpp
+EF_COMPILE_SRCS := src/nw4r/ef/ef_animcurve.cpp
+EF_HOST_SRCS := src/host_reslist.cpp
+EF_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(EF_SRCS)) $(patsubst %,$(OUT)/host/%.o,$(EF_HOST_SRCS))
+EF_COMPILE_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(EF_COMPILE_SRCS))
+
+$(OUT)/ef_harness: $(HOST)/tests/ef_harness.cpp $(HOST)/tests/disc_walk.h $(EF_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(EF_OBJS) $(LIB) -o $@
+
+$(OUT)/test_ef: $(HOST)/tests/test_ef.cpp $(EF_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(EF_OBJS) $(LIB) -o $@
+
+.PHONY: effects effects-unit
+all: $(OUT)/ef_harness $(OUT)/test_ef $(EF_COMPILE_OBJS)
+unit: effects-unit
+effects-unit: $(OUT)/test_ef $(EF_COMPILE_OBJS)
+	$(OUT)/test_ef
+effects: $(OUT)/ef_harness
+	python3 $(HOST)/tests/test_effects.py --harness $(OUT)/ef_harness --disc $(DISC)
+test: effects
+
+# --- nw4r::snd sound archives (POINTERS.md step 7; docs/HOST_BUILD.md §13) ----
+# The whole snd library (all units compile on the host; the archive below only
+# links what the harness reaches), the ut file streams DvdSoundArchive uses,
+# EGG::ArcPlayer (the game's archive open / group load calls) and the SDK MEM
+# frame heap behind snd::FrameHeap. AX, AI, DSP and the sound thread are host
+# stubs (src/host_snd.cpp); there is no playback.
+SND_SRCS := $(sort $(wildcard $(REPO)/src/nw4r/snd/*.cpp))
+SND_SRCS := $(patsubst $(REPO)/%,%,$(SND_SRCS)) \
+    src/nw4r/ut/ut_IOStream.cpp src/nw4r/ut/ut_FileStream.cpp \
+    src/nw4r/ut/ut_DvdFileStream.cpp src/nw4r/ut/ut_DvdLockedFileStream.cpp \
+    src/egg/audio/eggAudioArcPlayerMgr.cpp src/egg/core/eggCntFile.cpp \
+    src/nw4r/ut/ut_NandFileStream.cpp \
+    src/revolution/MEM/mem_frameHeap.c src/revolution/MEM/mem_heapCommon.c \
+    src/revolution/MEM/mem_list.c
+SND_HOST_SRCS := src/host_snd.cpp
+SND_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(SND_SRCS)) \
+    $(patsubst %,$(OUT)/host/%.o,$(SND_HOST_SRCS))
+SND_LIB := $(OUT)/libwiiplay_snd.a
+
+# mem_frameHeap.c uses CodeWarrior's __abs intrinsic.
+$(OUT)/decomp/src/revolution/MEM/%.c.o: CFLAGS += -D__abs=__builtin_abs
+
+$(SND_LIB): $(SND_OBJS)
+	@rm -f $@
+	ar rcs $@ $^
+
+$(OUT)/snd_harness: $(HOST)/tests/snd_harness.cpp $(HOST)/tests/disc_walk.h $(SND_LIB) $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(SND_LIB) $(LIB) $(SND_LIB) -o $@
+
+.PHONY: sound
+all: $(OUT)/snd_harness
+sound: $(OUT)/snd_harness
+	python3 $(HOST)/tests/test_sound.py --harness $(OUT)/snd_harness --disc $(DISC)
+test: sound

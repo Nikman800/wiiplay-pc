@@ -6,6 +6,9 @@
 #include <nw4r/ef/ef_res_texture.h>
 #include <nw4r/ut.h>
 
+#include <port/be.h>
+#include <port/reslist.h>
+
 
 namespace nw4r {
 namespace ef {
@@ -14,17 +17,17 @@ namespace ef {
 struct EmitterResource;
 
 struct EffectProject {
-    u32 headersize;       // at 0x0
-    ut::Link projectlink; // at 0x4
-    u16 projectnameLen;   // at 0xC
+    be_u32 headersize;    // at 0x0
+    RES_LINK projectlink; // at 0x4
+    be_u16 projectnameLen; // at 0xC
     u16 PADDING_0xE;      // at 0xE
     u8 projectname[4];    // at 0x10
 };
 
 struct TextureProject {
-    u32 headersize;       // at 0x0
-    ut::Link projectlink; // at 0x4
-    u16 projectnameLen;   // at 0xC
+    be_u32 headersize;    // at 0x0
+    RES_LINK projectlink; // at 0x4
+    be_u16 projectnameLen; // at 0xC
     u16 PADDING_0xE;      // at 0xE
     u8 projectname[4];    // at 0x10
 };
@@ -34,9 +37,9 @@ private:
     static const u16 VERSION = 7;
 
 public:
-    ut::List mBREFFList; // at 0x0
+    RES_LIST mBREFFList; // at 0x0
     u32 mNumEmitter;     // at 0xC
-    ut::List mBREFTList; // at 0x10
+    RES_LIST mBREFTList; // at 0x10
     u32 mNumTexture;     // at 0x1C
 
 public:

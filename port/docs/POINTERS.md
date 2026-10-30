@@ -11,7 +11,14 @@ implemented too, with g3d-4 (PAT0) brought forward because `ResFile::Bind` runs 
 holding big-endian emulated addresses, host `GXInitTexObj`/`GXInitTlutObj`), g3d-3 with no
 source change (the host `OSCachedToPhysical` already returns a `u32`), and every g3d resource
 struct on `be_*`; all 132 BRRES on the disc set up as the Wii image (HOST_BUILD.md §11).
-Everything from step 6 on is still design.
+Step 6 (ef) is implemented: ef-1 with M2 (`RES_LINK`/`RES_LIST` and `RES_LIST_*`, which this
+document called `EF_LIST_*`), ef-2 to ef-7 with `RES_PTR`/`PORT_STORE_PTR32`/
+`PORT_PTR_TO_U32`/`PORT_U32_TO_PTR`, the ef resource structs on `be_*`, and the
+`ForEachParam` cookie (§5.2) as `uintptr_t`; all 13 BREFF/BREFT pairs on the disc registered
+in the game's order, each file the Wii image at every step (HOST_BUILD.md §12).
+Step 7 is implemented: the §5.2 snd cookies are `uintptr_t`, and the sound archive code runs on
+the host with `be_*` file structs (all 11 `.brsar` opened, every group loaded; HOST_BUILD.md
+§13). Everything from step 8 on is still design.
 Line numbers refer to `src/` and `include/` as of 2026-10-30 (identical to the decomp) and do not
 account for the step 0-2 edits.
 
@@ -141,7 +148,8 @@ The headers follow the `be.h` pattern:
   it with a `port::ResList` that has the same calls the code uses: `List_Init`, `List_Append`,
   `List_Remove`, `List_GetFirst`, `List_GetLast`, `List_GetNext` and `List_GetPrev`. This is
   about 60 lines in `port/host/src`. `ef_resource.cpp` calls them through macros
-  `EF_LIST_*`, which expand to `ut::List_*` on the Wii.
+  `EF_LIST_*`, which expand to `ut::List_*` on the Wii. (Implemented as `RES_LIST_*` in
+  `include/port/reslist.h` / `port/host/include/port/reslist.h`, HOST_BUILD.md §12.)
 - In the Wii header, `RES_LINK` is `ut::Link` and `RES_LIST` is `ut::List`.
 
 Alternatives considered and rejected:
@@ -328,6 +336,8 @@ Use `uintptr_t` (or `intptr_t`) on the host:
 - `snd_AxVoice.cpp:177–221` does AX address math on sample pointers. Phase 7's mixer replaces AX
   voices; keep the addresses as M0 physical addresses if the replacement keeps the API.
 - `eggProcessMeter.cpp:250`. `eggDvdFile.cpp:135` is already handled.
+- `ef_effect.h` `Effect::Modifier_SetSimpleLightAmbient/SetScale/SetRotate` pass `&x` as a
+  `u32` `ForEachParam`. Done in step 6: `ForEachParam` is `uintptr_t` on the host.
 - `RFL_MiddleDatabase.c:137,244,311,418`: `(u32)db` callback arguments.
 - HBM alarm user data: `HBMRemoteSpk.cpp:166,198`, `HBMController.cpp:59`,
   `HBMBase.cpp:1426,1460`.

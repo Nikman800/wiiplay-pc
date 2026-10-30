@@ -30,7 +30,7 @@ void AxfxImpl::RestoreAlloc(AXFXAllocHook allocHook, AXFXFreeHook freeHook) {
     mCurrentFx = NULL;
 }
 
-void* AxfxImpl::Alloc(u32 size) {
+void* AxfxImpl::Alloc(size_t size) {
     void* pBlock = MEMAllocFromFrmHeap(mCurrentFx->mHeap, size);
 
     mCurrentFx->mAllocCount++;
