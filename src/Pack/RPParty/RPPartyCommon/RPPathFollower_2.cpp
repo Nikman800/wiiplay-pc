@@ -24,7 +24,7 @@ RPPathObject::RPPathObject(f32 speedPercent, f32 scalePercent, const void* pObjR
     if (pObjRes != 0) {
         mpRes = pObjRes;
         if (mpRes != 0) {
-            const f32* pFloats = static_cast<const f32*>(mpRes);
+            const be_f32* pFloats = static_cast<const be_f32*>(mpRes);
             EGG::Matrix34f matrix;
             EGG::Vector3f rot;
             matrix._00 = pFloats[0x0E];
@@ -37,7 +37,7 @@ RPPathObject::RPPathObject(f32 speedPercent, f32 scalePercent, const void* pObjR
             matrix._12 = pFloats[0x09];
             matrix._22 = pFloats[0x0A];
 
-            const f32* pBeforeFloats = static_cast<const f32*>(mpRes);
+            const be_f32* pBeforeFloats = static_cast<const be_f32*>(mpRes);
             mPos.x = pBeforeFloats[0x02];
             mPos.y = pBeforeFloats[0x03];
             mPos.z = pBeforeFloats[0x04];
@@ -45,7 +45,7 @@ RPPathObject::RPPathObject(f32 speedPercent, f32 scalePercent, const void* pObjR
             mRot.x = rot.x;
             mRot.y = rot.y;
             mRot.z = rot.z;
-            const f32* pAfterFloats = static_cast<const f32*>(mpRes);
+            const be_f32* pAfterFloats = static_cast<const be_f32*>(mpRes);
             mVec20.x = pAfterFloats[0x08];
             mVec20.y = pAfterFloats[0x09];
             mVec20.z = pAfterFloats[0x0A];

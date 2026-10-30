@@ -263,6 +263,24 @@ void DumpEffect(File* f, EffectProject* pProject) {
                     Bits(ds->mLighting.mRadius), Bits(ds->mIndTexOffsetMtx[1][2]),
                     Bits(ds->zOffset), static_cast<unsigned>(desc->GetFormType()), ds->ptcltype);
 
+        // The math value members (BE_MATH, HOST_BUILD.md §14).
+        const BE_MATH(VEC3)* v3[5] = {&desc->velSpecDir, &desc->scale, &desc->rotate,
+                                      &desc->translate, &ds->mLighting.mPosition};
+        std::printf("EV %s %u", f->path.c_str(), i);
+        for (int k = 0; k < 5; k++) {
+            math::VEC3 v = *v3[k];
+            std::printf(" %x,%x,%x", Bits(v.x), Bits(v.y), Bits(v.z));
+        }
+        std::printf("\n");
+        std::printf("PV %s %u %x,%x %x,%x %x,%x,%x", f->path.c_str(), i, Bits(ptcl->size.x),
+                    Bits(ptcl->size.y), Bits(ptcl->scale.x), Bits(ptcl->scale.y),
+                    Bits(ptcl->rotate.x), Bits(ptcl->rotate.y), Bits(ptcl->rotate.z));
+        for (int l = 0; l < TEX_LAYER_MAX; l++) {
+            math::VEC2 ts = ptcl->textureScale[l], tt = ptcl->textureTranslate[l];
+            std::printf(" %x,%x %x,%x", Bits(ts.x), Bits(ts.y), Bits(tt.x), Bits(tt.y));
+        }
+        std::printf("\n");
+
         // Texture names as RelocateCommand walks them.
         std::string names;
         const u8* p = ptcl->textureNames;

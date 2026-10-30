@@ -41,8 +41,8 @@ void RPResFile::Relocate() {
     {
         RPResData* pData = static_cast<RPResData*>(mpData);
         if (pData->numEntries != 0) {
-            pData->pEntries = reinterpret_cast<RPResEntry*>(
-                reinterpret_cast<u32>(pData) + reinterpret_cast<u32>(pData->pEntries));
+            pData->pEntries = PORT_U32_TO_PTR(RPResEntry*,
+                PORT_PTR_TO_U32(pData) + PORT_PTR_TO_U32(pData->pEntries));
         } else {
             pData->pEntries = NULL;
         }
@@ -50,8 +50,8 @@ void RPResFile::Relocate() {
     {
         RPResData* pData = static_cast<RPResData*>(mpData);
         if (pData->numPaths != 0) {
-            pData->pPaths = reinterpret_cast<RPPathRes*>(
-                reinterpret_cast<u32>(pData) + reinterpret_cast<u32>(pData->pPaths));
+            pData->pPaths = PORT_U32_TO_PTR(RPPathRes*,
+                PORT_PTR_TO_U32(pData) + PORT_PTR_TO_U32(pData->pPaths));
         } else {
             pData->pPaths = NULL;
         }
@@ -59,8 +59,8 @@ void RPResFile::Relocate() {
     {
         RPResData* pData = static_cast<RPResData*>(mpData);
         if (pData->numPoints != 0) {
-            pData->pPoints = reinterpret_cast<RPPathPoint*>(
-                reinterpret_cast<u32>(pData) + reinterpret_cast<u32>(pData->pPoints));
+            pData->pPoints = PORT_U32_TO_PTR(RPPathPoint*,
+                PORT_PTR_TO_U32(pData) + PORT_PTR_TO_U32(pData->pPoints));
         } else {
             pData->pPoints = NULL;
         }
@@ -72,7 +72,7 @@ void RPResFile::Relocate() {
 
         if (pEntry != NULL) {
             RPPathRes* pPaths = static_cast<RPResData*>(mpData)->pPaths;
-            u32 path = reinterpret_cast<u32>(pEntry->pPath);
+            u32 path = RES_PTR_RAW(pEntry->pPath);
             if (path == 0xFFFFFFFF) {
                 pEntry->pPath = NULL;
             } else {
@@ -88,7 +88,7 @@ void RPResFile::Relocate() {
         for (; i < numPaths; i++) {
             RPPathRes* pPath = &static_cast<RPResData*>(mpData)->pPaths[i];
             pPath->pPoints = &static_cast<RPResData*>(mpData)
-                                  ->pPoints[reinterpret_cast<u32>(pPath->pPoints)];
+                                  ->pPoints[RES_PTR_RAW(pPath->pPoints)];
         }
         pData = static_cast<RPResData*>(mpData);
     }

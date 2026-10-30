@@ -53,7 +53,7 @@ WARN += -Werror=int-to-pointer-cast
 # string calls to the decomp's MSL_C versions (port/docs/POINTERS.md §6).
 WIDE := -fshort-wchar -include $(HOST)/include/port/wide.h
 
-COMMON := $(ARCH) -O2 -g -fno-strict-aliasing $(WIDE) $(INCLUDES) $(DEFINES) $(WARN)
+COMMON := $(ARCH) -O2 -g -fno-strict-aliasing -ffunction-sections -fdata-sections $(WIDE) $(INCLUDES) $(DEFINES) $(WARN)
 CFLAGS := -std=gnu11 $(COMMON) -Werror=pointer-to-int-cast
 # Decompiled class layouts: offsetof on classes with vtables (nw4r lists),
 # member init order and anonymous-namespace bases are as in the original.
@@ -147,6 +147,10 @@ $(OUT)/msl/%.c.o: $(REPO)/%.c
 $(OUT)/host/%.cpp.o: $(HOST)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -MMD -c $< -o $@
+
+$(OUT)/host/%.c.o: $(HOST)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -MMD -c $< -o $@
 
 $(LIB): $(DECOMP_OBJS) $(MSL_OBJS) $(HOST_OBJS)
 	@rm -f $@
@@ -267,3 +271,58 @@ all: $(OUT)/snd_harness
 sound: $(OUT)/snd_harness
 	python3 $(HOST)/tests/test_sound.py --harness $(OUT)/snd_harness --disc $(DISC)
 test: sound
+
+# --- Game-owned formats (POINTERS.md step 8; docs/HOST_BUILD.md §14) ---------
+# The game's units that load them include Pack/RPSystem/RPSysResourceManager.h,
+# whose real version pulls in RPAudio headers that do not build on the host yet;
+# tests/shadow holds a stand-in with the two lookups they call (the harnesses
+# define them). -mfpmath=sse on -m32 keeps the collision queries in single
+# precision (x87 would compute them in extended precision), as on x86-64.
+SHADOW := -I$(HOST)/tests/shadow
+ifeq ($(M32),1)
+STEP8_FP := -msse2 -mfpmath=sse
+endif
+RPPC := src/Pack/RPParty/RPPartyCommon
+COLL_SRCS := $(RPPC)/RPKcl.cpp $(RPPC)/RPResFile_2.cpp \
+    $(RPPC)/RPResFile_3.cpp $(RPPC)/RPResFile_4.cpp $(RPPC)/RPPathFollower.cpp \
+    $(RPPC)/RPPathFollower_2.cpp $(RPPC)/RPPathFollower_3.cpp $(RPPC)/RPPathSegment.cpp \
+    src/egg/math/eggMatrix.cpp src/egg/math/eggMath.cpp src/egg/math/eggVector.cpp \
+    src/egg/math/eggQuat.cpp
+COLL_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(COLL_SRCS))
+# RPCollisionModel (RPKcl's subclass; CheckSphere reads the header copy) is
+# compiled only: it needs RPBBox and the RP matrix helpers to link.
+COLL_COMPILE_OBJS := $(OUT)/decomp/$(RPPC)/RPCollisionModel.cpp.o
+
+$(patsubst %,$(OUT)/decomp/%.o,$(filter src/Pack/%,$(COLL_SRCS))) $(COLL_COMPILE_OBJS): CXXFLAGS := $(SHADOW) $(CXXFLAGS) $(STEP8_FP)
+
+$(OUT)/coll_harness: $(HOST)/tests/coll_harness.cpp $(HOST)/tests/disc_walk.h $(COLL_OBJS) $(LIB)
+	$(CXX) $(SHADOW) $(CXXFLAGS) $(STEP8_FP) -MMD $< $(COLL_OBJS) $(LIB) -o $@
+
+.PHONY: collision
+all: $(OUT)/coll_harness $(COLL_COMPILE_OBJS)
+collision: $(OUT)/coll_harness
+	python3 $(HOST)/tests/test_collision.py --harness $(OUT)/coll_harness --disc $(DISC)
+test: collision
+
+# EGG binary settings and game tables: the EGG gfx/gfxe/math code the light,
+# light-map and bloom objects are made of, the table loaders that build on the
+# host, and src/host_gfx_stubs.cpp for the GX / g3d scene functions that code
+# references (they abort if called; nothing on the load path calls them).
+DATA_SRCS := $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/egg/gfxe/*.cpp) \
+    $(wildcard $(REPO)/src/egg/gfx/*.cpp) $(wildcard $(REPO)/src/egg/math/*.cpp))) \
+    $(RPPC)/RPTnkMapData.cpp src/Pack/RPParty/RPBomScene/RPBomQuestionParam.cpp \
+    $(RPPC)/RPSceneObj.cpp
+DATA_HOST_SRCS := src/host_gfx_stubs.c
+DATA_OBJS := $(sort $(patsubst %,$(OUT)/decomp/%.o,$(DATA_SRCS))) \
+    $(patsubst %,$(OUT)/host/%.o,$(DATA_HOST_SRCS))
+
+$(patsubst %,$(OUT)/decomp/%.o,$(filter src/Pack/%,$(DATA_SRCS))): CXXFLAGS := $(SHADOW) $(CXXFLAGS)
+
+$(OUT)/data_harness: $(HOST)/tests/data_harness.cpp $(HOST)/tests/disc_walk.h $(DATA_OBJS) $(LIB)
+	$(CXX) $(SHADOW) $(CXXFLAGS) -MMD $< $(DATA_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: data
+all: $(OUT)/data_harness
+data: $(OUT)/data_harness
+	python3 $(HOST)/tests/test_data.py --harness $(OUT)/data_harness --disc $(DISC)
+test: data

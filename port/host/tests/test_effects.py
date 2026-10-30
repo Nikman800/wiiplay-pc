@@ -246,7 +246,13 @@ def structure_lines(p):
                 f32hex(d, e + 0x1C), f32hex(d, e + 0x3C), f32hex(d, e + 0x50), u16(d, e + 0x34),
                 u32(d, e + 0x88), u16(d, ds), u16(d, ds + 0x66), f32hex(d, ds + 0x74),
                 f32hex(d, ds + 0x98), f32hex(d, ds + 0xA8), u32(d, e + 4) & 0xFF, d[ds + 0xA0]))
+            vec = lambda o, n: ",".join(f32hex(d, o + 4 * k) for k in range(n))
+            lines.append("EV %s %d %s" % (path, i, " ".join(
+                vec(o, 3) for o in (e + 0x54, e + 0x60, e + 0x6C, e + 0x78, ds + 0x78))))
             q = desc["offset"]
+            lines.append("PV %s %d %s" % (path, i, " ".join(
+                [vec(q + 0x10, 2), vec(q + 0x18, 2), vec(q + 0x20, 3)]
+                + ["%s %s" % (vec(q + 0x2C + 8 * l, 2), vec(q + 0x50 + 8 * l, 2)) for l in range(3)])))
             tex = " ".join(cstr(d, t["nameOffset"], t["length"]) or "-" for t in desc["textureNames"])
             lines.append("PD %s %d %s %x %s %s %s" % (
                 path, i, tex, u16(d, q + 0x74), f32hex(d, q + 0x4C), f32hex(d, q + 0x7C),

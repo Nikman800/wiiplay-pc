@@ -267,7 +267,7 @@ void LightTextureManager::SetBinaryInner(const IBinary::Bin& rBin) {
             reinterpret_cast<const IBinary<LightTexture>::Bin*>(
                 &rBin.data.unk10[0x10]);
 
-        for (int i = 0; i < *reinterpret_cast<const u16*>(rBin.data.unk10);
+        for (int i = 0; i < *reinterpret_cast<const be_u16*>(rBin.data.unk10);
              i++) {
             setTextureBinary(mppLightTextures, mTexNum, pTextures);
 
@@ -281,7 +281,7 @@ void LightTextureManager::SetBinaryInner(const IBinary::Bin& rBin) {
 }
 
 void LightTextureManager::GetBinaryInner(IBinary::Bin* pBin) const {
-    *reinterpret_cast<u16*>(pBin->data.unk10) = mTexNum;
+    *reinterpret_cast<be_u16*>(pBin->data.unk10) = mTexNum;
 
     IBinary<LightTexture>::Bin* pTextures =
         reinterpret_cast<IBinary<LightTexture>::Bin*>(&pBin->data.unk10[0x10]);

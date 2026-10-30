@@ -5,6 +5,7 @@
 #include <revolution/GX.h>
 
 #include <port/be.h>
+#include <port/bemath.h>
 
 /******************************************************************************
  *

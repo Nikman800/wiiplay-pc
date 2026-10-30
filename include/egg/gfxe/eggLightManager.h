@@ -19,8 +19,8 @@ public:
     };
 
     struct BinData {
-        u16 lightNum;           // at 0x10
-        u16 ambientNum;         // at 0x12
+        be_u16 lightNum;        // at 0x10
+        be_u16 ambientNum;      // at 0x12
         GXColor lightTexColor;  // at 0x14
         u8 unk18[0x28 - 0x18];  // at 0x18
         IBinary<LightObject>::Bin lights[1]; // at 0x28

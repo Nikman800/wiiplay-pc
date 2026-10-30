@@ -24,7 +24,7 @@ struct BinAmbient {
 
 // Version 0
 struct BinData0 {
-    u16 lightNum;        // at 0x10
+    be_u16 lightNum;     // at 0x10
     u8 unk12[2];         // at 0x12
     GXColor ambient[2];  // at 0x14
     u8 unk1C[0x30 - 0x1C];
@@ -33,7 +33,7 @@ struct BinData0 {
 
 // Version 1
 struct BinData1 {
-    u16 lightNum;        // at 0x10
+    be_u16 lightNum;     // at 0x10
     u8 unk12[2];         // at 0x12
     GXColor ambient[8];  // at 0x14
     GXColor lightTexColor; // at 0x34

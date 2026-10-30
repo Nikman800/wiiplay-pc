@@ -63,18 +63,18 @@ struct ResNodeData : ResNodeDataTypedef {
     be_u32 flags;                // at 0x14
     BE_ENUM(Billboard, u32) bbmode;         // at 0x18
     be_u32 bbref_nodeid;         // at 0x1C
-    math::_VEC3 scale;        // at 0x20
-    math::_VEC3 rot;          // at 0x2C
-    math::_VEC3 translate;    // at 0x38
-    math::_VEC3 volume_min;   // at 0x44
-    math::_VEC3 volume_max;   // at 0x50
+    BE_MATH(_VEC3) scale;        // at 0x20
+    BE_MATH(_VEC3) rot;          // at 0x2C
+    BE_MATH(_VEC3) translate;    // at 0x38
+    BE_MATH(_VEC3) volume_min;   // at 0x44
+    BE_MATH(_VEC3) volume_max;   // at 0x50
     be_s32 toParentNode;         // at 0x5C
     be_s32 toChildNode;          // at 0x60
     be_s32 toNextSibling;        // at 0x64
     be_s32 toPrevSibling;        // at 0x68
     be_s32 toResUserData;        // at 0x6C
-    math::_MTX34 modelMtx;    // at 0x70
-    math::_MTX34 invModelMtx; // at 0xA0
+    BE_MATH(_MTX34) modelMtx;    // at 0x70
+    BE_MATH(_MTX34) invModelMtx; // at 0xA0
 };
 
 class ResNode : public ResCommon<ResNodeData>, public ResNodeDataTypedef {
@@ -148,9 +148,16 @@ public:
         return BILLBOARD_OFF;
     }
 
+#if defined(PORT_HOST)
+    // The file's translate is big-endian on the host: return the value.
+    math::VEC3 GetTranslate() const {
+        return ref().translate;
+    }
+#else
     const math::VEC3& GetTranslate() const {
         return static_cast<const math::VEC3&>(ref().translate);
     }
+#endif
 
     ResNode GetParentNode() {
         return ofs_to_obj<ResNode>(ref().toParentNode);

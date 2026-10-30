@@ -11,6 +11,7 @@
 #include <revolution/GX.h>
 
 #include <port/be.h>
+#include <port/bemath.h>
 #include <port/resptr.h>
 
 namespace nw4r {
@@ -22,12 +23,12 @@ struct TextureData;
 
 struct ParticleParameterDesc {
     GXColor mColor[COLOR_LAYER_MAX][COLOR_IDX_MAX]; // at 0x0
-    math::VEC2 size;                                // at 0x10
-    math::VEC2 scale;                               // at 0x18
-    math::VEC3 rotate;                              // at 0x20
-    math::VEC2 textureScale[TEX_LAYER_MAX];         // at 0x2C
+    BE_MATH(VEC2) size;                                // at 0x10
+    BE_MATH(VEC2) scale;                               // at 0x18
+    BE_MATH(VEC3) rotate;                              // at 0x20
+    BE_MATH(VEC2) textureScale[TEX_LAYER_MAX];         // at 0x2C
     be_f32 textureRotate[TEX_LAYER_MAX];            // at 0x44
-    math::VEC2 textureTranslate[TEX_LAYER_MAX];     // at 0x50
+    BE_MATH(VEC2) textureTranslate[TEX_LAYER_MAX];     // at 0x50
     RES_PTR(TextureData) mTexture[TEX_LAYER_MAX];   // at 0x68
     be_u16 textureWrap;                             // at 0x74
     u8 textureReverse;                              // at 0x76

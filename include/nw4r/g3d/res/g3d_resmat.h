@@ -218,7 +218,7 @@ struct TexMtxEffect : TexSrtTypedef {
     s8 ref_light;           // at 0x1
     u8 map_mode;            // at 0x2
     u8 misc_flag;           // at 0x3
-    math::_MTX34 effectMtx; // at 0x4
+    BE_MATH(_MTX34) effectMtx; // at 0x4
 };
 
 struct ResTexSrtData : TexSrtTypedef {

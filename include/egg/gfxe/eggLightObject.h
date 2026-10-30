@@ -9,6 +9,8 @@
 
 #include <revolution/GX.h>
 
+#include <port/bemath.h>
+
 namespace EGG {
 
 class LightObject : public IBinary<LightObject> {
@@ -18,16 +20,16 @@ public:
         u8 distAttnFn; // at 0x11
         u8 BYTE_0x12;
         u8 BYTE_0x13;
-        u16 ambLightIdx;          // at 0x14
-        u16 flags;                // at 0x16
-        nw4r::math::_VEC3 pos;    // at 0x18
-        nw4r::math::_VEC3 target; // at 0x24
-        f32 intensity;            // at 0x30
+        be_u16 ambLightIdx;       // at 0x14
+        be_u16 flags;             // at 0x16
+        BE_MATH(_VEC3) pos;       // at 0x18
+        BE_MATH(_VEC3) target;    // at 0x24
+        be_f32 intensity;         // at 0x30
         GXColor color;            // at 0x34
         GXColor COLOR_0x38;
-        f32 spotArg;      // at 0x3C
-        f32 distAttnArg0; // at 0x40
-        f32 distAttnArg1; // at 0x44
+        be_f32 spotArg;      // at 0x3C
+        be_f32 distAttnArg0; // at 0x40
+        be_f32 distAttnArg1; // at 0x44
         char UNK_0x48[0x8];
     };
 

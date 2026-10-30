@@ -27,8 +27,8 @@ struct ResVtxPosData {
     u8 frac;           // at 0x1C
     u8 stride;         // at 0x1D
     be_u16 numPos;        // at 0x1E
-    math::_VEC3 min;   // at 0x20
-    math::_VEC3 max;   // at 0x2C
+    BE_MATH(_VEC3) min;   // at 0x20
+    BE_MATH(_VEC3) max;   // at 0x2C
 };
 
 class ResVtxPos : public ResCommon<ResVtxPosData> {
@@ -185,8 +185,8 @@ struct ResVtxTexCoordData {
     u8 frac;             // at 0x1C
     u8 stride;           // at 0x1D
     be_u16 numTexCoord;     // at 0x1E
-    math::_VEC2 min;     // at 0x20
-    math::_VEC2 max;     // at 0x2C
+    BE_MATH(_VEC2) min;     // at 0x20
+    BE_MATH(_VEC2) max;     // at 0x28
 };
 
 class ResVtxTexCoord : public ResCommon<ResVtxTexCoordData> {

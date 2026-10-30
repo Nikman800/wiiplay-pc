@@ -1700,13 +1700,13 @@ void LoadResTexSrt(const ResTexSrt srt) {
                     if (!(rEffect.misc_flag & TexMtxEffect::FLAG_IDENT)) {
                         ident = false;
 
-                        math::MTX34Copy(&mtx, static_cast<const math::MTX34*>(
+                        math::MTX34Copy(&mtx, BE_MATH_CAST(const math::MTX34*,
                                                   &rEffect.effectMtx));
                     }
                 } else {
                     math::MTX34Mult(
                         &mtx,
-                        static_cast<const math::MTX34*>(&rEffect.effectMtx),
+                        BE_MATH_CAST(const math::MTX34*, &rEffect.effectMtx),
                         &mtx);
                 }
 

@@ -10,6 +10,7 @@
 #include <revolution/GX.h>
 
 #include <port/be.h>
+#include <port/bemath.h>
 #include <port/resptr.h>
 
 namespace nw4r {
@@ -88,7 +89,7 @@ struct Lighting {
     GXColor mAmbient;     // at 0x2
     GXColor mDiffuse;     // at 0x6
     be_f32 mRadius;       // at 0xA
-    math::VEC3 mPosition; // at 0xE
+    BE_MATH(VEC3) mPosition; // at 0xE
 };
 #pragma pack(pop)
 
@@ -246,10 +247,10 @@ struct EmitterDesc {
     be_f32 velDiffusionEmitterNormal; // at 0x48
     be_f32 velPowerSpecDir;           // at 0x4C
     be_f32 velDiffusionSpecDir;       // at 0x50
-    math::VEC3 velSpecDir;          // at 0x54
-    math::VEC3 scale;               // at 0x60
-    math::VEC3 rotate;              // at 0x6C
-    math::VEC3 translate;           // at 0x78
+    BE_MATH(VEC3) velSpecDir;          // at 0x54
+    BE_MATH(VEC3) scale;               // at 0x60
+    BE_MATH(VEC3) rotate;              // at 0x6C
+    BE_MATH(VEC3) translate;           // at 0x78
     u8 lodNear;                     // at 0x84
     u8 lodFar;                      // at 0x85
     u8 lodMinEmit;                  // at 0x86

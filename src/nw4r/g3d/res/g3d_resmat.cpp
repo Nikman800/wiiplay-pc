@@ -276,8 +276,8 @@ ResTexSrt ResTexSrt::CopyTo(void* pDst) const {
         rToEffect.misc_flag = rFromEffect.misc_flag;
 
         math::MTX34Copy(
-            static_cast<math::MTX34*>(&rToEffect.effectMtx),
-            static_cast<const math::MTX34*>(&rFromEffect.effectMtx));
+            BE_MATH_CAST(math::MTX34*, &rToEffect.effectMtx),
+            BE_MATH_CAST(const math::MTX34*, &rFromEffect.effectMtx));
     }
 
     return ResTexSrt(pData);
@@ -288,13 +288,13 @@ bool ResTexSrt::SetEffectMtx(u32 id, const math::MTX34* pMtx) {
         TexMtxEffect& rEffect = ref().effect[id];
 
         if (pMtx != NULL) {
-            math::MTX34Copy(static_cast<math::MTX34*>(&rEffect.effectMtx),
+            math::MTX34Copy(BE_MATH_CAST(math::MTX34*, &rEffect.effectMtx),
                             pMtx);
 
             rEffect.misc_flag &= ~TexMtxEffect::FLAG_IDENT;
 
         } else {
-            math::MTX34Identity(static_cast<math::MTX34*>(&rEffect.effectMtx));
+            math::MTX34Identity(BE_MATH_CAST(math::MTX34*, &rEffect.effectMtx));
 
             rEffect.misc_flag |= TexMtxEffect::FLAG_IDENT;
         }
@@ -310,7 +310,7 @@ bool ResTexSrt::GetEffectMtx(u32 id, math::MTX34* pMtx) const {
         const TexMtxEffect& rEffect = ref().effect[id];
 
         math::MTX34Copy(pMtx,
-                        static_cast<const math::MTX34*>(&rEffect.effectMtx));
+                        BE_MATH_CAST(const math::MTX34*, &rEffect.effectMtx));
 
         return true;
     }

@@ -2,6 +2,8 @@
 #define RP_PARTY_BOM_QUESTION_PARAM_H
 #include <Pack/types_pack.h>
 
+#include <port/be.h>
+
 #include <Pack/RPParty/RPPartyCommon/RPSceneObj.h>
 
 #include <nw4r/math.h>
@@ -15,12 +17,12 @@
  * their users in RPBomGameManager / RPBomQuestionParam.
  */
 struct RPBomQuestionData {
-    s32 mMissNext;       // at 0x0 question after a miss
-    s32 mCost;           // at 0x4 points needed to advance (x file 0xC in two-player mode)
-    s32 mPoseEnabled[3]; // at 0x8 1: the pose may be asked for
-    s32 mWaveInterval;   // at 0x14 frames between waves (x level 0x30 in two-player mode)
-    s32 mWaveNum[2];     // at 0x18 waves per burst, one / two players
-    f32 mSpeed[2];       // at 0x20 bubble speed, one / two players
+    be_s32 mMissNext;       // at 0x0 question after a miss
+    be_s32 mCost;           // at 0x4 points needed to advance (x file 0xC in two-player mode)
+    be_s32 mPoseEnabled[3]; // at 0x8 1: the pose may be asked for
+    be_s32 mWaveInterval;   // at 0x14 frames between waves (x level 0x30 in two-player mode)
+    be_s32 mWaveNum[2];     // at 0x18 waves per burst, one / two players
+    be_f32 mSpeed[2];       // at 0x20 bubble speed, one / two players
 };
 
 /**
@@ -29,20 +31,20 @@ struct RPBomQuestionData {
  * (mQuestion, ascending); RPBomQuestionParam picks them in shuffled order.
  */
 struct RPBomPatternData {
-    u32 mSegmentsMax;    // at 0x0 orbit segments (360 / n degrees per frame) max
-    u32 mSegmentsMin;    // at 0x4
-    f32 mRadiusMax;      // at 0x8 orbit radius max
-    f32 mRadiusMin;      // at 0xC
-    u32 unk10;           // at 0x10 [L]
-    f32 unk14;           // at 0x14 [L]
-    s32 mQuestion;       // at 0x18
-    s32 mRotDirMode;     // at 0x1C 0 random, 1 positive, 2 negative
-    f32 mRotSpeedMax;    // at 0x20
-    f32 mRotSpeedMin;    // at 0x24
-    f32 mAngleMin;       // at 0x28 degrees
-    f32 mAngleMax;       // at 0x2C
-    f32 mSpawnZMax;      // at 0x30 [M]
-    f32 mSpawnZMin;      // at 0x34 [M]
+    be_u32 mSegmentsMax;    // at 0x0 orbit segments (360 / n degrees per frame) max
+    be_u32 mSegmentsMin;    // at 0x4
+    be_f32 mRadiusMax;      // at 0x8 orbit radius max
+    be_f32 mRadiusMin;      // at 0xC
+    be_u32 unk10;           // at 0x10 [L]
+    be_f32 unk14;           // at 0x14 [L]
+    be_s32 mQuestion;       // at 0x18
+    be_s32 mRotDirMode;     // at 0x1C 0 random, 1 positive, 2 negative
+    be_f32 mRotSpeedMax;    // at 0x20
+    be_f32 mRotSpeedMin;    // at 0x24
+    be_f32 mAngleMin;       // at 0x28 degrees
+    be_f32 mAngleMax;       // at 0x2C
+    be_f32 mSpawnZMax;      // at 0x30 [M]
+    be_f32 mSpawnZMin;      // at 0x34 [M]
 };
 
 /**
@@ -50,14 +52,14 @@ struct RPBomPatternData {
  * @details Size 0x44 (16 records from file offset 0x46B4).
  */
 struct RPBomLevelData {
-    s32 unk0;                // at 0x0 [L] never read
-    s32 mSpecialChance[11];  // at 0x4 [M] percent chance of a special bubble by bubbles on
+    be_s32 unk0;                // at 0x0 [L] never read
+    be_s32 mSpecialChance[11];  // at 0x4 [M] percent chance of a special bubble by bubbles on
                              // screen (0-10); read through a reordered local copy
-    f32 mWaveIntervalScale;  // at 0x30 two-player wave interval multiplier [M]
-    s32 mTime;               // at 0x34 seconds of spawning
-    s32 mStartQuestion;      // at 0x38
-    s32 mBgFrame;            // at 0x3C background colour frame (RPBomStartBg)
-    s32 mSpecialGap;         // at 0x40 bubbles between special bubbles
+    be_f32 mWaveIntervalScale;  // at 0x30 two-player wave interval multiplier [M]
+    be_s32 mTime;               // at 0x34 seconds of spawning
+    be_s32 mStartQuestion;      // at 0x38
+    be_s32 mBgFrame;            // at 0x3C background colour frame (RPBomStartBg)
+    be_s32 mSpecialGap;         // at 0x40 bubbles between special bubbles
 };
 
 /**
@@ -66,24 +68,24 @@ struct RPBomLevelData {
  * partly unknown.
  */
 struct RPBomQuestionParamFile {
-    f32 mMissZ;                          // at 0x0 bubbles past this z are missed
-    f32 mHitZoneFar;                     // at 0x4 hit zone along z (RPBomPanelPool)
-    f32 mHitZoneNear;                    // at 0x8
-    f32 mTwoPlayerCostScale;             // at 0xC
-    u32 unk10;                           // at 0x10 [L]
-    s32 mSpeedChangeFrames;              // at 0x14 frames to ease to a new question's speed
-    f32 mBubbleScale169;                 // at 0x18 bubble / Mii scale on 16:9
-    f32 mBubbleScale43;                  // at 0x1C on 4:3
-    u32 unk20[2];                        // at 0x20 [L]
-    s32 mMissWait;                       // at 0x28 frames after a miss
-    s32 mMissMax;                        // at 0x2C misses before game over
-    f32 mSpawnXMargin;                   // at 0x30 [M] times the bubble scale
-    f32 mSpawnZ;                         // at 0x34 [M]
-    s32 mBubbleWait;                     // at 0x38 frames after a special bubble
+    be_f32 mMissZ;                          // at 0x0 bubbles past this z are missed
+    be_f32 mHitZoneFar;                     // at 0x4 hit zone along z (RPBomPanelPool)
+    be_f32 mHitZoneNear;                    // at 0x8
+    be_f32 mTwoPlayerCostScale;             // at 0xC
+    be_u32 unk10;                           // at 0x10 [L]
+    be_s32 mSpeedChangeFrames;              // at 0x14 frames to ease to a new question's speed
+    be_f32 mBubbleScale169;                 // at 0x18 bubble / Mii scale on 16:9
+    be_f32 mBubbleScale43;                  // at 0x1C on 4:3
+    be_u32 unk20[2];                        // at 0x20 [L]
+    be_s32 mMissWait;                       // at 0x28 frames after a miss
+    be_s32 mMissMax;                        // at 0x2C misses before game over
+    be_f32 mSpawnXMargin;                   // at 0x30 [M] times the bubble scale
+    be_f32 mSpawnZ;                         // at 0x34 [M]
+    be_s32 mBubbleWait;                     // at 0x38 frames after a special bubble
     RPBomQuestionData mQuestions[101];   // at 0x3C
     RPBomPatternData mPatterns[250];     // at 0x1004
     RPBomLevelData mLevels[16];          // at 0x46B4
-    s32 mComboPoints[10];                // at 0x4AF4 points per bubble by combo
+    be_s32 mComboPoints[10];                // at 0x4AF4 points per bubble by combo
 };
 
 /**

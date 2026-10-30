@@ -19,6 +19,15 @@
 #include <nw4r/ut.h>
 #include <revolution/TPL.h>
 #include <nw4r/snd.h>
+#include <Pack/RPParty/RPBomScene/RPBomQuestionParam.h>
+#include <Pack/RPParty/RPPartyCommon/RPKcl.h>
+#include <Pack/RPParty/RPPartyCommon/RPResFile_2.h>
+#include <Pack/RPParty/RPPartyCommon/RPTnkMapData.h>
+#include <Pack/RPParty/RPPnpScene/RPPnpLevelTable.h>
+#include <Pack/RPParty/RPWlyScene/RPWlyLevelTable.h>
+#include <egg/gfxe/eggDrawPathBloom.h>
+#include <egg/gfxe/eggLightManager.h>
+#include <egg/gfxe/eggLightTexture.h>
 
 #include <cstddef>
 #include <cstdio>
@@ -316,6 +325,50 @@ PORT_LAYOUT_OFFSET(WsdFile::DataBlock, refWsd, 0xC);
 PORT_LAYOUT_OFFSET(WsdFile::WaveBlock, offsetTable, 0xC);
 PORT_LAYOUT_SIZE(AdpcmInfo, 0x30);
 } // namespace snd_layout
+
+// Step 8 (HOST_BUILD.md §14): KCL, PMP, EGG binary settings, game tables.
+namespace step8_layout {
+PORT_LAYOUT_SIZE(BE_MATH(VEC3), 0xC);
+PORT_LAYOUT_SIZE(BE_MATH(_MTX34), 0x30);
+PORT_LAYOUT_SIZE(RPKclPrism, 0x10);
+PORT_LAYOUT_OFFSET(RPKclPrism, attribute, 0xE);
+PORT_LAYOUT_SIZE(RPKclHeader, 0x3C);
+PORT_LAYOUT_OFFSET(RPKclHeader, areaMin, 0x14);
+PORT_LAYOUT_OFFSET(RPKclHeader, sphereRadius, 0x38);
+PORT_LAYOUT_OFFSET(RPResData, numEntries, 0x10);
+PORT_LAYOUT_OFFSET(RPResData, pEntries, 0x40);
+PORT_LAYOUT_OFFSET(RPResData, pPoints, 0x48);
+PORT_LAYOUT_SIZE(RPResEntry, 0x58);
+PORT_LAYOUT_OFFSET(RPResEntry, pPath, 0x44);
+PORT_LAYOUT_SIZE(RPPathRes, 0x20);
+PORT_LAYOUT_OFFSET(RPPathRes, pPoints, 0x18);
+PORT_LAYOUT_SIZE(RPPathPoint, 0x14);
+PORT_LAYOUT_SIZE(EGG::IBinary<EGG::LightObject>::BinHeader, 0x10);
+PORT_LAYOUT_SIZE(EGG::IBinary<EGG::LightObject>::Bin, 0x50);
+PORT_LAYOUT_OFFSET(EGG::LightObject::BinData, pos, 0x8);
+PORT_LAYOUT_OFFSET(EGG::LightObject::BinData, distAttnArg1, 0x34);
+PORT_LAYOUT_OFFSET(EGG::LightManager::BinData, lights, 0x18);
+PORT_LAYOUT_OFFSET(EGG::LightTexture::BinData, lightMask, 0x28);
+PORT_LAYOUT_OFFSET(EGG::LightTexture::BinData, lights, 0x2C);
+PORT_LAYOUT_SIZE(EGG::DrawPathBloom::BinData, 0x94);
+PORT_LAYOUT_OFFSET(EGG::DrawPathBloom::BinData, mGatherScale1, 0x90);
+PORT_LAYOUT_SIZE(RPTnkMapData::Map, 0x14);
+PORT_LAYOUT_SIZE(RPBomQuestionParamFile, 19228);
+PORT_LAYOUT_OFFSET(RPBomQuestionParamFile, mPatterns, 0x1004);
+PORT_LAYOUT_OFFSET(RPBomQuestionParamFile, mComboPoints, 0x4AF4);
+PORT_LAYOUT_SIZE(RPWlyLevelData, 0x40);
+PORT_LAYOUT_SIZE(RPPnpLevelTable::RallyEntry, 0xC);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResNodeData, translate, 0x38);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResNodeData, modelMtx, 0x70);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResNodeData, invModelMtx, 0xA0);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResMdlInfoData, volume_max, 0x34);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResVtxPosData, max, 0x2C);
+PORT_LAYOUT_OFFSET(nw4r::g3d::ResVtxTexCoordData, max, 0x28);
+PORT_LAYOUT_OFFSET(nw4r::g3d::TexMtxEffect, effectMtx, 0x4);
+PORT_LAYOUT_OFFSET(nw4r::ef::EmitterDesc, translate, 0x78);
+PORT_LAYOUT_OFFSET(nw4r::ef::Lighting, mPosition, 0xE);
+PORT_LAYOUT_OFFSET(nw4r::ef::ParticleParameterDesc, textureTranslate, 0x50);
+} // namespace step8_layout
 
 } // namespace
 

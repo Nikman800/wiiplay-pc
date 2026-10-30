@@ -246,6 +246,84 @@ void CheckFile(Brres& f) {
 
 // --- Report lines ----------------------------------------------------------
 
+// The math value members of the model's file structs (BE_MATH, HOST_BUILD.md
+// §14): each line gives the struct's file offset and the values read through
+// the wrapper; tests/test_models.py checks them against the bytes there.
+u32 FBits(f32 v) {
+    u32 u;
+    std::memcpy(&u, &v, 4);
+    return u;
+}
+
+void PrintVec(const f32* p, int n) {
+    for (int k = 0; k < n; k++) {
+        std::printf("%s%08x", k == 0 ? "\t" : ",", FBits(p[k]));
+    }
+}
+
+void PrintMtx(const math::MTX34& m) {
+    PrintVec(&m.m[0][0], 12);
+}
+
+void PrintMathMembers(const Brres& f, ResMdl mdl, const char* pMdlName) {
+    const u8* base = f.pData;
+    const ResMdlInfoData& info = mdl.GetResMdlInfo().ref();
+    math::VEC3 v0 = info.volume_min, v1 = info.volume_max;
+    std::printf("MXI\t%s\t%s\t%ld", f.path.c_str(), pMdlName,
+                static_cast<long>(reinterpret_cast<const u8*>(&info) - base));
+    PrintVec(&v0.x, 3);
+    PrintVec(&v1.x, 3);
+    std::printf("\n");
+
+    for (u32 n = 0; n < mdl.GetResNodeNumEntries(); n++) {
+        ResNode node = mdl.GetResNode(n);
+        const ResNodeData& r = node.ref();
+        math::VEC3 s = r.scale, rot = r.rot, t = node.GetTranslate(), mn = r.volume_min,
+                   mx = r.volume_max;
+        math::MTX34 m = r.modelMtx, inv = r.invModelMtx;
+        std::printf("MXN\t%s\t%s\t%u\t%ld", f.path.c_str(), pMdlName, n,
+                    static_cast<long>(reinterpret_cast<const u8*>(&r) - base));
+        PrintVec(&s.x, 3);
+        PrintVec(&rot.x, 3);
+        PrintVec(&t.x, 3);
+        PrintVec(&mn.x, 3);
+        PrintVec(&mx.x, 3);
+        PrintMtx(m);
+        PrintMtx(inv);
+        std::printf("\n");
+    }
+    for (u32 i = 0; i < mdl.GetResVtxPosNumEntries(); i++) {
+        const ResVtxPosData& r = mdl.GetResVtxPos(i).ref();
+        math::VEC3 mn = r.min, mx = r.max;
+        std::printf("MXP\t%s\t%s\t%u\t%ld", f.path.c_str(), pMdlName, i,
+                    static_cast<long>(reinterpret_cast<const u8*>(&r) - base));
+        PrintVec(&mn.x, 3);
+        PrintVec(&mx.x, 3);
+        std::printf("\n");
+    }
+    for (u32 i = 0; i < mdl.GetResVtxTexCoordNumEntries(); i++) {
+        const ResVtxTexCoordData& r = mdl.GetResVtxTexCoord(i).ref();
+        math::VEC2 mn = r.min, mx = r.max;
+        std::printf("MXT\t%s\t%s\t%u\t%ld", f.path.c_str(), pMdlName, i,
+                    static_cast<long>(reinterpret_cast<const u8*>(&r) - base));
+        PrintVec(&mn.x, 2);
+        PrintVec(&mx.x, 2);
+        std::printf("\n");
+    }
+    for (u32 i = 0; i < mdl.GetResMatNumEntries(); i++) {
+        ResTexSrt srt = mdl.GetResMat(i).GetResTexSrt();
+        for (u32 id = 0; id < ResTexSrtData::NUM_OF_TEXTURE; id++) {
+            math::MTX34 m;
+            srt.GetEffectMtx(id, &m); // the real accessor (BE_MATH_CAST)
+            std::printf("MXE\t%s\t%s\t%u\t%u\t%ld", f.path.c_str(), pMdlName, i, id,
+                        static_cast<long>(reinterpret_cast<const u8*>(&srt.ref().effect[id].effectMtx) -
+                                          base));
+            PrintMtx(m);
+            std::printf("\n");
+        }
+    }
+}
+
 void PrintFile(const Brres& f, bool rev, bool selfBind, bool finalBind) {
     ResFile file(f.pData);
     const ResDicData* pTop = &file.ref().dict.topLevel;
@@ -272,6 +350,7 @@ void PrintFile(const Brres& f, bool rev, bool selfBind, bool finalBind) {
                     r.toResTevDic != 0 ? ResDic(const_cast<u8*>(reinterpret_cast<const u8*>(&r)) + r.toResTevDic).GetNumData() : 0,
                     mdl.GetResTexPlttInfoOffsetFromTexNameNumEntries(),
                     static_cast<u32>(r.info.numViewMtx), static_cast<u32>(r.info.scaling_rule));
+        PrintMathMembers(f, mdl, ResNameStr(r.name, &r).c_str());
         sModels++;
     }
     for (u32 i = 0; i < file.GetResTexNumEntries(); i++) {

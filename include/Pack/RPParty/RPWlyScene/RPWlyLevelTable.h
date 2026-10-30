@@ -2,6 +2,8 @@
 #define RP_PARTY_WLY_LEVEL_TABLE_H
 #include <Pack/types_pack.h>
 
+#include <port/be.h>
+
 #include <nw4r/math.h>
 
 //! @addtogroup rp_wly
@@ -12,7 +14,7 @@
  * member by member (the default-level copy loads it as floats)
  */
 struct RPWlyLevelVec3 {
-    f32 x, y, z;
+    be_f32 x, y, z;
 
     RPWlyLevelVec3& operator=(const RPWlyLevelVec3& rOther) {
         x = rOther.x;
@@ -28,20 +30,20 @@ struct RPWlyLevelVec3 {
  * record when RPWlyLevelTable::sUseDefaultLevel is set.
  */
 struct RPWlyLevelData {
-    s32 mAvatarNum;              // at 0x0
-    u32 unk4;                    // at 0x4
-    s32 mQuestionType;           // at 0x8 0..0x16 (message 0x960 index, target count)
-    s32 mFieldType;              // at 0xC 0-4 (wtd_field01..09 with the spotlight flag)
-    f32 unk10;                   // at 0x10 [L]
-    f32 unk14;                   // at 0x14 [L] != unk10: the stage has an extra message
-    f32 mCameraTarget;           // at 0x18 camera target height (y or z, by field type)
-    f32 mSpeed;                  // at 0x1C [M] x1.368 on region 1
-    f32 unk20;                   // at 0x20 [L] 6.25 on field type 3
-    f32 mSpotlight;              // at 0x24 non-zero: spotlight stage
-    f32 mFoundScale;             // at 0x28 [M] avatar scale while found
+    be_s32 mAvatarNum;              // at 0x0
+    be_u32 unk4;                    // at 0x4
+    be_s32 mQuestionType;           // at 0x8 0..0x16 (message 0x960 index, target count)
+    be_s32 mFieldType;              // at 0xC 0-4 (wtd_field01..09 with the spotlight flag)
+    be_f32 unk10;                   // at 0x10 [L]
+    be_f32 unk14;                   // at 0x14 [L] != unk10: the stage has an extra message
+    be_f32 mCameraTarget;           // at 0x18 camera target height (y or z, by field type)
+    be_f32 mSpeed;                  // at 0x1C [M] x1.368 on region 1
+    be_f32 unk20;                   // at 0x20 [L] 6.25 on field type 3
+    be_f32 mSpotlight;              // at 0x24 non-zero: spotlight stage
+    be_f32 mFoundScale;             // at 0x28 [M] avatar scale while found
     RPWlyLevelVec3 mSpotPos;     // at 0x2C
-    f32 mPlaneY;                 // at 0x38 [M]
-    f32 mPlaneZ;                 // at 0x3C [M]
+    be_f32 mPlaneY;                 // at 0x38 [M]
+    be_f32 mPlaneZ;                 // at 0x3C [M]
 };
 
 /**

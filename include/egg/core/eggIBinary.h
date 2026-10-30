@@ -4,6 +4,8 @@
 
 #include <egg/prim.h>
 
+#include <port/be.h>
+
 namespace EGG {
 
 template <typename T> class IBinary {
@@ -11,7 +13,7 @@ public:
 #pragma pack(push, 1)
     struct BinHeader {
         u8 magic[4]; // at 0x0 Wii Play: unsigned (RPHkyGame::Load)
-        u32 size;      // at 0x4
+        be_u32 size;   // at 0x4
         u8 version;    // at 0x8
         u8 unk9[0x10 - 0x9];
     };
@@ -81,7 +83,11 @@ template <typename T> void IBinary<T>::GetBinary(void* bin) const {
 }
 
 template <typename T> u32 IBinary<T>::GetBinarySize() const {
+#if defined(PORT_HOST)
+    return sizeof(typename T::Bin);
+#else
     return sizeof(T::Bin);
+#endif
 }
 
 // Wii Play: not pure; IBinary<LightTexture> specializes it

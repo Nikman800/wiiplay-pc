@@ -2,6 +2,8 @@
 #define RP_PARTY_PNP_LEVEL_TABLE_H
 #include <Pack/types_pack.h>
 
+#include <port/be.h>
+
 //! @addtogroup rp_pnp
 //! @{
 
@@ -14,15 +16,15 @@
 class RPPnpLevelTable {
 public:
     struct LevelEntry {
-        u32 unk0; // at 0x0 [L]
-        u32 unk4; // at 0x4 [L]
-        u32 unk8; // at 0x8 [L]
+        be_u32 unk0; // at 0x0 [L]
+        be_u32 unk4; // at 0x4 [L]
+        be_u32 unk8; // at 0x8 [L]
     };
 
     struct RallyEntry {
-        s32 mRally;     // at 0x0 first rally count of this step
-        s32 mCpuLevel;  // at 0x4
-        f32 mBallSpeed; // at 0x8
+        be_s32 mRally;     // at 0x0 first rally count of this step
+        be_s32 mCpuLevel;  // at 0x4
+        be_f32 mBallSpeed; // at 0x8
     };
 
 public:

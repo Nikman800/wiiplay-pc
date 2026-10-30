@@ -56,8 +56,8 @@ struct ResMdlInfoData : ResMdlInfoDataTypedef {
     bool is_valid_volume;       // at 0x22
     u8 envelope_mtx_mode;       // at 0x23
     be_s32 toMtxIDToNodeID;        // at 0x24
-    math::_VEC3 volume_min;     // at 0x28
-    math::_VEC3 volume_max;     // at 0x34
+    BE_MATH(_VEC3) volume_min;     // at 0x28
+    BE_MATH(_VEC3) volume_max;     // at 0x34
 };
 
 class ResMdlInfo : public ResCommon<ResMdlInfoData>,

@@ -188,6 +188,8 @@ public:
     template <typename U> be& operator|=(U v) { set(get() | v); return *this; }
     template <typename U> be& operator&=(U v) { set(get() & v); return *this; }
     template <typename U> be& operator^=(U v) { set(get() ^ v); return *this; }
+    template <typename U> be& operator*=(U v) { set(get() * v); return *this; }
+    template <typename U> be& operator/=(U v) { set(get() / v); return *this; }
     be& operator++() { set(get() + 1); return *this; }
     be& operator--() { set(get() - 1); return *this; }
     T operator++(int) { T o = get(); set(o + 1); return o; }

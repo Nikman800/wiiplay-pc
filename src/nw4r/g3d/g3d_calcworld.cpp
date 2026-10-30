@@ -261,7 +261,7 @@ void CalcSkinning(math::MTX34* pModelMtxArray, u32* pModelMtxAttribArray,
             u32 nodeID = (pEvpMtxCmd->nodeIdHi << 8) + pEvpMtxCmd->nodeIdLo;
 
             math::MTX34Mult(&pSkinMtxArray[mtxID], &pModelMtxArray[mtxID],
-                            static_cast<const math::MTX34*>(
+                            BE_MATH_CAST(const math::MTX34*,
                                 &mdl.GetResNode(nodeID).ref().invModelMtx));
 
             pByteCode += sizeof(ResByteCodeData::EvpMtxParams);

@@ -4,6 +4,9 @@
 
 #include <egg/math.h>
 
+#include <port/be.h>
+#include <port/resptr.h>
+
 //! @addtogroup rp_party
 //! @{
 
@@ -17,10 +20,10 @@ class IRPPathSegmentArray;
  */
 struct RPPathPoint {
     EGG::Vector3f pos; // at 0x0
-    s16 param0C;       // at 0xC
-    s16 param0E;       // at 0xE
-    s16 param10;       // at 0x10
-    s16 param12;       // at 0x12
+    be_s16 param0C;    // at 0xC
+    be_s16 param0E;    // at 0xE
+    be_s16 param10;    // at 0x10
+    be_s16 param12;    // at 0x12
 };
 
 /**
@@ -28,13 +31,13 @@ struct RPPathPoint {
  * @details Size 0x20 [H] (stride in RPResFile::Relocate).
  */
 struct RPPathRes {
-    u16 numPoints;           // at 0x0
-    u16 unk02;               // at 0x2
-    u8 type;                 // at 0x4 1: Bezier, otherwise linear
-    u8 unk05;                // at 0x5
-    u16 flags;               // at 0x6 bit 0: closed loop
-    u8 unk08[0x18 - 0x8];    // at 0x8
-    RPPathPoint* pPoints;    // at 0x18 point index until relocated
+    be_u16 numPoints;              // at 0x0
+    be_u16 unk02;                  // at 0x2
+    u8 type;                       // at 0x4 1: Bezier, otherwise linear
+    u8 unk05;                      // at 0x5
+    be_u16 flags;                  // at 0x6 bit 0: closed loop
+    u8 unk08[0x18 - 0x8];          // at 0x8
+    RES_PTR(RPPathPoint) pPoints;  // at 0x18 point index until relocated
     u8 unk1C[0x20 - 0x1C];
 };
 
@@ -44,11 +47,11 @@ struct RPPathRes {
  * (RPPathObject) read their placement and parameters from it.
  */
 struct RPResEntry {
-    u32 unk00;          // at 0x0
-    u8 type;            // at 0x4
+    be_u32 unk00;            // at 0x0
+    u8 type;                 // at 0x4
     u8 unk05[0x44 - 0x5];
-    RPPathRes* pPath;   // at 0x44 path index (-1: none) until relocated
-    s16 params[8];      // at 0x48 object parameters (RPPathObject::GetParam)
+    RES_PTR(RPPathRes) pPath; // at 0x44 path index (-1: none) until relocated
+    be_s16 params[8];        // at 0x48 object parameters (RPPathObject::GetParam)
 };
 
 // Ledger name; defined in RPResFile_3: &pRes->pPoints[idx]

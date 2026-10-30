@@ -18,7 +18,9 @@ document called `EF_LIST_*`), ef-2 to ef-7 with `RES_PTR`/`PORT_STORE_PTR32`/
 in the game's order, each file the Wii image at every step (HOST_BUILD.md §12).
 Step 7 is implemented: the §5.2 snd cookies are `uintptr_t`, and the sound archive code runs on
 the host with `be_*` file structs (all 11 `.brsar` opened, every group loaded; HOST_BUILD.md
-§13). Everything from step 8 on is still design.
+§13). Step 8 is implemented for PMP (§3.5) and KCL (§3.6): `RES_PTR` slots, `be_*` file
+structs, every disc file through `RPResTable` / `RPKcl::SetResource` (HOST_BUILD.md §14). The
+rest of step 8 (`RPPolyline`, HBM and RFL cookies, `RPKokeshiMgr_3`) is still design.
 Line numbers refer to `src/` and `include/` as of 2026-10-30 (identical to the decomp) and do not
 account for the step 0-2 edits.
 

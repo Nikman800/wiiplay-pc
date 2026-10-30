@@ -2,6 +2,8 @@
 #define RP_PARTY_COMMON_TNK_MAP_DATA_H
 #include <Pack/types_pack.h>
 
+#include <port/be.h>
+
 //! @addtogroup rp_party
 //! @{
 
@@ -20,11 +22,11 @@ public:
      * @brief Map file header [M]
      */
     struct Map {
-        s32 width;    // at 0x0
-        u32 unk4;     // at 0x4 [L]
-        s32 unk8;     // at 0x8 [L]
-        s32 unkC;     // at 0xC [L]
-        s32 cells[1]; // at 0x10 cells[y * width + x]
+        be_s32 width;    // at 0x0
+        be_u32 unk4;     // at 0x4 [L]
+        be_s32 unk8;     // at 0x8 [L]
+        be_s32 unkC;     // at 0xC [L]
+        be_s32 cells[1]; // at 0x10 cells[y * width + x]
     };
 
 public:

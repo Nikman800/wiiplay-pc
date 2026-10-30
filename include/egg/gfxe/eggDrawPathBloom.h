@@ -23,25 +23,25 @@ class DrawPathBloom : public DrawPathBase, public IBinary<DrawPathBloom> {
 
 public:
     struct BlurParam {
-        f32 mRadius;    // at 0x0
-        f32 mIntensity; // at 0x4
+        be_f32 mRadius;    // at 0x0
+        be_f32 mIntensity; // at 0x4
         u8 unk8[0x20 - 0x8];
     };
 
     struct BinData {
-        f32 mThreshold;          // at 0x0
+        be_f32 mThreshold;       // at 0x0
         GXColor mMaskColor;      // at 0x4
         GXColor mColor;          // at 0x8
-        u16 mFlags;              // at 0xC
-        u16 unkE;                // at 0xE
+        be_u16 mFlags;           // at 0xC
+        be_u16 unkE;             // at 0xE
         BlurParam mBlur0;        // at 0x10
         BlurParam mBlur1;        // at 0x30
         BlurParam mBlur2;        // at 0x50
         u8 mBlendModeIdx;        // at 0x70
         u8 mNumBlur;             // at 0x71
         u8 unk72[0x8C - 0x72];   // at 0x72
-        f32 mGatherScale0;       // at 0x8C
-        f32 mGatherScale1;       // at 0x90
+        be_f32 mGatherScale0;    // at 0x8C
+        be_f32 mGatherScale1;    // at 0x90
     };
 
 public:

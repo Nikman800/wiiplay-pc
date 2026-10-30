@@ -224,6 +224,52 @@ def expected_lines(disc):
     return lines, len(files)
 
 
+# Math value members (BE_MATH, HOST_BUILD.md §14): (field offset, float count)
+# per line kind, relative to the struct offset the harness prints.
+MATH_FIELDS = {
+    "MXI": ((0x28, 3), (0x34, 3)),                                   # ResMdlInfoData
+    "MXN": ((0x20, 3), (0x2C, 3), (0x38, 3), (0x44, 3), (0x50, 3),
+            (0x70, 12), (0xA0, 12)),                                 # ResNodeData
+    "MXP": ((0x20, 3), (0x2C, 3)),                                   # ResVtxPosData
+    "MXT": ((0x20, 2), (0x28, 2)),                                   # ResVtxTexCoordData
+    "MXE": ((0, 12),),                                               # TexMtxEffect.effectMtx
+}
+
+
+def check_math_lines(lines, disc, expected):
+    """Every MX line's values equal the big-endian floats at its offsets, and
+    each model has one line per node, vertex array and material texture slot."""
+    data = {path: d for path, d, _ in walk(disc) if d[:4] == fmt_brres_model.BRRES_MAGIC}
+    bad, counts = [], collections.Counter()
+    for line in lines:
+        cols = line.split("\t")
+        kind, path, mdl = cols[0], cols[1], cols[2]
+        counts[(path, mdl, kind)] += 1
+        head = 3 if kind in ("MXI",) else (5 if kind == "MXE" else 4)
+        base = int(cols[head])
+        d = data.get(path)
+        want = []
+        for off, n in MATH_FIELDS[kind]:
+            o = base + off
+            if d is None or o < 0 or o + 4 * n > len(d):
+                want = None
+                break
+            want.append(",".join("%08x" % w for w in struct.unpack_from(">%dI" % n, d, o)))
+        if want != cols[head + 1:]:
+            bad.append(line)
+    for line in expected:
+        cols = line.split("\t")
+        if cols[0] != "M":
+            continue
+        path, mdl = cols[1], cols[2]
+        n_mat, n_node, n_pos, n_tex = int(cols[4]), int(cols[6]), int(cols[7]), int(cols[10])
+        for kind, n in (("MXI", 1), ("MXN", n_node), ("MXP", n_pos), ("MXT", n_tex),
+                        ("MXE", n_mat * 8)):
+            if counts[(path, mdl, kind)] != n:
+                bad.append(f"count {kind} {path} {mdl}: {counts[(path, mdl, kind)]}, expected {n}")
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--harness", required=True)
@@ -234,7 +280,10 @@ def main():
                          stderr=subprocess.PIPE, text=True)
     sys.stderr.write(run.stderr)
     got = run.stdout.splitlines()
+    math_lines = [line for line in got if line.startswith("MX")]
+    got = [line for line in got if not line.startswith("MX")]
     expected, nfiles = expected_lines(args.disc)
+    math_bad = check_math_lines(math_lines, args.disc, expected)
 
     kinds_got = collections.Counter(line.split("\t", 1)[0] for line in got)
     kinds_exp = collections.Counter(line.split("\t", 1)[0] for line in expected)
@@ -248,13 +297,18 @@ def main():
     print("lines: " + ", ".join(f"{k} {kinds_got[k]}/{kinds_exp[k]}"
                                 for k in ("F", "G", "M", "T", "P", "A"))
           + " (harness/python)")
+    print("math members: " + ", ".join(
+        f"{k} {n}" for k, n in sorted(collections.Counter(l.split("\t", 1)[0] for l in math_lines).items()))
+        + f" lines, {len(math_bad)} mismatched")
+    for line in math_bad[:10]:
+        print("  math:", line[:300])
     print(f"missing {len(missing)}, extra {len(extra)}")
     for line in missing[:10]:
         print("  missing:", line)
     for line in extra[:10]:
         print("  extra:  ", line)
 
-    ok = run.returncode == 0 and not missing and not extra and nfiles > 0
+    ok = run.returncode == 0 and not missing and not extra and nfiles > 0 and not math_bad
     print("OK" if ok else "FAILED")
     return 0 if ok else 1
 

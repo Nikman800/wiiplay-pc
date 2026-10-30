@@ -15,14 +15,14 @@ class LightObject;
 class LightTexture : public CapTexture, public IBinary<LightTexture> {
 public:
     struct BinData {
-        u16 lightNum;   // at 0x10
+        be_u16 lightNum; // at 0x10
         u8 unk12[2];    // at 0x12
         char name[32];  // at 0x14
         u8 drawType;    // at 0x34
         u8 unk35[3];    // at 0x35
-        u32 lightMask;  // at 0x38
+        be_u32 lightMask; // at 0x38
         struct Light {
-            f32 effectScale; // at 0x0
+            be_f32 effectScale; // at 0x0
             u8 pttrn;        // at 0x4
             u8 unk5[3];      // at 0x5
         } lights[1];    // at 0x3C

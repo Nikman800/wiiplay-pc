@@ -4,6 +4,10 @@
 
 #include <nw4r/math.h>
 
+#include <port/be.h>
+#include <port/bemath.h>
+#include <port/resptr.h>
+
 //! @addtogroup rp_party
 //! @{
 
@@ -12,13 +16,13 @@
  * @note Field names follow the common KCL format.
  */
 struct RPKclPrism {
-    f32 height;      // at 0x0
-    u16 positionIdx; // at 0x4
-    u16 normal0Idx;  // at 0x6 face normal
-    u16 normal1Idx;  // at 0x8 edge normals
-    u16 normal2Idx;  // at 0xA
-    u16 normal3Idx;  // at 0xC
-    u16 attribute;   // at 0xE
+    be_f32 height;      // at 0x0
+    be_u16 positionIdx; // at 0x4
+    be_u16 normal0Idx;  // at 0x6 face normal
+    be_u16 normal1Idx;  // at 0x8 edge normals
+    be_u16 normal2Idx;  // at 0xA
+    be_u16 normal3Idx;  // at 0xC
+    be_u16 attribute;   // at 0xE
 };
 
 /**
@@ -26,19 +30,19 @@ struct RPKclPrism {
  * @note Field names follow the common KCL format; Wii Play's own names are unknown.
  */
 struct RPKclHeader {
-    nw4r::math::VEC3* pPositions; // at 0x0
-    nw4r::math::VEC3* pNormals;   // at 0x4
-    RPKclPrism* pPrisms;          // at 0x8
-    void* pBlocks;                // at 0xC octree
-    f32 thickness;                // at 0x10
-    nw4r::math::VEC3 areaMin;     // at 0x14
-    u32 maskX;                    // at 0x20
-    u32 maskY;                    // at 0x24
-    u32 maskZ;                    // at 0x28
-    u32 shift;                    // at 0x2C
-    u32 shiftY;                   // at 0x30
-    u32 shiftZ;                   // at 0x34
-    f32 sphereRadius;             // at 0x38
+    RES_PTR(BE_MATH(VEC3)) pPositions; // at 0x0
+    RES_PTR(BE_MATH(VEC3)) pNormals;   // at 0x4
+    RES_PTR(RPKclPrism) pPrisms;       // at 0x8
+    RES_PTR(void) pBlocks;             // at 0xC octree
+    be_f32 thickness;                  // at 0x10
+    BE_MATH(VEC3) areaMin;             // at 0x14
+    be_u32 maskX;                      // at 0x20
+    be_u32 maskY;                      // at 0x24
+    be_u32 maskZ;                      // at 0x28
+    be_u32 shift;                      // at 0x2C
+    be_u32 shiftY;                     // at 0x30
+    be_u32 shiftZ;                     // at 0x34
+    be_f32 sphereRadius;               // at 0x38
 };
 
 /**

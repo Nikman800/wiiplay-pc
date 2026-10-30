@@ -30,13 +30,13 @@ void RPKcl::SetResource(void* pKclFile) {
 
     // The file's header holds the four sections as offsets from its start
     const RPKclHeader* pFile = static_cast<const RPKclHeader*>(pKclFile);
-    pHeader->pPositions = reinterpret_cast<nw4r::math::VEC3*>(
-        static_cast<u8*>(pKclFile) + reinterpret_cast<u32>(pFile->pPositions));
-    pHeader->pNormals = reinterpret_cast<nw4r::math::VEC3*>(
-        static_cast<u8*>(pKclFile) + reinterpret_cast<u32>(pFile->pNormals));
+    pHeader->pPositions = reinterpret_cast<BE_MATH(VEC3)*>(
+        static_cast<u8*>(pKclFile) + RES_PTR_RAW(pFile->pPositions));
+    pHeader->pNormals = reinterpret_cast<BE_MATH(VEC3)*>(
+        static_cast<u8*>(pKclFile) + RES_PTR_RAW(pFile->pNormals));
     pHeader->pPrisms = reinterpret_cast<RPKclPrism*>(
-        static_cast<u8*>(pKclFile) + reinterpret_cast<u32>(pFile->pPrisms));
-    pHeader->pBlocks = static_cast<u8*>(pKclFile) + reinterpret_cast<u32>(pFile->pBlocks);
+        static_cast<u8*>(pKclFile) + RES_PTR_RAW(pFile->pPrisms));
+    pHeader->pBlocks = static_cast<u8*>(pKclFile) + RES_PTR_RAW(pFile->pBlocks);
 }
 
 s32 RPKcl::CheckPoint(RPKclHit* pHits, s32 maxHits, const nw4r::math::VEC3& rPos) const {
@@ -64,19 +64,19 @@ s32 RPKcl::CheckPoint(RPKclHit* pHits, s32 maxHits, const nw4r::math::VEC3& rPos
     u32 key = (((localZ >> level) << pHeader->shiftZ) |
               ((localY >> level) << pHeader->shiftY) | (localX >> level)) * 4;
     // The octree links nodes and prism lists by byte offsets (KCL format)
-    u8* pNode = static_cast<u8*>(pHeader->pBlocks);
+    u8* pNode = static_cast<u8*>(RES_PTR_GET(pHeader->pBlocks));
     s32 nodeValue;
-    while ((nodeValue = *reinterpret_cast<s32*>(pNode + key)) >= 0) {
+    while ((nodeValue = *reinterpret_cast<be_s32*>(pNode + key)) >= 0) {
         pNode += nodeValue;
         --level;
         key = ((((localZ >> level) & 1) << 2) |
               (((localY >> level) & 1) << 1) | ((localX >> level) & 1)) * 4;
     }
 
-    u16* pList = reinterpret_cast<u16*>(pNode + (nodeValue & 0x7fffffff));
+    be_u16* pList = reinterpret_cast<be_u16*>(pNode + (nodeValue & 0x7fffffff));
     while (*++pList != 0) {
-        const nw4r::math::VEC3* pNormal;
-        const nw4r::math::VEC3* pPosition;
+        const BE_MATH(VEC3)* pNormal;
+        const BE_MATH(VEC3)* pPosition;
         RPKclPrism* pPrism = &pHeader->pPrisms[*pList];
         pPosition = &pHeader->pPositions[pPrism->positionIdx];
         nw4r::math::VEC3 offset;
@@ -139,9 +139,9 @@ s32 RPKcl::SearchSphereOctree(RPKclHit* pHits, s32 maxHits, const nw4r::math::VE
     s32 yStep;
     s32 zStep;
     s32 longestY;
-    u16* pList;
-    u16* pListCandidate = NULL;
-    u16* pPreviousList = NULL;
+    be_u16* pList;
+    be_u16* pListCandidate = NULL;
+    be_u16* pPreviousList = NULL;
     u32 lowX;
     lowX = static_cast<s32>(minimum.x - pHeader->areaMin.x);
     if (static_cast<s32>(lowX) < 0) {
@@ -182,12 +182,12 @@ s32 RPKcl::SearchSphereOctree(RPKclHit* pHits, s32 maxHits, const nw4r::math::VE
             x = lowX;
             do {
                 // The octree links nodes and prism lists by byte offsets (KCL format)
-                u8* pNode = static_cast<u8*>(pHeader->pBlocks);
+                u8* pNode = static_cast<u8*>(RES_PTR_GET(pHeader->pBlocks));
                 u32 level = pHeader->shift;
                 u32 key = (((z >> level) << pHeader->shiftZ) |
                           ((y >> level) << pHeader->shiftY) | (x >> level)) * 4;
                 s32 nodeValue;
-                while ((nodeValue = *reinterpret_cast<s32*>(pNode + key)) >= 0) {
+                while ((nodeValue = *reinterpret_cast<be_s32*>(pNode + key)) >= 0) {
                     pNode += nodeValue;
                     --level;
                     key = ((((z >> level) & 1) << 2) |
@@ -196,7 +196,7 @@ s32 RPKcl::SearchSphereOctree(RPKclHit* pHits, s32 maxHits, const nw4r::math::VE
 
                 u32 cellSize = 1U << level;
                 u32 cellMask = cellSize - 1;
-                pList = reinterpret_cast<u16*>(
+                pList = reinterpret_cast<be_u16*>(
                     pNode + (nodeValue & 0x7fffffff));
                 s32 remainingZ = cellSize - (z & cellMask);
                 remainingX = cellSize - (x & cellMask);
@@ -236,26 +236,26 @@ BOOL RPKcl::CheckSphereTri(RPKclHit* pHits, s32* pHitCount, s32 maxHits, RPKclPr
     f32 distance[4];
     f32 radiusSq = radius * radius;
     RPKclHeader* pHeader = mpHeader;
-    const nw4r::math::VEC3& rPosition = pHeader->pPositions[pPrism->positionIdx];
+    const BE_MATH(VEC3)& rPosition = pHeader->pPositions[pPrism->positionIdx];
     offset.x = rCenter.x - rPosition.x;
     offset.y = rCenter.y - rPosition.y;
     offset.z = rCenter.z - rPosition.z;
-    const nw4r::math::VEC3& rNormal1 = pHeader->pNormals[pPrism->normal1Idx];
+    const BE_MATH(VEC3)& rNormal1 = pHeader->pNormals[pPrism->normal1Idx];
     distance[1] = offset.x * rNormal1.x + offset.y * rNormal1.y + offset.z * rNormal1.z;
     if (distance[1] >= radius) {
         return FALSE;
     }
-    const nw4r::math::VEC3& rNormal2 = pHeader->pNormals[pPrism->normal2Idx];
+    const BE_MATH(VEC3)& rNormal2 = pHeader->pNormals[pPrism->normal2Idx];
     distance[2] = offset.x * rNormal2.x + offset.y * rNormal2.y + offset.z * rNormal2.z;
     if (distance[2] >= radius) {
         return FALSE;
     }
-    const nw4r::math::VEC3& rNormal3 = pHeader->pNormals[pPrism->normal3Idx];
+    const BE_MATH(VEC3)& rNormal3 = pHeader->pNormals[pPrism->normal3Idx];
     distance[3] = offset.x * rNormal3.x + offset.y * rNormal3.y + offset.z * rNormal3.z - pPrism->height;
     if (distance[3] >= radius) {
         return FALSE;
     }
-    const nw4r::math::VEC3& rNormal0 = pHeader->pNormals[pPrism->normal0Idx];
+    const BE_MATH(VEC3)& rNormal0 = pHeader->pNormals[pPrism->normal0Idx];
     distance[0] = offset.x * rNormal0.x + offset.y * rNormal0.y + offset.z * rNormal0.z;
     f32 penetration = radius - distance[0];
     if (penetration < 0.0f || penetration > pHeader->thickness) {

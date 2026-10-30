@@ -41,7 +41,9 @@ check, init and bind, no drawing yet).
 `RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, ResFont (§5 to §7 below), TPL
 and the layout resource structs (§9), the two hard-coded runtime offsets (§10), g3d with the
 GX texture-object contract (§11), the `nw4r::ef` resources with `RES_LINK` (§12), and the
-`nw4r::snd` callback cookies and sound archive readers (§13).
+`nw4r::snd` callback cookies and sound archive readers (§13). Step 8 covers the game-owned
+formats (§14): KCL and PMP through the game's loaders, the EGG binary settings through the
+real EGG light, light-map and bloom objects, and the game tables.
 
 ## 1. Build and run
 
@@ -108,6 +110,8 @@ differs slightly between the 64-bit and `-m32` builds (48690 there; 6774 changed
 | `models` | `g3d_harness` + `tests/test_models.py` (§11) |
 | `sound` | `snd_harness` + `tests/test_sound.py` (§13) |
 | `effects` | `ef_harness` + `tests/test_effects.py` (§12); `test_ef` (`RES_LIST`, ef slots) runs with `unit` |
+| `collision` | `coll_harness` + `tests/test_collision.py` (§14: KCL, PMP) |
+| `data` | `data_harness` + `tests/test_data.py` (§14: `.plight`, `.plmap`, `.pblm`, game tables) |
 
 The harnesses take well under a second each. The Python reference walks take about 13 s
 (archives, which hashes every file), 3 s (resources) and 3 s (layouts). Nothing is written to disk except the
@@ -363,7 +367,8 @@ All of these live in `port/host/include`, which shadows `include/` on the host o
 as `strcasecmp`, and `port/wide.h` adds `std::` using-declarations for the `port_wcs*`
 functions so `std::wcslen` resolves after the renaming macros.
 
-Build flags: `-DPORT_HOST=1 -DNONMATCHING -DREVOLUTION -DNDEBUG=1 -DVERSION_RHAE01
+Build flags (all objects are also built with `-ffunction-sections -fdata-sections`, so a
+harness can link with `--gc-sections`, §14): `-DPORT_HOST=1 -DNONMATCHING -DREVOLUTION -DNDEBUG=1 -DVERSION_RHAE01
 -DVERSION_RHAE01_01`, `-std=gnu++17 -fno-exceptions -fno-rtti` (C: `-std=gnu11`),
 `-fshort-wchar -include port/wide.h`, `-Werror=int-to-pointer-cast` (C also
 `-Werror=pointer-to-int-cast`). CodeWarrior's recursive `-ir include/revolution/BTE` and
@@ -474,6 +479,13 @@ check in §2 confirms all of them.
 | `src/nw4r/ef/ef_resource.cpp` | §12: the local `FileHeader`, `BlockHeader`, `NameTable` members `be_*`; the 14 `ut::List_*` calls are `RES_LIST_*` and `sizeof(ut::Link)` is `sizeof(RES_LINK)` (ef-1); the name slot store casts to `RES_PTR(char)*` (ef-2); the two curve `work` stores use `PORT_PTR_TO_U32` (ef-7); `ppWork` is `RES_PTR(TextureData)*` (ef-6); three `u16` reads are through `be_u16*`. |
 | `src/nw4r/ef/ef_animcurve.cpp` | §12 (ef-7, unlinked unit): the texture name table is read as `AnimCurveTable<RES_PTR(TextureData)>`, the child curve's `work` through `PORT_U32_TO_PTR(EmitterResource*, ...)`. 3 lines. |
 | `include/nw4r/ef/ef_types.h`, `include/nw4r/ef/ef_effect.h` | §12 (POINTERS.md §5.2 cookie): `ForEachParam` is `uintptr_t` under `#if defined(PORT_HOST)` (Wii: `u32`), and `Effect::Modifier_SetSimpleLightAmbient/SetScale/SetRotate` cast `&x` to `ForEachParam` instead of `u32`. |
+| `include/port/bemath.h` | **New** (§14). The Wii side of the math value types in file structs: `BE_MATH(T)` is `nw4r::math::T`. The host header makes it `port::be_math::T` (`_VEC2`, `VEC2`, `_VEC3`, `VEC3`, `_MTX34`, `MTX34`): `be_f32` members, the runtime type's size and alignment, conversion to and assignment from the runtime type. `BE_MATH_CAST(T, p)` is `static_cast<T>(p)` (the host keeps the big-endian pointer for the matrix overloads). |
+| `include/Pack/RPParty/RPPartyCommon/RPKcl.h`, `src/.../RPKcl.cpp` | §14 (POINTERS.md §3.6): `RPKclPrism` and `RPKclHeader` members `be_*`, `BE_MATH(VEC3)` and `RES_PTR(...)`; `SetResource` reads the section offsets with `RES_PTR_RAW`; the octree words and prism lists are read as `be_s32` / `be_u16`, the positions and normals as `BE_MATH(VEC3)`, and `pBlocks` through `RES_PTR_GET`. Type tokens and macro wraps only; the query arguments stay `nw4r::math::VEC3`. |
+| `include/Pack/RPParty/RPPartyCommon/RPResFile_2.h`, `RPPathFollower.h`, `src/.../RPResFile_3.cpp`, `RPResFile_4.cpp`, `RPPathFollower_2.cpp` | §14 (POINTERS.md §3.5): `RPResData`, `RPResEntry`, `RPPathRes` counts, flags and parameters `be_*`, the five pointer slots `RES_PTR(...)`; `Relocate` converts through `PORT_U32_TO_PTR` / `PORT_PTR_TO_U32` / `RES_PTR_RAW`; `FindNthEntryOfType` / `CountEntriesOfType` compare the entry type through `be_u32*`; `RPPathObject` reads the entry floats through `const be_f32*`. `RPPathPoint::pos` is still `EGG::Vector3f` (no PMP on the disc has points). |
+| `include/nw4r/g3d/res/g3d_rescommon.h`, `g3d_resmdl.h`, `g3d_resnode.h`, `g3d_resvtx.h`, `g3d_resmat.h`, `src/nw4r/g3d/res/g3d_resmat.cpp`, `src/nw4r/g3d/g3d_calcworld.cpp`, `g3d_draw.cpp`, `g3d_state.cpp`, `include/nw4r/ef/ef_res_emitter.h`, `ef_particle.h` | §14: `g3d_rescommon.h` includes `<port/bemath.h>`; the math members of the file structs are `BE_MATH(...)`; the 8 matrix upcasts are `BE_MATH_CAST`; `ResNode::GetTranslate` returns by value under `#if defined(PORT_HOST)`. |
+| `include/egg/core/eggIBinary.h` | §14: `BinHeader::size` is `be_u32`; `GetBinarySize` uses `sizeof(typename T::Bin)` under `#if defined(PORT_HOST)` (GCC needs the `typename`). |
+| `include/egg/gfxe/eggLightManager.h`, `eggLightObject.h`, `eggLightTexture.h`, `eggDrawPathBloom.h`, `src/egg/gfxe/eggLightManager.cpp`, `eggLightTextureManager.cpp` | §14: the `BinData` structs (and `BinData0` / `BinData1`, `BlurParam`) have `be_*` and `BE_MATH(_VEC3)` members; the light-map texture count is read and written through `be_u16*`. `DrawPathBloom::mData` is a `BinData`, so the runtime copy reads through the wrapper too. Type tokens only. |
+| `include/Pack/RPParty/RPPartyCommon/RPTnkMapData.h`, `RPBomScene/RPBomQuestionParam.h`, `RPWlyScene/RPWlyLevelTable.h`, `RPPnpScene/RPPnpLevelTable.h` | §14: the table record structs (`RPTnkMapData::Map`, `RPBomQuestionData` / `PatternData` / `LevelData` / `QuestionParamFile`, `RPWlyLevelVec3` / `LevelData`, `RPPnpLevelTable::LevelEntry` / `RallyEntry`) have `be_*` members. Type tokens only. |
 
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
@@ -561,11 +573,9 @@ the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrap
 
 ## 8. Next steps
 
-- g3d beyond loading (§11): the `math::_VEC3`/`_MTX34`/`_VEC2` members of the file structs
-  (node SRT and matrices, bounding volumes, vertex-array min/max, camera/light/fog values,
-  texture-matrix effects) are still plain floats, so they read byte-swapped on a little-endian
-  host. Nothing on the load path reads them; the calc and draw code will need `res::` value types
-  as in `lyt` (§9). Animation evaluation (`GetAnmResult`) compiles but is not validated: it also
+- g3d beyond loading (§11): the `math::_VEC3`/`_MTX34`/`_VEC2` members of the model file
+  structs are `BE_MATH` since step 8 (§14); the animation data's vectors and the
+  camera/light/fog animation values are still plain. Animation evaluation (`GetAnmResult`) compiles but is not validated: it also
   uses `nw4r::math` and OS fast-cast helpers (`OSu16tof32`, `F32ToU16`) that are inline assembly.
 - Drawing layouts needs the Phase 7 GX layer behind `src/host_gx.cpp`, and the
   `nw4r::math` inline-assembly helpers: `math_arithmetic.h` `FAbs` (and others written as
@@ -576,8 +586,9 @@ the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrap
   - `g3d::Res*Data`
   - `snd` file structs
 - ef beyond loading (§12): the `math::VEC2`/`VEC3` members of `EmitterDesc`,
-  `ParticleParameterDesc` and `Lighting`, and the curve keys read by `ef_animcurve.cpp`, are
-  still plain, and particle evaluation and drawing are not validated.
+  `ParticleParameterDesc` and `Lighting` are `BE_MATH` since step 8 (§14); the curve keys
+  read by `ef_animcurve.cpp` are still plain, and particle evaluation and drawing are not
+  validated.
 - Route `swprintf`/`vswprintf` to `src/MSL_C/wprintf.c` (§6) when the first caller is built.
 - Replace `src/host_sdk.cpp` with the Phase 7 OS/DVD/heap layer: real threads, message queues
   that block, and MEM heaps (the decomp's `src/revolution/MEM` could compile as-is once the OS
@@ -878,3 +889,140 @@ by reason). `test_layout` checks the snd file struct layouts. Findings:
   instrument and graph-envelope DataRefs.
 - One file of `rp_Wly_sound.brsar` is only in the last, unnamed group, which
   `GetGroupCount()` leaves out, so `detail_GetFileAddress` finds nothing for it (`X ... none`).
+
+## 14. Game-owned formats (POINTERS.md step 8)
+
+KCL, PMP, the EGG binary settings and the game tables now load through the game's own code on
+the host. Their file structs use `be_*`, `BE_MATH(T)` (new: `include/port/bemath.h`, a struct
+of `be_f32` with the layout of `nw4r::math::T` on the host) and `RES_PTR` (§4). Nothing is
+swapped in place. `check_matching.py` lists the step 8 files at the end of `TOUCHED`. With
+them, all 750 units that depend on a touched file are byte-identical (2026-10-30).
+
+### What runs
+
+`tests/coll_harness.cpp` (`make collision`):
+
+- **KCL (7 files; header size 0x38 in 2, 0x3C in 5).** `RPKcl::SetResource` runs on each file
+  in place, then `CheckPoint` and `SearchSphereOctree` / `CheckSphereTri` run at a point inside
+  every prism (7959 queries).
+  - The harness prints the header copy, every prism with its position and normals, and every
+    hit.
+  - `tests/test_collision.py` takes the values from `fmt_collision.parse_kcl`. It models both
+    queries in single precision, rounding each float operation to f32, and walks the octree
+    from the bytes. All hits and distances match bit for bit.
+  - On 0x38-byte files `sphereRadius` is `positions[0].x`, as on the Wii (ASSETS.md §2.8).
+  - The file is unchanged, and a second `SetResource` does nothing.
+- **PMP (7 files, 1744 entries).** The real `RPResTable` constructor runs (`RPResFile::Create`,
+  `Relocate`), then `CountEntriesOfType` / `FindNthEntryOfType` for the 11 Cow types, then
+  `RPPathObject` on every entry found.
+  - Every changed byte is predicted, so each file is the Wii's in-memory image: flag bit 0, the
+    section slots, and NULL path slots.
+  - `Relocate` only fixes the entries that `RPResFile`'s filter (0) returns, those with type
+    byte 0. On the disc that is all of them.
+  - Positions, `vec20`, radius and parameters match bit for bit. The rotation (`calcRPY`, libm
+    `atan2f` / `asinf`) matches within 1e-5.
+  - No PMP on the disc has paths or points, so the harness also relocates a PMP built in memory
+    with 2 paths and 4 points. It checks every slot and `RP_getPathPoint`.
+
+`tests/data_harness.cpp` (`make data`):
+
+- **Settings files.** Each file is loaded with `SetBinary` into the real object the game uses:
+  - `.plight` (17, version 1): `EGG::LightManager(16, 8, 1)`, as `RPGrpModelScene` creates it.
+  - `.plmap` (11): the manager's `LightTextureManager`. Its textures are made with
+    `createTexture` for the names in the file, because the game makes them from its scene
+    models.
+  - `.pblm` (4, versions 0 and 1): `EGG::DrawPathBloom`.
+
+  Each object is then written back with the real `GetBinary`, and that image is read through
+  the file structs. The runtime getters (`GetIntensity`, `GetAt`) are printed too.
+  `tests/test_data.py` compares the result with `fmt_game_data.py`.
+- **Tables.**
+  - The real `RPTnkMapData` constructor runs (120 maps). Every cell is read through
+    `RP_TnkMapData_getCell` in both TV modes, plus `GetUnk08` / `GetUnk0C`.
+  - `RPBomQuestionParam::Load` runs (`BuildLevelTable`), and every record word is read through
+    `RPBomQuestionParamFile`.
+  - `RPWlyLevelTable` and `RPPnpLevelTable` are copied as their constructors do and read through
+    the real record structs. Their units include RPAudio headers, see below.
+- **Results.** Every value matches as a 32-bit pattern (64- and 32-bit):
+
+  ```
+  coll_harness: 7 KCL (7959 prisms, 7959 point queries: 16715 point hits, 32065 sphere hits), 7 PMP (1744 entries found by type, 1744 path objects, 1772 changed runs); 0 errors
+  data_harness: 17 .plight (272 lights), 11 .plmap (22 light textures), 4 .pblm; tables: 120 Tnk maps, 1 BomQuestionParam, 179 Wly levels, 331 Pnp records; 0 errors
+  ```
+
+### Host pieces
+
+- **`tests/shadow/Pack/RPSystem/RPSysResourceManager.h`.** The loader units call
+  `LoadGameCommonArchive` / `GetFileFromArchive`. The real header pulls in RPAudio headers
+  that do not build on the host, so the step 8 Pack units are compiled with this stand-in
+  first on the include path. It has the same two declarations, and each harness defines them
+  over the archive the disc walk has mounted.
+- **`src/host_gfx_stubs.c`.** The EGG light / light-map / bloom objects are built from all of
+  `src/egg/gfxe`, `gfx` and `math`. Their vtables reference drawing code, so `data_harness`
+  links with `--gc-sections`. The 30 GX, g3d camera and game functions that remain are stubs
+  that abort with their name (four data symbols are zero); nothing on the load path calls them. The exception is
+  `PSVECMag`, which is written in C here because the Wii version is paired-single code.
+- **`GXGetTexBufferSize`** (pure arithmetic, `src/host_gxtexobj.cpp`) and
+  `EGG::Heap::sCurrentHeap` (NULL, `src/host_sdk.cpp`) are new host stand-ins.
+- **Other harness-side definitions.** `RP_DEBUG_STUB_1`'s empty constructor and destructor, and
+  the CodeWarrior-ABI entry `calcRPY__Q23EGG9Matrix34fCFv` that `RPPathFollower_2.cpp` calls.
+- **`-m32`.** On `-m32` the KCL units and `coll_harness` use `-msse2 -mfpmath=sse`, so the
+  queries round like x86-64 instead of in x87 extended precision.
+- **`be<T>`** gained `*=` and `/=` (the Wly loader scales `mSpeed`).
+- **Parser fix.** `fmt_game_data.py` read the PBLM gather scales at file offset 0x8C instead
+  of 0x9C (`BinData` + 0x8C), so they were always 0.
+
+### Math value members of the g3d and ef file structs
+
+The `math::_VEC2` / `_VEC3` / `_MTX34` members of these file structs are now `BE_MATH(...)`:
+
+- g3d: `ResMdlInfoData` (volume), `ResNodeData` (scale, rot, translate, volume, model and
+  inverse model matrices), `ResVtxPosData` / `ResVtxTexCoordData` (min, max) and
+  `TexMtxEffect::effectMtx`.
+- ef: `EmitterDesc` (velSpecDir, scale, rotate, translate), `Lighting::mPosition`, and
+  `ParticleParameterDesc` (size, scale, rotate, textureScale, textureTranslate).
+
+Reading a member converts it; most code compiles unchanged. A few code changes were needed:
+
+- **Matrix pointers.** The g3d code passes the file's matrices to the math functions as
+  `static_cast<math::MTX34*>(&data.effectMtx)` (resmat, calcworld, draw, state: 8 sites).
+  Those casts are now `BE_MATH_CAST(T, p)`, which is the same cast on the Wii. On the host the
+  pointer keeps its big-endian type, and `port/host/include/port/bemath.h` overloads
+  `MTX34Copy` / `MTX34Identity` / `MTX34Mult` for it (they convert, call the runtime function
+  and store the result back).
+- **`ResNode::GetTranslate`.** On the host it returns the `VEC3` by value under
+  `#if defined(PORT_HOST)`, because a reference would be to a converted temporary.
+
+Every `nw4r/g3d` and `nw4r/ef` unit still compiles on the host, except four that already
+failed before this change for other reasons: `g3d_calcview` (assembly), `g3d_workmem`,
+`ef_effect` and `ef_drawstrategyimpl`.
+
+Tests:
+
+- **`g3d_harness`** prints the members of every model, node, vertex array and material
+  texture slot through the wrapper. The effect matrices go through the real
+  `ResTexSrt::GetEffectMtx`. That is 177 + 1539 + 631 + 444 + 3200 lines.
+  `tests/test_models.py` checks every value against the big-endian floats at the struct
+  offset the harness reports, and the line counts against the model's counts.
+- **`ef_harness`** prints the emitter and particle members (`EV`, `PV`, 373 each), and
+  `tests/test_effects.py` builds them from the bytes.
+
+All match on both builds. The decomp header comment for `ResVtxTexCoordData::max` said 0x2C;
+the member is at 0x28 (fixed).
+
+### Not covered yet
+
+- **Duc parameters (6 files) and `TnkGameParam` (1).** Their structs are declared in units and
+  headers that include the RPAudio headers. Those do not build on the host yet: the
+  `unsigned int` / `u32` virtual overload pairs in `RPSndObject.h` / `RPSndAudioMgr.h` are the
+  same type on the host, there are dependent-base names in templates, and `RPSysFile::PATH_MAX`
+  clashes with `<limits.h>`. Their structs are still plain. The Wly and Pnp loader units are
+  blocked the same way: their structs are converted and tested, but the units do not compile on
+  the host. `RPWlyLevelTable::sDefaultLevel`'s aggregate initialiser will need `be<T>` values
+  when they do.
+- **`.pmmisc` (2).** `RPGrpModelMisc::SetBinaryInner` is empty in Wii Play, so loading reads
+  nothing past the magic. Its `BinData` is unchanged.
+- **Other gaps.**
+  - `RPPathPoint::pos` (no points on the disc).
+  - `RPCollisionModel` (compiled, not linked: it needs `RPBBox` and the RP matrix helpers).
+  - Light-object state that only drawing uses (`Calc` results).

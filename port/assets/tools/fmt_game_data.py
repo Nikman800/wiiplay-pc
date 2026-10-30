@@ -401,7 +401,8 @@ def parse_pblm(data: bytes) -> dict[str, Any]:
     # eggDrawPathBloom.h:31; loader src/egg/gfxe/eggDrawPathBloom.cpp:281.
     header = egg_header(data, b"PBLM", (0, 1))
     version = header["version"]
-    minimum_size = 0x94
+    # BinData follows the 0x10-byte IBinary header and is 0x94 bytes.
+    minimum_size = 0x10 + 0x94
     if len(data) < minimum_size:
         raise FormatError(f"PBLM: file size {len(data):#x}, needs at least {minimum_size:#x}")
     threshold = require_finite(unpack(data, 0x10, ">f", "PBLM mThreshold"), "PBLM mThreshold")[0]
@@ -421,7 +422,7 @@ def parse_pblm(data: bytes) -> dict[str, Any]:
         gather_scale0 = gather_scale1 = 0.0
     else:
         gather_scale0, gather_scale1 = require_finite(
-            unpack(data, 0x8C, ">ff", "PBLM gather scales"), "PBLM gather scales"
+            unpack(data, 0x10 + 0x8C, ">ff", "PBLM gather scales"), "PBLM gather scales"
         )
     return {
         "format": "PBLM",

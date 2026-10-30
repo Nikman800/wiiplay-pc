@@ -137,6 +137,30 @@ TOUCHED = [
     "src/nw4r/snd/snd_Util.cpp",
     "src/nw4r/snd/snd_WaveFile.cpp",
     "src/nw4r/snd/snd_WsdPlayer.cpp",
+    # Step 8 (HOST_BUILD.md §14): KCL, PMP, EGG binary settings, game tables.
+    "include/port/bemath.h",
+    "include/Pack/RPParty/RPPartyCommon/RPKcl.h",
+    "src/Pack/RPParty/RPPartyCommon/RPKcl.cpp",
+    "include/Pack/RPParty/RPPartyCommon/RPPathFollower.h",
+    "include/Pack/RPParty/RPPartyCommon/RPResFile_2.h",
+    "src/Pack/RPParty/RPPartyCommon/RPResFile_3.cpp",
+    "src/Pack/RPParty/RPPartyCommon/RPResFile_4.cpp",
+    "src/Pack/RPParty/RPPartyCommon/RPPathFollower_2.cpp",
+    "include/egg/core/eggIBinary.h",
+    "include/egg/gfxe/eggLightManager.h",
+    "include/egg/gfxe/eggLightObject.h",
+    "include/egg/gfxe/eggLightTexture.h",
+    "include/egg/gfxe/eggDrawPathBloom.h",
+    "src/egg/gfxe/eggLightManager.cpp",
+    "src/egg/gfxe/eggLightTextureManager.cpp",
+    "include/Pack/RPParty/RPPartyCommon/RPTnkMapData.h",
+    "include/Pack/RPParty/RPBomScene/RPBomQuestionParam.h",
+    "include/Pack/RPParty/RPWlyScene/RPWlyLevelTable.h",
+    "include/Pack/RPParty/RPPnpScene/RPPnpLevelTable.h",
+    # Step 8, math value types in g3d / ef file structs (BE_MATH, BE_MATH_CAST).
+    "src/nw4r/g3d/g3d_calcworld.cpp",
+    "src/nw4r/g3d/g3d_draw.cpp",
+    "src/nw4r/g3d/g3d_state.cpp",
 ]
 
 

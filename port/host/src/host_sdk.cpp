@@ -11,7 +11,7 @@
  *          files/ folder); entry numbers index a table of opened paths
  *   EGG    Heap::alloc/free and the global/heap operator new/delete
  *          allocate from the M0 arena (host_arena.cpp, port/arena.h);
- *          Heap::findContainHeap returns NULL
+ *          Heap::findContainHeap returns NULL, Heap::sCurrentHeap is NULL
  *   VI/DC  no-ops
  */
 
@@ -271,6 +271,10 @@ Heap* Heap::findContainHeap(const void* pBlock) {
     (void)pBlock;
     return NULL;
 }
+
+// No heaps on the host yet: Heap::getCurrentHeap() is NULL, and the heap
+// operator new below ignores the heap.
+Heap* Heap::sCurrentHeap = NULL;
 
 } // namespace EGG
 

@@ -17,7 +17,7 @@ void* RPResTable::FindNthEntryOfType(u32 type, u16 idx) const {
 
     for (int i = 0; i < count; ++i) {
         void* pEntry = mpFile->GetFilteredEntry(i);
-        if (type == *static_cast<u32*>(pEntry) && idx-- == 0) {
+        if (type == *static_cast<be_u32*>(pEntry) && idx-- == 0) {
             return pEntry;
         }
     }
@@ -34,7 +34,7 @@ u16 RPResTable::CountEntriesOfType(u32 type) const {
 
     for (int i = 0; i < count; ++i) {
         void* pEntry = mpFile->GetFilteredEntry(i);
-        if (type == *static_cast<u32*>(pEntry)) {
+        if (type == *static_cast<be_u32*>(pEntry)) {
             found = static_cast<u16>(found + 1);
         }
     }
