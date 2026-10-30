@@ -87,7 +87,19 @@ bool StrmFileReader::ReadAdpcmInfo(AdpcmInfo* pAdpcmInfo, int channels) const {
     const AdpcmInfo* pSrcInfo = Util::GetDataRefAddress0(
         pChannelInfo->refAdpcmInfo, &mHeadBlock->refDataHeader);
 
+#if PORT_BE_WRAPPED
+    // PC port: the file's AdpcmInfo is big-endian (all u16); the runtime copy
+    // (StrmPlayer hands it to the voice and the DSP) is in host order, as
+    // WaveFileReader::ReadWaveParam's.
+    const be_u16* pSrc = reinterpret_cast<const be_u16*>(pSrcInfo);
+    u16* pDst = reinterpret_cast<u16*>(pAdpcmInfo);
+
+    for (u32 i = 0; i < sizeof(AdpcmInfo) / sizeof(u16); i++) {
+        pDst[i] = pSrc[i];
+    }
+#else
     *pAdpcmInfo = *pSrcInfo;
+#endif
     return true;
 }
 
@@ -137,7 +149,8 @@ bool StrmFileLoader::ReadAdpcBlockData(u16* pYN1, u16* pYN2, int block,
 
     mStream.Seek(offset, ut::FileStream::SEEK_ORIGIN_BEG);
 
-    u16 buffer[StrmPlayer::StrmHeader::STRM_CHANNEL_MAX * 2] ALIGN(32);
+    // PC port: the ADPC block's history pairs are big-endian u16 in the file.
+    be_u16 buffer[StrmPlayer::StrmHeader::STRM_CHANNEL_MAX * 2] ALIGN(32);
     // @bug Read size not validated
     mStream.Read(buffer, sizeof(buffer));
 

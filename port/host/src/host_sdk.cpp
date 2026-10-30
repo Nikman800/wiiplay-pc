@@ -192,10 +192,6 @@ __attribute__((weak)) BOOL DVDFastOpen(s32 entrynum, DVDFileInfo* info) {
     return TRUE;
 }
 
-__attribute__((weak)) BOOL DVDOpen(const char* path, DVDFileInfo* info) {
-    return DVDFastOpen(DVDConvertPathToEntrynum(path), info);
-}
-
 __attribute__((weak)) BOOL DVDClose(DVDFileInfo* info) {
     if (info->block.userData != NULL) {
         std::fclose(static_cast<FILE*>(info->block.userData));

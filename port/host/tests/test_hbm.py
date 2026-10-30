@@ -12,9 +12,12 @@ lines (see the harness header):
       HomeButton::set_text does: every opening quote starts message
       [language][index], languages first
   HB  the three text boxes init_msg fills for the archive's region
-  HS  every SpeakerSe.arc .bwav (big-endian 16-bit PCM) as RemoteSpk's
-      UpdateSpeaker hands it to the encoder: 40-sample packets, each sample
-      times the volume / 10, the last packet padded with zeros
+  HS  every SpeakerSe.arc .bwav (big-endian 16-bit PCM) as the Wii Remote
+      speaker receives it through the WPAD backend: RemoteSpk's UpdateSpeaker
+      makes 40-sample packets, each sample times the volume / 10, the last
+      packet padded with zeros, and encodes them (WENC, 4-bit ADPCM, 20 bytes
+      a packet; the first packet of each sound from the initial state, as
+      after RemoteSpk::Connect)
 
 It also checks that every file in a HomeMenu directory on the disc is covered
 here or by another harness (HomeButtonSe.brsar: test_sound.py, homeBtnIcon.bti:
@@ -96,6 +99,37 @@ def split_text(csv):
     return out
 
 
+WENC_TABLE = (0.89843750, 0.89843750, 0.89843750, 0.89843750,
+              1.19921875, 1.59765625, 2.00000000, 2.39843750)
+
+
+def wenc_encode(pcm, state):
+    """WENCGetEncodeData (src/revolution/WENC/wenc.c): the Wii Remote speaker's
+    4-bit ADPCM, two samples a byte, the first in the high nibble. `state` is
+    [xn, dl], None for the first packet (WENC_FLAG_USER_INFO clear)."""
+    xn, dl = state if state is not None else (0, 127)
+    out = bytearray((len(pcm) + 1) // 2)
+    for i, da in enumerate(pcm):
+        l3 = 1 if da < xn else 0
+        dn = abs(da - xn)
+        l2 = l1 = l0 = 0
+        if dn >= dl:
+            l2, dn = 1, dn - dl
+        dlh = dl // 2
+        if dn >= dlh:
+            l1, dn = 1, dn - dlh
+        dlq = dlh // 2
+        if dn >= dlq:
+            l0, dn = 1, dn - dlq
+        qn = (1 - l3 * 2) * (dl * l2 + dlh * l1 + dlq * l0 + dlq // 2)
+        qn = max(-0x10000, min(0xFFFF, qn))
+        xn = max(-0x8000, min(0x7FFF, xn + qn))
+        out[i // 2] |= (l3 * 8 + l2 * 4 + l1 * 2 + l0) << (4 if i % 2 == 0 else 0)
+        dl = int(dl * WENC_TABLE[l2 * 4 + l1 * 2 + l0])
+        dl = max(127, min(0x6000, dl))
+    return bytes(out), [xn, dl]
+
+
 def speaker_line(name, data):
     samples = list(struct.unpack(f">{len(data) // 2}h", data[:len(data) // 2 * 2]))
     out = []
@@ -111,7 +145,13 @@ def speaker_line(name, data):
             out += [0] * (SAMPLES_PER_PACKET - size)
         pos += SAMPLES_PER_PACKET
         length -= SAMPLES_PER_PACKET * 2
-    return f"HS\t{name}\t{VOLUME}\t{len(out)}\t{fnv(struct.pack(f'>{len(out)}h', *out)):08x}"
+    encoded = bytearray()
+    state = None
+    for i in range(0, len(out), SAMPLES_PER_PACKET):
+        packet, state = wenc_encode(out[i:i + SAMPLES_PER_PACKET], state)
+        encoded += packet
+    packets = len(out) // SAMPLES_PER_PACKET
+    return f"HS\t{name}\t{VOLUME}\t{packets}\t{len(encoded)}\t{fnv(bytes(encoded)):08x}"
 
 
 def main():

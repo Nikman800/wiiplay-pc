@@ -6,17 +6,18 @@
  * and task threads) on the host AX DSP (src/host_ax.cpp), and renders the
  * mixed 32 kHz stereo output.
  *
- * Set-up, as the game does it (RPSysSystem::createEffectWork and
- * RPSndAudioMgr::initialize, Party Pack; RPSndAudioMgr itself needs the RP
- * scene layer, so its lines are repeated in HarnessAudioMgr::initialize):
- *   EGG::ExpAudioMgr::initialize with soundHeapSize 0 (AIInit, AXInit,
- *   SoundSystem::InitSoundSystem with the default thread priorities and static
- *   work, the 3D managers), then the 0xB00000 sound heap (on the M0 arena, as
- *   SoundHeapMgr::createSoundHeap would put it on the MEM1 root heap) and
- *   AudioFxMgr::initializeFx with the Party Pack aux heap sizes. Archives are
- *   opened with ExpAudioMgr::openArchive(path, heap, SARC_STORAGE_DVD), as
- *   RPSndAudioMgr::openArchiveRP does for the default storage; every group is
- *   loaded with ArcPlayer::loadGroup.
+ * Set-up, as the game does it, on the platform layer's EGG heaps (§22):
+ * PortOSInit and EGG::ConfigurationData::initMemory (the root, system heaps),
+ * WPADInit (KPADInit's, §23 backend), then RPSysSystem::initialize's
+ * RPSysProjectLocal / RPSndAudioMgr / RPSndSpeakerMgr::CreateInstance on the
+ * system heap and RPSysSystem::createEffectWork's lines: the MEM1 root heap
+ * current, RPSndAudioMgr::initialize with the 0xB00000 sound heap from it
+ * (ExpAudioMgr::initialize: AIInit, AXInit, SoundSystem::InitSoundSystem,
+ * the 3D managers; SoundHeapMgr::createSoundHeap; AudioFxMgr::initializeFx
+ * with the Party Pack aux heap sizes; the static sound archive). Archives are
+ * opened with RPSndAudioMgr::openArchiveRP (default storage: DVD); every
+ * group is loaded with ArcPlayer::loadGroup. Sounds start through
+ * RPSndAudioMgr::startSound; each game frame runs RPSndAudioMgr::calc.
  *
  * The clock: AX frames of 96 samples (3 ms) run back to back
  * (PortAXRunFrame); the game frame (60 Hz: ExpAudioMgr::calc, which updates
@@ -32,7 +33,15 @@
  *       RIFF WAV, --tap writes every voice of every frame (binary, see WriteTap);
  *       --src-none makes the DSP skip sample-rate conversion (a test switch:
  *       one decoded sample per output sample); --fx sets up the game's default
- *       effects first (SetDefaultFx).
+ *       effects first (RPSndAudioMgr::setDefaultFx).
+ *   audio_harness --disc DIR [--frames N] [--wav PATH] [--tap PATH] --strm FILE
+ *       plays a BRSTM file from the disc through the real StrmPlayer (no archive
+ *       has a stream sound, so the player is driven directly, the way
+ *       SoundArchivePlayer::PrepareStrmImpl / StrmSound::Prepare do: a
+ *       StrmBufferPool of 0xA000 bytes a channel on the sound heap, a
+ *       DvdFileStream, StrmPlayer::Setup / Prepare, Start once the header and
+ *       the first blocks are loaded on the task thread). Its I line has file 0
+ *       and the stream buffer's address (§24).
  *
  * Output lines:
  *   S id frame ok type name                   a sound started (ok 0/1)
@@ -50,14 +59,19 @@
 
 #include "disc_walk.h"
 
+#include <Pack/RPAudio.h>
+#include <Pack/RPSystem.h>
 #include <egg/audio.h>
+#include <egg/core.h>
 #include <nw4r/snd.h>
 #include <nw4r/ut.h>
 
 #include <revolution/AX.h>
 
-#include <port/arena.h>
 #include <port/host.h>
+#include <port/input.h>
+#include <revolution/SC.h>
+#include <revolution/WPAD.h>
 
 #include <cmath>
 #include <cstdio>
@@ -71,75 +85,23 @@ using namespace nw4r::snd;
 
 namespace {
 
-/** RPSndAudioMgr::initialize's lines for the Party Pack (Wii Play). */
-class HarnessAudioMgr : public EGG::ExpAudioMgr {
+/* The memory part of EGG's start-up (ConfigurationData::initMemory) on a
+ * configuration with no video, display or scenes (as input_harness). */
+class HarnessConfig : public EGG::ConfigurationData {
 public:
-    void initialize(Arg* pArg) {
-        ExpAudioMgrArg* pArgExp = static_cast<ExpAudioMgrArg*>(pArg);
-        pArgExp->maxVolumeDistance = 10000.0f;
-        pArgExp->heapSize[AUX_A] = 0x25000;
-        pArgExp->heapSize[AUX_B] = 0x9A80;
-        pArgExp->heapSize[AUX_C] = 0x4080;
+    HarnessConfig() : EGG::ConfigurationData(0x600000) {}
+    virtual EGG::Video* getVideo() { return NULL; }
+    virtual EGG::Heap* getSystemHeap() { return mSystemHeap; }
+    virtual EGG::Display* getDisplay() { return NULL; }
+    virtual EGG::XfbManager* getXfbMgr() { return NULL; }
+    virtual EGG::PerformanceView* getPerfView() { return NULL; }
+    virtual EGG::SceneManager* getSceneMgr() { return NULL; }
+    virtual EGG::IAudioMgr* getAudioMgr() { return sMgr; }
 
-        u32 soundHeapSize = pArgExp->soundHeapSize;
-        pArgExp->soundHeapSize = 0;
-
-        ExpAudioMgr::initialize(pArgExp);
-        // SoundHeapMgr::createSoundHeap(pHeap, size): an allocator on the root
-        // heap; the host's heaps are the M0 arena.
-        void* pBuffer = PortArenaAlloc(soundHeapSize, 32);
-        getSoundHeap().Create(pBuffer, soundHeapSize);
-        initializeFx(&getSoundHeap(), pArgExp);
-    }
+    RPSndAudioMgr* sMgr = NULL;
 };
 
-HarnessAudioMgr* sMgr = NULL;
-
-/**
- * RPSndAudioMgr::setDefaultFx for the Party Pack (configureTitle calls it, so
- * the effects are on from the title screen): reverb on aux A, chorus on B,
- * delay on C, with its parameters. EGG's AudioFx would create them on its fx
- * heaps; the host has no EGG heaps (tests/audio_host.cpp), so these are
- * AudioFx::createFxReverbHi / createFxChorus / createFxDelay's own lines with
- * the M0 arena as the heap.
- */
-template <typename TFx, typename TParam>
-bool CreateFx(AuxBus bus, const TParam& rParam) {
-    TFx* pFx = new TFx();
-    if (!pFx->SetParam(rParam)) {
-        return false;
-    }
-    u32 workBufferSize = pFx->GetRequiredMemSize();
-    u8* pWorkBuffer = static_cast<u8*>(PortArenaAlloc(workBufferSize, 32));
-    for (u32 i = 0; i < workBufferSize; i++) {
-        pWorkBuffer[i] = 0;
-    }
-    pFx->AssignWorkBuffer(pWorkBuffer, workBufferSize);
-    return detail::AxManager::GetInstance().AppendEffect(bus, pFx);
-}
-
-bool SetDefaultFx() {
-    static const FxReverbHi::ReverbHiParam reverbHiParam = {
-        0.03f, // preDelayTime
-        1.5f,  // fusedTime
-        0.0f,  // coloration
-        0.1f,  // damping
-        0.2f,  // crossTalk
-        0.5f   // outGain
-    };
-    static const FxChorus::ChorusParam chorusParam = {
-        5.0f, // delayTime
-        1.0f, // depth
-        0.6f  // rate
-    };
-    static const FxDelay::DelayParam delayParam = {
-        40.0f, // delay
-        0.0f,  // feedback
-        0.6f   // outGain
-    };
-    return CreateFx<FxReverbHi>(AUX_A, reverbHiParam) && CreateFx<FxChorus>(AUX_B, chorusParam) &&
-           CreateFx<FxDelay>(AUX_C, delayParam);
-}
+RPSndAudioMgr* sMgr = NULL;
 
 /** Every voice of every frame, for the tap file and the event lines. */
 struct VoiceState {
@@ -277,22 +239,38 @@ const char* TypeName(SoundType type) {
 }
 
 void Setup() {
-    // Zeroed storage: ~ArcPlayer closes a DvdSoundArchive whose DVDFileInfo
-    // the host DVDClose needs zeroed (tests/snd_harness.cpp).
-    void* pMem = PortArenaAlloc(sizeof(HarnessAudioMgr), 32);
-    std::memset(pMem, 0, sizeof(HarnessAudioMgr));
-    sMgr = new (pMem) HarnessAudioMgr();
+    PortOSInit();
+    PortSCLoadConfig(NULL); // a US console's defaults: stereo
+    SCInit();
+    static HarnessConfig config;
+    EGG::BaseSystem::configure(&config);
+    config.initMemory();
+    WPADInit(); // KPADInit's, through EGG::CoreControllerMgr on the Wii
 
+    // RPSysSystem::initialize
+    EGG::Heap* pSystemHeap = config.getSystemHeap();
+    RPSysProjectLocal::CreateInstance(pSystemHeap);
+    config.sMgr = sMgr = RPSndAudioMgr::CreateInstance(pSystemHeap);
+    RPSndSpeakerMgr::CreateInstance(pSystemHeap);
+
+    // RPSysSystem::createEffectWork
+    EGG::Heap* pHeap = EGG::BaseSystem::getRootHeapMem1();
+    EGG::Heap* pCurrent = pHeap->becomeCurrentHeap();
     EGG::ExpAudioMgr::ExpAudioMgrArg arg;
-    arg.pHeap = NULL;
+    arg.pHeap = pHeap;
     arg.soundHeapSize = 0xB00000;
     sMgr->initialize(&arg);
+    pCurrent->becomeCurrentHeap();
+
+    // The end of RPSysSystem's start-up: the MEM2 root heap is current. The
+    // harness's own containers (operator new is EGG::Heap::alloc) go there,
+    // away from the MEM1 heaps the sound system uses.
+    EGG::BaseSystem::getRootHeapMem2()->becomeCurrentHeap();
 }
 
 bool Open(const char* pArchive) {
     std::string path = std::string("/") + pArchive;
-    if (sMgr->openArchive(path.c_str(), &sMgr->getSoundHeap(), EGG::ArcPlayer::SARC_STORAGE_DVD,
-                          NULL) == NULL) {
+    if (sMgr->openArchiveRP(path.c_str(), NULL, NULL) == NULL) {
         std::fprintf(stderr, "audio_harness: cannot open %s\n", pArchive);
         return false;
     }
@@ -331,6 +309,56 @@ void List() {
         std::printf("L %u %s %u %u %d %ld %s\n", id, TypeName(type), info.fileId, info.playerId,
                     info.volume, sub, pName != NULL ? pName : "-");
     }
+}
+
+/** The stream (--strm). */
+struct Strm {
+    const char* pPath;
+    detail::StrmBufferPool pool;
+    detail::StrmPlayer* pPlayer;
+    ut::DvdFileStream* pStream;
+    void* pBuffer;
+    bool started;
+};
+Strm sStrm;
+
+/** StrmSound::Prepare's lines (one voice per channel, offset 0 samples). */
+bool PrepareStrm(const char* pPath) {
+    std::string path = std::string("/") + pPath;
+    s32 entry = DVDConvertPathToEntrynum(path.c_str());
+    if (entry < 0) {
+        std::fprintf(stderr, "audio_harness: no %s on the disc\n", pPath);
+        return false;
+    }
+    const int channels = 2; // StrmPlayer allocates a pool block per channel
+    const u32 size = channels * 0xA000; // SoundArchivePlayer::GetRequiredStrmBufferSize
+    sStrm.pPath = pPath;
+    sStrm.pBuffer = sMgr->getSoundHeap().Alloc(size);
+    if (sStrm.pBuffer == NULL) {
+        return false;
+    }
+    sStrm.pool.Setup(sStrm.pBuffer, size, channels);
+    sStrm.pStream = new ut::DvdFileStream(entry);
+    sStrm.pPlayer = new detail::StrmPlayer();
+    if (!sStrm.pPlayer->Setup(&sStrm.pool)) {
+        return false;
+    }
+    return sStrm.pPlayer->Prepare(sStrm.pStream, 1, detail::StrmPlayer::START_OFFSET_TYPE_SAMPLE,
+                                  0);
+}
+
+/** Starts the stream once it is prepared (S and I lines). */
+void UpdateStrm(u32 gameFrame) {
+    if (sStrm.pPlayer == NULL || sStrm.started || !sStrm.pPlayer->IsPrepared()) {
+        return;
+    }
+    bool ok = sStrm.pPlayer->Start();
+    sStrm.started = true;
+    std::printf("S strm %u %d STRM %s\n", gameFrame, ok ? 1 : 0, sStrm.pPath);
+    u32 phys = OSCachedToPhysical(sStrm.pBuffer);
+    std::printf("I strm 0 0x%08x\n", phys);
+    WaveFileBase base = {0, phys};
+    sBases.push_back(base);
 }
 
 struct Start {
@@ -383,7 +411,7 @@ int Play(const std::vector<Start>& rStarts, u32 axFrames, const char* pWav) {
                 if (rStarts[i].frame != gameFrame) {
                     continue;
                 }
-                bool ok = player.StartSound(rStarts[i].pHandle, rStarts[i].id);
+                bool ok = sMgr->startSound(rStarts[i].pHandle, rStarts[i].id);
                 const char* pName = arc.GetSoundLabelString(rStarts[i].id);
                 std::printf("S %u %u %d %s %s\n", rStarts[i].id, gameFrame, ok ? 1 : 0,
                             TypeName(arc.GetSoundType(rStarts[i].id)), pName != NULL ? pName : "-");
@@ -407,6 +435,7 @@ int Play(const std::vector<Start>& rStarts, u32 axFrames, const char* pWav) {
                 }
                 errors += ok ? 0 : 1;
             }
+            UpdateStrm(gameFrame);
             sMgr->calc();
             PortOSIdle();
             gameFrame++;
@@ -446,10 +475,13 @@ int Play(const std::vector<Start>& rStarts, u32 axFrames, const char* pWav) {
 } // namespace
 
 int main(int argc, char** argv) {
+    // First: with the EGG heaps linked, every operator new needs a heap.
+    Setup();
     const char* pDisc = NULL;
     const char* pWav = NULL;
     const char* pTap = NULL;
     const char* pArchive = NULL;
+    const char* pStrm = NULL;
     bool list = false;
     bool fx = false;
     u32 frames = 1000;
@@ -469,6 +501,8 @@ int main(int argc, char** argv) {
             PortAXSetSrcOverride(2);
         } else if (a == "--frames" && i + 1 < argc) {
             frames = static_cast<u32>(std::strtoul(argv[++i], NULL, 0));
+        } else if (a == "--strm" && i + 1 < argc) {
+            pStrm = argv[++i];
         } else if (a == "--list" && i + 1 < argc) {
             list = true;
             pArchive = argv[++i];
@@ -478,23 +512,27 @@ int main(int argc, char** argv) {
             sounds.push_back(a);
         }
     }
-    if (pDisc == NULL || pArchive == NULL) {
+    if (pDisc == NULL || (pArchive == NULL) == (pStrm == NULL)) {
         std::fprintf(stderr, "usage: audio_harness --disc DIR (--list ARCHIVE | [--frames N] "
-                             "[--wav PATH] [--tap PATH] [--fx] [--src-none] ARCHIVE SOUND[@F] ...)\n");
+                             "[--wav PATH] [--tap PATH] [--fx] [--src-none] (ARCHIVE SOUND[@F] ... "
+                             "| --strm FILE))\n");
         return 2;
     }
     PortHostSetDiscRoot(pDisc);
-    Setup();
-    if (!Open(pArchive)) {
+    if (pStrm != NULL) {
+        if (!PrepareStrm(pStrm)) {
+            std::fprintf(stderr, "audio_harness: cannot prepare %s\n", pStrm);
+            return 1;
+        }
+    } else if (!Open(pArchive)) {
         return 1;
     }
     if (list) {
         List();
         return 0;
     }
-    if (fx && !SetDefaultFx()) {
-        std::fprintf(stderr, "audio_harness: cannot create the default effects\n");
-        return 1;
+    if (fx) {
+        sMgr->setDefaultFx();
     }
 
     SoundArchive& arc = sMgr->getSoundArchive();

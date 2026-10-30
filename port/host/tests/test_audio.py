@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Checks audio_harness: the nw4r::snd runtime on the host AX mixer
-(port/docs/HOST_BUILD.md §21).
+(port/docs/HOST_BUILD.md §21, §24).
 
 Modelled, bit for bit, from the archive bytes (port/assets/tools/fmt_sound.py,
 dspadpcm.py) and an independent model of the DSP:
@@ -19,6 +19,10 @@ dspadpcm.py) and an independent model of the DSP:
   * Volume envelope, LPF, and the mix into the main L/R buses through the
     master volume, for every frame of the single-wave-sound renders (without
     effects).
+  * Streams (§24): a BRSTM from the disc played by the real StrmPlayer
+    (audio_harness --strm): each channel's voice reads dspadpcm.py's decode
+    of the stream, block after block through the ring buffer, then zeros;
+    SRC, envelope and mix as above.
   * With the SRC switched off (--src-none), a voice's output is the decode
     times its envelope: sat((x * v) >> 15).
 
@@ -62,6 +66,7 @@ BOM = "Sound/RPBomScene/rp_Bom_sound.brsar"
 COW = "Sound/RPCowScene/rp_Cow_sound.brsar"
 COMMON = "Sound/RPPartyCommon/rp_Common_Party.brsar"
 DUC = "Sound/RPDucScene/rp_Duc_sound.brsar"
+STRM_GO = "Sound/RPWlyScene/sound/RP_WLY_BGM_GO.brstm"
 SCENARIOS = [
     # One wave sound at a time, tapped: the decode / SRC / envelope / mix models.
     ("bil-wave-native", BIL, ["RP_BIL_SE_TURN_DECIDE"], 220, ["tap"]),
@@ -83,6 +88,9 @@ SCENARIOS = [
     # Long renders, untapped: regression and determinism only.
     ("common-bgm-fx", COMMON, ["RP_COMMON_BGM_PARTY_MENU"], 6000, ["--fx"]),
     ("common-wave-bgm-fx", COMMON, ["RP_COMMON_BGM_PARTY_01"], 3000, ["--fx"]),
+    # A BRSTM through the real StrmPlayer (no archive has a stream sound; §24):
+    # 32 kHz stereo DSP-ADPCM, 80000 samples in 6 blocks, one-shot.
+    ("wly-strm-go", "--strm", [STRM_GO], 900, ["tap"]),
 ]
 
 # AXPB field offsets (include/revolution/AX/AXPB.h), host byte order.
@@ -383,6 +391,63 @@ def check_voices(name, archive, lines, recs, coefs, src_none):
     return stats
 
 
+def check_stream(name, disc, path, recs, coefs):
+    """A stream played by StrmPlayer: each of its voices (one per channel)
+    reads the channel's samples as dspadpcm.py decodes the BRSTM, block after
+    block through the ring buffer, then zeros (the zero buffer) until the
+    player stops it; SRC and envelope as for the wave voices."""
+    wave = dspadpcm.decode_brstm(open(os.path.join(disc, path), "rb").read(), path)
+    by_voice = {}
+    for rec in recs:
+        rec["srcSelectUsed"] = rec["before"]["srcSelect"]
+        by_voice.setdefault(rec["voice"], []).append(rec)
+    stats = {"runs": len(by_voice), "identified": 0, "decode": 0, "src": 0, "out": 0,
+             "samples": 0}
+    if len(by_voice) != wave["channels"]:
+        fail("%s: %d voices for %d channels" % (name, len(by_voice), wave["channels"]))
+        return stats
+    matched = set()
+    for voice, vrecs in sorted(by_voice.items()):
+        frames = [r["frame"] for r in vrecs]
+        if frames != list(range(frames[0], frames[0] + len(frames))):
+            fail("%s: voice %d does not run in consecutive frames" % (name, voice))
+            continue
+        got = [x for rec in vrecs for x in rec["input"]]
+        total = wave["frames"]
+        ch = next((c for c in range(wave["channels"]) if c not in matched and
+                   got[:total] == list(wave["channelSamples"][c][:len(got)])), None)
+        if ch is None:
+            exp = list(wave["channelSamples"][len(matched) % wave["channels"]])
+            first = next((i for i in range(min(len(got), len(exp))) if got[i] != exp[i]),
+                         min(len(got), len(exp)))
+            fail("%s: voice %d matches no channel (first difference at sample %d: %s vs %s)"
+                 % (name, voice, first, got[first:first + 4], exp[first:first + 4]))
+            continue
+        matched.add(ch)
+        stats["identified"] += 1
+        if len(got) < total:
+            fail("%s: voice %d stopped after %d of %d samples" % (name, voice, len(got), total))
+            continue
+        if any(got[total:]):
+            fail("%s: voice %d reads non-zero samples after the stream's end" % (name, voice))
+            continue
+        if sum(len(r["input"]) for r in vrecs[:-1]) > total + FRAME * 4:
+            fail("%s: voice %d kept running after the stream's end" % (name, voice))
+        stats["decode"] += 1
+        stats["samples"] += total
+        stream = list(wave["channelSamples"][ch])
+        bad = model_src(coefs, vrecs, stream, total)
+        if bad:
+            fail("%s: ch%d SRC differs in %d of %d frames" % (name, ch, bad, len(vrecs)))
+        else:
+            stats["src"] += 1
+        if any(model_out(rec, rec["src"]) != list(rec["out"]) for rec in vrecs):
+            fail("%s: ch%d envelope differs" % (name, ch))
+        else:
+            stats["out"] += 1
+    return stats
+
+
 def check_mix(name, recs, wav, frames):
     """The rendered output from the tapped voices (main L/R, master volume 1.0)."""
     by_frame = {}
@@ -515,13 +580,18 @@ def main():
                   % (name, r[1], len(lines["N"]),
                      max([int(f[2]) for f in lines["C"]] or [0]), r[3], r[4], r[5]))
             if tap:
-                if arc not in archives:
-                    archives[arc] = Archive(args.disc, arc)
                 recs = read_tap(tap)
-                st = check_voices(name, archives[arc], lines, recs, coefs, "--src-none" in flags)
+                if arc == "--strm":
+                    st = check_stream(name, args.disc, sounds[0], recs, coefs)
+                else:
+                    if arc not in archives:
+                        archives[arc] = Archive(args.disc, arc)
+                    st = check_voices(name, archives[arc], lines, recs, coefs,
+                                      "--src-none" in flags)
                 for k in totals:
                     totals[k] += st[k]
-                if len(lines["S"]) == 1 and lines["S"][0][4] == "WAVE" and "--fx" not in flags:
+                if len(lines["S"]) == 1 and lines["S"][0][4] in ("WAVE", "STRM") \
+                        and "--fx" not in flags:
                     c, b = check_mix(name, recs, read_wav(wav), frames)
                     mix_checked += c
                     mix_bad += b

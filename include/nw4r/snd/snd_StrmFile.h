@@ -23,19 +23,19 @@ struct StrmDataInfo {
     u8 loopFlag;             // at 0x1
     u8 numChannels;          // at 0x2
     u8 sampleRate24;         // at 0x3
-    u16 sampleRate;          // at 0x4
-    u16 blockHeaderOffset;   // at 0x6
-    u32 loopStart;           // at 0x8
-    u32 loopEnd;             // at 0xC
-    u32 dataOffset;          // at 0x10
-    u32 numBlocks;           // at 0x14
-    u32 blockSize;           // at 0x18
-    u32 blockSamples;        // at 0x1C
-    u32 lastBlockSize;       // at 0x20
-    u32 lastBlockSamples;    // at 0x24
-    u32 lastBlockPaddedSize; // at 0x28
-    u32 adpcmDataInterval;   // at 0x2C
-    u32 adpcmDataSize;       // at 0x30
+    be_u16 sampleRate;       // at 0x4
+    be_u16 blockHeaderOffset; // at 0x6
+    be_u32 loopStart;        // at 0x8
+    be_u32 loopEnd;          // at 0xC
+    be_u32 dataOffset;       // at 0x10
+    be_u32 numBlocks;        // at 0x14
+    be_u32 blockSize;        // at 0x18
+    be_u32 blockSamples;     // at 0x1C
+    be_u32 lastBlockSize;    // at 0x20
+    be_u32 lastBlockSamples; // at 0x24
+    be_u32 lastBlockPaddedSize; // at 0x28
+    be_u32 adpcmDataInterval; // at 0x2C
+    be_u32 adpcmDataSize;    // at 0x30
 };
 
 struct TrackInfo {
@@ -60,12 +60,12 @@ struct ChannelTable {
 
 struct Header {
     ut::BinaryFileHeader fileHeader; // at 0x0
-    u32 headBlockOffset;             // at 0x10
-    u32 headBlockSize;               // at 0x14
-    u32 adpcBlockOffset;             // at 0x18
-    u32 adpcBlockSize;               // at 0x1C
-    u32 dataBlockOffset;             // at 0x20
-    u32 dataBlockSize;               // at 0x24
+    be_u32 headBlockOffset;          // at 0x10
+    be_u32 headBlockSize;            // at 0x14
+    be_u32 adpcBlockOffset;          // at 0x18
+    be_u32 adpcBlockSize;            // at 0x1C
+    be_u32 dataBlockOffset;          // at 0x20
+    be_u32 dataBlockSize;            // at 0x24
 };
 
 struct HeadBlock {

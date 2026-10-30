@@ -12,3 +12,4 @@ duc-seqs-fx notes=185 maxvoices=77 events=2e60ee117093f75a out=2023fc0308ce0ef4
 common-sleep-fx notes=19 maxvoices=5 events=4c8b1dbc4c270ba2 out=e4f392f1f1df85f2
 common-bgm-fx notes=314 maxvoices=31 events=2c438fa66bed7f4e out=bb5cb917bd352f1a
 common-wave-bgm-fx notes=2 maxvoices=2 events=87dbfe210f460254 out=531d66e2e7dde476
+wly-strm-go notes=2 maxvoices=2 events=a80ddf64a8376fc0 out=f891d185a2f080ca

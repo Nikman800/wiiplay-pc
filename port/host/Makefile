@@ -301,7 +301,7 @@ $(SND_LIB): $(SND_OBJS)
 	ar rcs $@ $^
 
 $(OUT)/snd_harness: $(HOST)/tests/snd_harness.cpp $(HOST)/tests/disc_walk.h $(SND_LIB) $(LIB)
-	$(CXX) $(CXXFLAGS) -MMD $< $(SND_LIB) $(LIB) $(SND_LIB) -o $@
+	$(CXX) $(CXXFLAGS) -MMD $< $(SND_LIB) $(LIB) $(SND_LIB) -Wl,--gc-sections -o $@
 
 .PHONY: sound
 all: $(OUT)/snd_harness
@@ -409,12 +409,15 @@ test: rfl
 
 # HOME Menu: homebuttonMiniLib's HBMCreate on the disc's HOME Menu files
 # (layouts through nw4r::lyt, the snd library it references, the MEM expanded
-# heap), with tests/hbm_host.cpp for the WPAD / KPAD / AX / OS / WENC calls it
-# references (no controllers or speaker on the host).
+# heap), with tests/hbm_host.cpp for the KPAD / AX / OS calls it references.
 HBM_SRCS := $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/homebuttonMiniLib/*.cpp))) \
     src/revolution/MEM/mem_expHeap.c src/revolution/MEM/mem_heapCommon.c \
     src/revolution/MEM/mem_list.c
-HBM_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(HBM_SRCS)) $(OUT)/tests/hbm_host.cpp.o
+# The remote speaker path runs on the §23 WPAD backend (with SC for its
+# settings) and the decomp's WENC encoder.
+HBM_SRCS += src/revolution/WENC/wenc.c
+HBM_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(HBM_SRCS)) $(OUT)/tests/hbm_host.cpp.o \
+    $(OUT)/host/src/host_wpad.cpp.o $(OUT)/host/src/host_sc.cpp.o
 
 $(OUT)/tests/%.cpp.o: $(HOST)/tests/%.cpp
 	@mkdir -p $(dir $@)
@@ -526,16 +529,38 @@ AUDIO_SRCS := $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/nw4r/snd/*.cp
     $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/revolution/AXFX/*.c))) \
     src/revolution/MEM/mem_frameHeap.c src/revolution/MEM/mem_heapCommon.c \
     src/revolution/MEM/mem_list.c
-AUDIO_HOST_SRCS := src/host_snd.cpp src/host_ax.cpp src/host_thread.cpp src/host_os_clock.c
+# The game's own audio manager (RPSndAudioMgr and the RPAudio units it calls)
+# on the §22 platform layer's EGG heaps, with the §23 WPAD backend under the
+# remote speaker code (and the decomp's WENC encoder); the controller manager
+# and KPAD for the two controller queries RPSndAudioMgr / RPSndSpeakerMgr make.
+AUDIO_SRCS += $(addprefix src/Pack/RPAudio/,RPSndAudioMgr.cpp RPSndStaticMgr.cpp \
+    RPSndSpeakerMgr.cpp RPSndMoveParam.cpp RPSndUtility.cpp) \
+    src/Pack/RPSystem/RPSysProjectLocal.cpp src/revolution/WENC/wenc.c \
+    src/egg/core/eggController.cpp src/Pack/RPKernel/RPSysControllerMgr.cpp \
+    src/revolution/KPAD/KPAD.c
+AUDIO_HOST_SRCS := src/host_snd.cpp src/host_ax.cpp src/host_thread.cpp src/host_os_clock.c \
+    src/host_wpad.cpp
 AUDIO_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(AUDIO_SRCS)) \
     $(patsubst %,$(OUT)/host/%.o,$(AUDIO_HOST_SRCS)) $(OUT)/tests/audio_host.cpp.o
 # On -m32, single-precision SSE arithmetic as in §17 (x87 would round the
 # runtime's float volume / pitch / pan computations differently).
 $(AUDIO_OBJS): CXXFLAGS += $(ANIM_FP)
 $(AUDIO_OBJS): CFLAGS += $(ANIM_FP)
+# The heap layer and EGG math as sys_harness / input_harness link them (without
+# $(ANIM_FP), as there).
+AUDIO_HEAP_SRCS := $(addprefix src/egg/core/,eggHeap.cpp eggExpHeap.cpp eggFrmHeap.cpp \
+    eggAllocator.cpp eggSystem.cpp) \
+    $(addprefix src/revolution/MEM/,mem_expHeap.c mem_allocator.c) \
+    src/revolution/OS/OSArena.c src/revolution/OS/OSAlloc.c \
+    src/egg/math/eggVector.cpp src/egg/math/eggMatrix.cpp src/egg/math/eggMath.cpp
+AUDIO_HEAP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(AUDIO_HEAP_SRCS)) \
+    $(OUT)/host/src/host_os.cpp.o $(OUT)/host/src/host_sc.cpp.o
+$(OUT)/decomp/src/revolution/WENC/%.c.o: CFLAGS += -D__abs=__builtin_abs
 
-$(OUT)/audio_harness: $(HOST)/tests/audio_harness.cpp $(HOST)/tests/disc_walk.h $(AUDIO_OBJS) $(LIB)
-	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(AUDIO_OBJS) $(LIB) -Wl,--gc-sections -o $@
+$(OUT)/audio_harness: $(HOST)/tests/audio_harness.cpp $(HOST)/tests/disc_walk.h $(AUDIO_OBJS) \
+    $(AUDIO_HEAP_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(AUDIO_OBJS) $(AUDIO_HEAP_OBJS) $(LIB) \
+	    -Wl,--gc-sections -o $@
 
 .PHONY: audio
 all: $(OUT)/audio_harness

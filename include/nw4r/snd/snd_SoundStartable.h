@@ -71,12 +71,14 @@ public:
         return detail_StartSound(pHandle, id, NULL, NULL, NULL) ==
                START_SUCCESS;
     }
-#if !defined(PORT_HOST) // PC port: u32 is unsigned int on the host
+#if !defined(PORT_HOST)
     bool StartSound(SoundHandle* pHandle, unsigned int id) {
+#else // PC port: u32 is unsigned int on the host; the other type is unsigned long (ui32)
+    bool StartSound(SoundHandle* pHandle, unsigned long id) {
+#endif
         return detail_StartSound(pHandle, id, NULL, NULL, NULL) ==
                START_SUCCESS;
     }
-#endif
     bool StartSound(SoundHandle* pHandle, int id) {
         return detail_StartSound(pHandle, id, NULL, NULL, NULL) ==
                START_SUCCESS;
@@ -85,11 +87,13 @@ public:
     bool HoldSound(SoundHandle* pHandle, u32 id) {
         return detail_HoldSound(pHandle, id, NULL, NULL, NULL) == START_SUCCESS;
     }
-#if !defined(PORT_HOST) // PC port: u32 is unsigned int on the host
+#if !defined(PORT_HOST)
     bool HoldSound(SoundHandle* pHandle, unsigned int id) {
+#else // PC port: u32 is unsigned int on the host; the other type is unsigned long (ui32)
+    bool HoldSound(SoundHandle* pHandle, unsigned long id) {
+#endif
         return detail_HoldSound(pHandle, id, NULL, NULL, NULL) == START_SUCCESS;
     }
-#endif
     bool HoldSound(SoundHandle* pHandle, int id) {
         return detail_HoldSound(pHandle, id, NULL, NULL, NULL) == START_SUCCESS;
     }
@@ -98,12 +102,14 @@ public:
         return detail_PrepareSound(pHandle, id, NULL, NULL, NULL) ==
                START_SUCCESS;
     }
-#if !defined(PORT_HOST) // PC port: u32 is unsigned int on the host
+#if !defined(PORT_HOST)
     bool PrepareSound(SoundHandle* pHandle, unsigned int id) {
+#else // PC port: u32 is unsigned int on the host; the other type is unsigned long (ui32)
+    bool PrepareSound(SoundHandle* pHandle, unsigned long id) {
+#endif
         return detail_PrepareSound(pHandle, id, NULL, NULL, NULL) ==
                START_SUCCESS;
     }
-#endif
     bool PrepareSound(SoundHandle* pHandle, int id) {
         return detail_PrepareSound(pHandle, id, NULL, NULL, NULL) ==
                START_SUCCESS;

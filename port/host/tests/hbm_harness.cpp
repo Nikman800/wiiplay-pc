@@ -17,7 +17,11 @@
  *                      the text boxes
  *   SpeakerSe.arc      RemoteSpk (ARC); every .bwav is played through
  *                      RemoteSpk::Play and the real UpdateSpeaker, which
- *                      scales the big-endian PCM into the encoder's buffer
+ *                      scales the big-endian PCM, encodes it (the decomp's
+ *                      WENC) and sends it to a virtual Wii Remote on channel
+ *                      0 (the §23 WPAD backend, its speaker turned on and set
+ *                      playing by RemoteSpk::Connect); the backend hands each
+ *                      packet to the host speaker callback
  *
  * Each language gets a new instance (the library has no HBMDelete), so the
  * message buffer is seen in native order the second and third time (HBMCreate
@@ -30,8 +34,8 @@
  *   HT  layout archive, language, message index, text (hex UTF-16 units,
  *       up to the closing quote), as set_text found it
  *   HB  layout archive, region, text pane name, the TextBox's string (hex)
- *   HS  speaker sound: archive entry name, volume, samples sent, hash of the
- *       16-bit samples handed to WENCGetEncodeData (big-endian bytes)
+ *   HS  speaker sound: archive entry name, volume, packets the speaker
+ *       callback received, their bytes, FNV-1a of the bytes (4-bit ADPCM)
  *
  * tests/test_hbm.py builds the same lines from the bytes.
  */
@@ -43,9 +47,11 @@
 
 #include <revolution/ARC.h>
 #include <revolution/SC.h>
+#include <revolution/WPAD.h>
 
 #include <port/arena.h>
 #include <port/be.h>
+#include <port/input.h>
 
 #include "disc_walk.h"
 
@@ -85,8 +91,18 @@ HBM_PRIVATE(scFuncTextPaneName, const char* (*)[homebutton::res::eFuncTextPane_M
 // RemoteSpk::UpdateSpeaker is private; RemoteSpk::Start hands it to
 // OSSetPeriodicAlarm (tests/hbm_host.cpp), which records it here.
 extern "C" OSAlarmHandler gHbmHostPeriodicHandler;
-// tests/hbm_host.cpp: every WENCGetEncodeData input.
-extern std::vector<s16> gHbmHostEncoded;
+// What the host speaker callback receives (channel 0).
+static std::vector<u8> sSpeakerBytes;
+static int sSpeakerPackets = 0;
+
+static void OnSpeaker(s32 chan, const void* pData, u16 len, void* pUser) {
+    (void)pUser;
+    if (chan == 0) {
+        const u8* p = static_cast<const u8*>(pData);
+        sSpeakerBytes.insert(sSpeakerBytes.end(), p, p + len);
+        sSpeakerPackets++;
+    }
+}
 
 namespace {
 
@@ -154,6 +170,18 @@ void TestSpeaker(const std::string& name, void* pSpkSeBuf) {
         Error(name, "no RemoteSpk, or its alarm is already set");
         return;
     }
+    // A Wii Remote on channel 0 (connected at the next report). WPADInit is
+    // KPADInit's (EGG::CoreControllerMgr) in the game, long before the HOME Menu.
+    WPADInit();
+    PortWPADSetSpeakerCallback(OnSpeaker, NULL);
+    PortWPADRemote remote;
+    std::memset(&remote, 0, sizeof(remote));
+    remote.connected = 1;
+    remote.dev = WPAD_DEV_CORE;
+    remote.battery = 4;
+    PortWPADSetRemote(0, &remote);
+    PortWPADSample();
+
     pSpk->Start();
     if (gHbmHostPeriodicHandler == NULL) {
         Error(name, "RemoteSpk::Start set no alarm");
@@ -170,17 +198,27 @@ void TestSpeaker(const std::string& name, void* pSpkSeBuf) {
         if (entry.isDir) {
             continue;
         }
-        gHbmHostEncoded.clear();
+        // Each sound from a fresh encoder state: RemoteSpk::Connect turns
+        // the speaker on (WPAD_SPEAKER_ON); its callback, at the next report,
+        // sets it playing (WPAD_SPEAKER_PLAY), whose callback, at the report
+        // after, marks it ready.
+        pSpk->Connect(0);
+        for (int n = 0; n < 4 && !pSpk->isPlayReady(0); n++) {
+            PortWPADSample();
+        }
+        if (!pSpk->isPlayReady(0) || !WPADCanSendStreamData(0)) {
+            Error(name, "the speaker did not start playing");
+            break;
+        }
+        sSpeakerBytes.clear();
+        sSpeakerPackets = 0;
         pSpk->Play(0, entry.entryNum, vol);
         for (int frame = 0; pSpk->isPlaying(0) && frame < 100000; frame++) {
             gHbmHostPeriodicHandler(NULL, NULL);
         }
-        u32 h = 0x811C9DC5;
-        for (s16 v : gHbmHostEncoded) {
-            u8 be[2] = {static_cast<u8>(static_cast<u16>(v) >> 8), static_cast<u8>(v)};
-            h = Fnv(be, 2, h);
-        }
-        std::printf("HS\t%s\t%d\t%zu\t%08x\n", entry.name, vol, gHbmHostEncoded.size(), h);
+        u32 h = Fnv(sSpeakerBytes.data(), sSpeakerBytes.size(), 0x811C9DC5);
+        std::printf("HS\t%s\t%d\t%d\t%zu\t%08x\n", entry.name, vol, sSpeakerPackets,
+                    sSpeakerBytes.size(), h);
         sSounds++;
     }
     ARCCloseDir(&dir);

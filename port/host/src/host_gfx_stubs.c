@@ -97,7 +97,6 @@ PORT_STUB_MANGLED(gd_scale2,
 /* The locked cache: ut_LockedCache.cpp is linked, but the game never enables it
  * (RPGrpRenderer calls g3d::G3dInit(false)), so LC::Lock fails and g3d takes its
  * main-memory paths, on the Wii as here. */
-PORT_STUB(LCEnable)
 PORT_STUB(LCDisable)
 PORT_STUB(LCLoadBlocks)
 PORT_STUB(LCStoreBlocks)

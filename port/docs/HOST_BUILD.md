@@ -39,7 +39,8 @@ check, init and bind, no drawing yet).
 - The sound runtime plays: sequences and wave sounds from the disc's archives run through the
   real `nw4r::snd` players, threads and AXFX effects on a software model of the AX DSP, and
   every voice's decoded samples, sample-rate conversion, envelope and mix are bit-exact against
-  an independent model (§21).
+  an independent model (§21). It is set up by the game's own `RPSndAudioMgr` on the real EGG
+  heaps, and a BRSTM from the disc streams through the real `StrmPlayer` bit-exactly (§24).
 - The game boots its memory and storage the way it does on the Wii (§22): the real EGG heap
   stack (`ExpHeap`, `FrmHeap`, `Allocator` over the decomp's MEM heaps) over MEM1/MEM2 arenas
   in M0, the decomp's DVD file system (`dvdfs.c`) on a host drive backed by the extracted
@@ -1334,7 +1335,10 @@ end of `TOUCHED`: all 797 units that depend on a touched file are byte-identical
   - `init_msg`, which puts the region's three messages in the text boxes
 - **Speaker sounds.** Every `SpeakerSe.arc` sound is played with `RemoteSpk::Play`, and the
   real `UpdateSpeaker` (from `RemoteSpk::Start`'s periodic alarm) runs until it is done.
-  `tests/hbm_host.cpp` records what reaches `WENCGetEncodeData`.
+  Since Phase 7 the packets go through the real speaker path: the decomp's WENC encoder and
+  the §23 WPAD backend, whose speaker `RemoteSpk::Connect` turns on and sets playing; the
+  harness takes them from the host speaker callback (`HS`: packets, bytes, hash of the
+  4-bit ADPCM), and `test_hbm.py` encodes the scaled PCM itself (a model of `wenc.c`).
 - **Repeated create.** The library has no `HBMDelete` (and `~HomeButton` is not in the game),
   so each language makes a new instance in new work memory. The second and third creates see
   the message buffer already in native order.
@@ -1372,10 +1376,11 @@ test_polyline: 390 checks, 0 errors
 - **`tests/hbm_host.cpp`.**
   - `MEMInitAllocatorForExpHeap`: the SDK's, in `mem_allocator.c`. That file is not built,
     because its two dispatch functions are already in `src/host_gx.cpp`.
-  - Alarms: `RemoteSpk::Start`'s periodic alarm is recorded, not scheduled.
-  - WPAD: one always-ready speaker per remote.
-  - `WENCGetEncodeData`: records its input.
-  - The motor, drawing and pointer-math calls that `HBMCreate` does not reach abort.
+  - Alarms: `RemoteSpk::Start`'s periodic alarm is recorded, not scheduled; the one-shot
+    retry alarms (after a communication error, which the backend never reports) abort.
+  - WPAD and WENC: the §23 backend (`src/host_wpad.cpp`, with `src/host_sc.cpp`) and
+    `src/revolution/WENC/wenc.c` since Phase 7 (they were stand-ins before).
+  - The drawing and pointer-math calls that `HBMCreate` does not reach abort.
   - Thread and interrupt stand-ins come from `src/host_snd.cpp` (`libwiiplay_snd.a`, which
     also provides the snd classes HBM references).
 
@@ -2000,6 +2005,12 @@ Three, each the same object on the Wii:
 
 `check_matching.py`'s list of touched files has `AXVPB.c` (the other two were already there).
 
+Integration (Phase 7 clean-up), one more, also the same object on the Wii:
+
+| File | Change | Why |
+|---|---|---|
+| `include/nw4r/snd/snd_SoundStartable.h` | `StartSound` / `HoldSound` / `PrepareSound` take `unsigned long` where the Wii overload takes `unsigned int` (`#if !defined(PORT_HOST)` ... `#else`) | On the host `u32` is `unsigned int`, so the second overload had been left out; `ui32` (Pack's other 32-bit type, `unsigned long` on the host) then made `RPSndAudioMgr::startSound(SoundHandle*, ui32)` ambiguous. |
+
 ### The AX layer: decomp CPU code, host DSP
 
 The CPU half of AX is the decomp's, linked unmodified: `AX.c` (`AXInit`), `AXAlloc.c` (voice
@@ -2049,6 +2060,16 @@ blocks again. Threads get 1 MB host stacks (the decomp's stacks are sized for th
 main thread is priority 16. Mutexes are recursive. Its `OSMutex` / `OSMessageQueue` /
 `OSGetCurrentThread` replace the single-threaded ones in `src/host_sdk.cpp`, which are now weak.
 
+Dead stand-ins (Phase 7 clean-up): every harness was relinked with `--gc-sections` and a link
+map, and a stand-in whose section no link keeps was removed: from `host_snd_stubs.cpp` the AI /
+AX callback, aux, volume and mode calls and `OSCreateThread` / `OSResumeThread` /
+`OSJoinThread` / `OSJamMessage` (the loader harnesses never initialise the sound system); the
+weak `DVDOpen` in `host_sdk.cpp` (every user has `dvdfs.c`'s or opens by entry number);
+`LCEnable` in `host_gfx_stubs.c`. `snd_harness` now links with `--gc-sections` like the
+others (without it, the unused `SoundThread` / `AxManager` functions in the library still
+referenced the removed calls). The weak `OSEnableInterrupts` in `host_os.cpp` is also unkept
+but is part of the platform layer's interface, so it stays.
+
 ### What is linked, and what is stubbed
 
 `AUDIO_SRCS` in the Makefile: all of `src/nw4r/snd`, the `ut` file streams, `src/egg/audio`
@@ -2061,34 +2082,48 @@ main thread is priority 16. Mutexes are recursive. Its `OSMutex` / `OSMessageQue
 | `src/host_ax_coefs.h`, `tools/gen_ax_coefs.py` | **New.** The generated 8 / 16 kHz SRC tables (`--check` verifies the header). |
 | `src/host_thread.cpp` | **New.** The threads. |
 | `src/host_os_clock.c` | **New.** `OS_BUS_CLOCK_SPEED` (every unit that includes `OSHardware.h` gets a weak zero definition on the host; this strong one is in a file that does not). |
-| `src/host_snd.cpp`, `src/host_snd_stubs.cpp` | `host_snd.cpp` keeps the interrupts, `OSGetTick` (a call counter), DVD cancel, NAND and CNT; its AX / AI / thread stubs moved to `host_snd_stubs.cpp`, which the loader harnesses (`snd_harness`, `hbm_harness`) still link. |
+| `src/host_snd.cpp`, `src/host_snd_stubs.cpp` | `host_snd.cpp` keeps the interrupts, `OSGetTick` (a call counter), DVD cancel, NAND and CNT; its AX / AI / thread stubs moved to `host_snd_stubs.cpp`, which the loader harnesses (`snd_harness`, `hbm_harness`) still link. After the Phase 7 clean-up `host_snd_stubs.cpp` has only what their links keep: `AXAcquireVoice` / `AXFreeVoice` / `AXSetVoiceAddr` / `Priority` / `State` and the thread-queue calls (below). |
 | `src/host_sdk.cpp` | The mutex, message-queue and current-thread functions are weak. |
-| `tests/audio_host.cpp` | **New.** SC (stereo), alarms that never fire (only the remote speaker uses them), no remote speaker (WPAD / WENC), `OSGetTime`, the OS heap (AXFX's default hooks; nw4r installs its own first; aborts), `AudioSound3DActor`'s statics, and `EGG::Allocator` / `ExpHeap::create`: the host has no EGG heaps (`host_sdk.cpp` routes them to the arena), so `ExpHeap::create` returns NULL and the `Allocator` entries abort if reached. |
+| `tests/audio_host.cpp` | **New.** Alarms that never fire (only the remote speaker uses them, and the host AX produces no remote speaker samples), `OSGetTime`, `OSRegisterVersion`, and the static members the decomp defines in units it does not have yet (`AudioSound3DActor`'s, `RPSndAudioActorBase::sActorList`, `AudioSoundActorBaseWithCamera<4>::smCommon3DManager`). Its SC, WPAD / WENC, OS heap and `EGG::Allocator` / `ExpHeap::create` stand-ins are gone since the integration below. |
 
 ### The harness
 
-`tests/audio_harness.cpp` follows the game's set-up (`RPSysSystem::createEffectWork`,
-`RPSndAudioMgr::initialize` for the Party Pack; `RPSndAudioMgr` needs the RP scene layer, so
-`HarnessAudioMgr`, an `EGG::ExpAudioMgr`, repeats its lines):
+`tests/audio_harness.cpp` runs the game's own set-up, `RPSndAudioMgr` included, on the §22 EGG
+heaps (since the Phase 7 integration; before it, a `HarnessAudioMgr` repeated
+`RPSndAudioMgr::initialize`'s lines on the M0 arena and created the effects itself):
 
-- `ExpAudioMgr::initialize` with `soundHeapSize` 0: `AIInit`, `AXInit`,
-  `SoundSystem::InitSoundSystem` with the default thread priorities and static work (which starts
-  the sound and task threads), the 3D managers; then the 0xB00000 sound heap on the M0 arena (what
-  `createSoundHeap` would allocate from the MEM1 root heap) and `initializeFx` with the Party Pack
-  aux heap sizes (no heaps on the host, see above);
-- `--fx`: `RPSndAudioMgr::setDefaultFx` for the Party Pack (`configureTitle` calls it, so the
-  game runs with it from the title screen): reverb (`FxReverbHi`) on aux A, chorus on B, delay
-  on C with its parameters, created with `AudioFx::createFx*`'s own lines on the arena;
-- `ExpAudioMgr::openArchive(path, heap, SARC_STORAGE_DVD)` (`openArchiveRP`'s default storage),
-  every group loaded with `ArcPlayer::loadGroup`;
+- boot: `PortOSInit`, `EGG::ConfigurationData::initMemory` (root heaps, the 0x600000 system heap),
+  `WPADInit` (the §23 backend; KPADInit's in the game); then `RPSysSystem::initialize`'s
+  `RPSysProjectLocal` / `RPSndAudioMgr` / `RPSndSpeakerMgr::CreateInstance` on the system heap;
+- `RPSysSystem::createEffectWork`'s lines: the MEM1 root heap current,
+  `RPSndAudioMgr::initialize` with a 0xB00000 sound heap from it: `ExpAudioMgr::initialize`
+  (`AIInit`, `AXInit`, `SoundSystem::InitSoundSystem`, which starts the sound and task threads,
+  the 3D managers), `SoundHeapMgr::createSoundHeap`, `AudioFxMgr::initializeFx` with the Party
+  Pack aux heap sizes (the fx heaps are real `EGG::ExpHeap`s now), the static sound archive
+  (`RPSndStaticMgr::setupArchive`), the BGM volume parameter, the speaker master volume
+  (`WPADGetSpeakerVolume`); the MEM2 root heap is current afterwards, as at the end of the
+  game's boot (the harness's own containers go there: `operator new` is `EGG::Heap::alloc`);
+- `--fx`: `RPSndAudioMgr::setDefaultFx` itself (`configureTitle` calls it): reverb
+  (`FxReverbHi`) on aux A, chorus on B, delay on C, created by `AudioFx` on its heaps;
+- `RPSndAudioMgr::openArchiveRP(path, NULL, NULL)` (default storage: DVD), every group loaded
+  with `ArcPlayer::loadGroup`;
 - the clock: AX frames of 96 samples back to back; before the first AX frame that starts at or
   after `floor(k * 32000 / 60)` samples, game frame k: the sounds due at k are started
-  (`SoundArchivePlayer::StartSound`, as `RPSndAudioMgr::startSound`), `ExpAudioMgr::calc`
-  (`SoundArchivePlayer::Update`), then `PortOSIdle`.
+  (`RPSndAudioMgr::startSound`), `RPSndAudioMgr::calc` (the arc volume, `SimpleAudioMgr::calc`,
+  the speaker and static managers), then `PortOSIdle`.
+
+`RPSndAudioMgr` links with `RPSndStaticMgr`, `RPSndSpeakerMgr`, `RPSndMoveParam`, `RPSndUtility`,
+`RPSysProjectLocal`, and, for its two controller queries (`RPSysCoreControllerMgr::isDpdCtrlEnable`,
+`CoreControllerMgr::getNthController` in the speaker manager), `eggController.cpp`,
+`RPSysControllerMgr.cpp` and KPAD; the remote speaker code runs on the §23 WPAD backend and the
+decomp's WENC. The expected audio did not change: every scenario renders the same samples and
+the same voice events as with the stand-ins (`audio_expected.txt` only gained the stream
+scenario of §24).
 
 ```
 audio_harness --disc DIR --list ARCHIVE
 audio_harness --disc DIR [--frames N] [--wav PATH] [--tap PATH] [--fx] [--src-none] ARCHIVE SOUND[@F] ...
+audio_harness --disc DIR [--frames N] [--wav PATH] [--tap PATH] --strm FILE.brstm      (§24)
 ```
 
 It prints a line per started sound (`S`), the file whose waves it plays with that file's wave
@@ -2139,7 +2174,7 @@ No archive has a stream sound: `audio_harness --list` over the 10 disc-level arc
 1079 SEQ and 23 WAVE sounds (the two `*_STRM` labels in `rp_Hky_sound.brsar` are wave sounds),
 and ASSETS.md (§1.5, §2.6) finds no STRM sound or external file entry in any BRSAR, the HOME
 Menu's included: the 14 `.brstm` files on the disc are unreferenced, so the game never starts a
-`StrmPlayer`. `StrmPlayer` links; its file structs (`StrmFile.h`) are still not converted (§13).
+`StrmPlayer`. §24 converts its file structs and plays one through `StrmPlayer` directly.
 
 ### Still open
 
@@ -2148,8 +2183,9 @@ Menu's included: the 14 `.brstm` files on the disc are unreferenced, so the game
 - The 8 / 16 kHz SRC tables are approximations until the real ROM values are known (the 12 kHz
   one is exact).
 - The compressor, DPL2 output, the remote speaker and the ITD shift (see above).
-- EGG heaps on the host: `AudioFx` gets no heap, so the effects are created by the harness;
-  `RPSndAudioMgr` itself is not linked (it needs the RP scene layer).
+- `RPSndAudioMgr`'s scene-side paths (`changeScene`, `attachArchive` through
+  `RPSysResourceManager`'s sound paths, the pause / fanfare logic) are linked but not driven;
+  the harness runs set-up, `openArchiveRP`, `startSound`, `setDefaultFx` and `calc`.
 - `OSGetTick` / `OSGetTime` count calls; nothing in the sound path depends on their rate yet.
 
 ## 22. The OS / storage platform layer: EGG heaps, DVD, NAND and saves, SC
@@ -2355,8 +2391,8 @@ errors.
   exception handler, the scene manager): with the GX / VI layer.
 - The assert heap on 64-bit (above); heap budgets with 64-bit headers in real scenes.
 - `RPSysSceneMgr` / `RPSysScene` (the harness stands in for the two calls the save code makes).
-- The older harnesses keep their arena allocators; `audio_harness` could now use real EGG heaps
-  for `AudioFx` (§21) by linking this layer.
+- The older loader harnesses keep their arena allocators; `audio_harness` runs on this layer's
+  EGG heaps since the Phase 7 integration (§21).
 - The Mii database on the NAND (`/shared2/menu/FaceLib/RFL_DB.dat`, `RPSysKokeshiManager`'s
   private NAND calls) and loading a save taken from Dolphin.
 - `EGG::UnitHeap` is not in Wii Play (no `eggUnitHeap.cpp`, no MEM unit heap in the binary).
@@ -2562,9 +2598,64 @@ Z counts not even (956), the stick scale off by one count (16).
   held sideways (Charge!) or swung (Fishing, Laser Hockey's twist), and gyro input.
 - `WPADReadFaceData` / `WPADReadMemoryAsync` (Miis on a remote, RFL) and the Classic Controller
   (Wii Play does not use it; the backend passes the device type only).
-- HOME Menu and speaker paths over this backend (`hbm_harness` and `audio_harness` keep their own
-  stand-ins).
+- HOME Menu and speaker paths: done in the Phase 7 integration. `hbm_harness` sends the HOME
+  Menu's speaker sounds through `RemoteSpk`, the decomp's WENC and this backend to the speaker
+  callback (§16), and `audio_harness` links this backend under `RPSndSpeakerMgr` and nw4r's
+  remote speaker code (§21). nw4r's own remote speaker output stays silent while the host AX
+  makes no remote speaker samples (`AXRmt*`) and its alarms do not fire.
 - `RPSysCursorDrawMgr` itself (it needs the renderer, layouts and effects); the harness repeats
   its two lines.
 - Real Wii Remotes (Bluetooth HID into `PortWPADRemote`, or the decomp's own WPAD over a host
   Bluetooth layer).
+
+## 24. Streams: StrmPlayer plays a BRSTM from the disc
+
+`StrmFile.h`'s structs are big-endian now, and the real `StrmPlayer` streams a BRSTM from the
+disc on the AX mixer of §21. No sound archive has a stream sound (§21, ASSETS.md §2.6), so
+`audio_harness --strm FILE` drives the player the way `SoundArchivePlayer::PrepareStrmImpl` and
+`StrmSound::Prepare` do: a `StrmBufferPool` of 0xA000 bytes a channel
+(`GetRequiredStrmBufferSize`'s figure) on `RPSndAudioMgr`'s sound heap (M0, so the DSP can read
+it), a `ut::DvdFileStream` on the file, `StrmPlayer::Setup` / `Prepare(stream, 1 voice, sample
+offset 0)`; the header and the first blocks load on the task thread, and `Start` is called at the
+first game frame where `IsPrepared` holds. From then on the player's own sound-thread callbacks
+refill the ring buffer and move the loop addresses. The rest of the harness (taps, events,
+render) is as in §21. `check_matching.py`: 974 units depending on touched files, all identical
+(2026-10-30).
+
+### Changes to the decomp sources
+
+Each the same object on the Wii (`be_u16` / `be_u32` are `u16` / `u32` there):
+
+| File | Change | Why |
+|---|---|---|
+| `include/nw4r/snd/snd_StrmFile.h` | `StrmDataInfo` and `Header`: every 16- / 32-bit field `be_u16` / `be_u32` | `StrmFileReader::ReadStrmInfo` and `StrmFileLoader::LoadFileHeader` read them straight from the file (§13 had converted only the `DataRef` / `Table` they use). |
+| `src/nw4r/snd/snd_StrmFile.cpp` | `ReadAdpcmInfo` copies the channel's `AdpcmInfo` (24 `u16`) through `be_u16` under `#if PORT_BE_WRAPPED`; `ReadAdpcBlockData`'s read buffer is `be_u16` | The coefficients, predictor / scale and history go to the voice and the DSP in host order, as `ReadWaveParam`'s (§21); the ADPC block's history pairs are big-endian in the file. |
+
+Both files are in `check_matching.py`'s list. `StrmPlayer.cpp` itself needed nothing: the data
+blocks are copied as bytes (the DSP reads DSP-ADPCM nibbles), and the loop predictor / scale is
+the block's first byte.
+
+### The test
+
+`test_audio.py` scenario `wly-strm-go`: `Sound/RPWlyScene/sound/RP_WLY_BGM_GO.brstm` (32 kHz
+stereo DSP-ADPCM, 80000 samples in 6 blocks of 14336, one-shot), 900 AX frames, tapped:
+
+| Check | Result |
+|---|---|
+| Voices | one per channel, running in consecutive frames from game frame 0 until AX frame 835 |
+| Decode | each voice's accelerator output is exactly one channel of `dspadpcm.py`'s `decode_brstm` (80000 samples each, across the ring buffer's wrap and the block refills), then zeros (the zero buffer after the last block) until the player stops it |
+| SRC, envelope | the §21 models over the decoded channel: bit for bit in every frame |
+| Mix | the rendered L/R from the two tapped voices: 900 of 900 frames exact |
+| Regression, determinism | `audio_expected.txt` line `wly-strm-go`; twice identical; 64 / 32 identical |
+
+### Still open
+
+- Looping streams: the loop path (`UpdateDataLoopAddress`, the loop block's history from the
+  ADPC block via `ReadAdpcBlockData`) is converted but not tested; on this disc the ADPC
+  entries hold the encoder's source-PCM history, not the decoded one (`dspadpcm.py` records the
+  distance), so a model has to decide what the DSP does with it first. Start offsets other than
+  0 (`CalcStartOffset`) likewise.
+- PCM16 streams (`hokke_goll_me*_strm.brstm`, `result.ry.44.c4.brstm`: 44.1 kHz PCM16, 4096-sample
+  blocks) are not played by the test.
+- `StrmSound` / the `SoundArchivePlayer` stream path (`detail_OpenFileStream`, the stream sound
+  pool) stay unexercised: no archive on the disc has a stream sound.
