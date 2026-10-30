@@ -193,8 +193,8 @@ Replace the hardware and SDK with PC equivalents:
 |---|---|---|
 | Matching vs functional decomp | Matching, with marked functional fallbacks | Before Phase 1 |
 | Reuse community library decomps | Yes, after checking licence and version | Phase 2 |
-| Graphics API | A portable layer over Vulkan/D3D12/Metal | Phase 7 |
-| 32- vs 64-bit | 32-bit first | Phase 7 |
+| Graphics API | Aurora (MIT; GX on WebGPU via Dawn, which targets Vulkan/D3D12/Metal) as the backend behind the port's own GX entry points; decided 2026-10-30 | Phase 7 |
+| 32- vs 64-bit | 64-bit for the game (Dawn has no 32-bit builds); the host loaders and tests also build and pass as 32-bit | Phase 7 |
 | Input model | Mouse + gamepad first, real Wii Remotes later | Phase 7 |
 | Open-source licence for our code | Pick before publishing anything | Phase 10 |
 
