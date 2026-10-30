@@ -1,0 +1,53 @@
+Command:
+python3 port/assets/tools/dspadpcm.py --check ~/wii-play/extracted/files
+
+Output:
+sources=25 decoded=1648 errors=0
+waves: BRSTMx14, RBNKx1612, RWSDx22
+codecs: BRSTM/DSP-ADPCMx10, BRSTM/PCM16x4, RBNK/DSP-ADPCMx961, RBNK/PCM16x643, RBNK/PCM8x8, RWSD/DSP-ADPCMx22
+channels: BRSTM/2x14, RBNK/1x1418, RBNK/2x194, RWSD/1x12, RWSD/2x10
+sampleRates: BRSTM/32000x8, BRSTM/44100x6, RBNK/11000x2, RBNK/11025x27, RBNK/16000x30, RBNK/22050x181, RBNK/26464x1, RBNK/30000x2, RBNK/32000x1065, RBNK/44100x304, RWSD/32000x15, RWSD/44100x7
+loops: BRSTM:loopx9, BRSTM:oneshotx5, RBNK:loopx801, RBNK:oneshotx811, RWSD:loopx5, RWSD:oneshotx17
+sampleFrames (per channel): BRSTM=6728589, RBNK=39076457, RWSD=7101187
+seconds: BRSTM=182.5, RBNK=1180.4, RWSD=171.7
+longest: 65.75s Sound/RPPartyCommon/rp_Common_Party.brsar RWSD-file7-wave1
+DSP-ADPCM consistency: first-frame header != AdpcmInfo.pred_scale: 0; loop frame header != loop_pred_scale: 0; decoded history before loop start != AdpcmInfo.loop_yn1/yn2: 0/653
+BRSTM ADPC seek history vs decoded yn1: 5864 entries, 917 exact, mean |diff| 40 vs mean |sample| 2238 (encoder source history; approximate by design)
+clippedSamples=7595/73492235 (0.0103%)
+waves clipping >1%: 9
+  CLIP 8.00% Sound/RPWlyScene/rp_Wly_sound.brsar RBNK-file21-wave23 PCM16
+  CLIP 7.19% Sound/RPWlyScene/rp_Wly_sound.brsar RBNK-file21-wave34 PCM16
+  CLIP 4.02% Sound/RPWlyScene/rp_Wly_sound.brsar RBNK-file21-wave35 PCM16
+  CLIP 3.22% Sound/RPWlyScene/rp_Wly_sound.brsar RBNK-file21-wave36 PCM16
+  CLIP 3.00% Sound/RPWlyScene/rp_Wly_sound.brsar RBNK-file21-wave39 PCM16
+  CLIP 1.43% Sound/RPWlyScene/rp_Wly_sound.brsar RBNK-file21-wave37 PCM16
+  CLIP 1.24% Sound/RPPnpScene/rp_Pnp_sound.brsar RBNK-file28-wave19 DSP-ADPCM
+  CLIP 1.10% Sound/RPWlyScene/rp_Wly_sound.brsar RBNK-file21-wave25 PCM16
+  CLIP 1.05% Sound/RPWlyScene/rp_Wly_sound.brsar RBNK-file12-wave7 DSP-ADPCM
+
+Dump:
+python3 port/assets/tools/dspadpcm.py --dump OUTDIR ~/wii-play/extracted/files
+-> wrote 1648 WAV files, errors=0 (144 MB; 1534.6 s total, matching the --check seconds).
+   WAV headers: mono 11000x2 11025x27 16000x30 22050x181 26464x1 30000x2 32000x1029 44100x158,
+   stereo 32000x59 44100x159; all 16-bit. A DIR inside the repository is refused (exit 1, nothing written).
+
+Validation (scratch scripts, not part of the tool):
+- Bit-exactness: for every looping DSP-ADPCM wave with loopStart >= 2 (645 bank channels, 8 BRSTM
+  channels), the decoded (sample[loopStart-1], sample[loopStart-2]) equals AdpcmInfo.loop_yn1/loop_yn2
+  stored by the encoder: 653/653. First-frame header == pred_scale and loop-frame header ==
+  loop_pred_scale for every DSP-ADPCM channel (0 mismatches), so data offsets are exact.
+- BRSTM ADPC block: entries every adpcmDataInterval (1024) samples; they hold the encoder's source-PCM
+  history, not the decoder's: mean |diff| 40 vs mean |sample| 2238 (917/5864 exact). At a 1792-sample
+  spacing (1024 bytes) the diff is ~3000-4000, i.e. unrelated, so the interval is in samples. The
+  table length is sized by bytes (e.g. 359 entries for 642970 samples), so it only covers the first
+  ~57% of each stream.
+- Smoothness (mean |first difference| / mean |amplitude|): bank DSP-ADPCM median 0.208 (p90 0.717,
+  n=1022 channels), bank PCM16 median 0.195 (n=804), PCM8 0.258; BRSTM DSP-ADPCM 0.10-0.53, PCM16
+  0.14-0.16. White noise gives about 1.2-1.4; the few bank waves at 1.4-1.75 are noise-like SFX
+  (one wave shared by 5 banks gives 1.619) and their loop history still matches exactly.
+- BRSTM block boundaries (history carried across blocks): mean jump across a block boundary vs the
+  mean jump at 7 control offsets inside blocks: HKY_BGM_PLAY 649 vs 291-667, WLY_BGM_TIME_UP 1105 vs
+  755-1722, COW_BGM_TIMEUPRESULT 169 vs 133-198. No clicks.
+- Clipping: 9 waves clip >1% (not 52). 7 are PCM16 (the clipped values are stored as-is in the file;
+  decode is a byteswap) with runs up to 166 samples; 2 are DSP-ADPCM with mean |sample| 10k-12.5k and
+  2.5-4.6% of samples above 30000, i.e. loud mastered content; they pass the frame-header checks like every other DSP-ADPCM wave.
