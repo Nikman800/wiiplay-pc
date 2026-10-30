@@ -126,6 +126,18 @@ void DCFlushRange(const void* buf, u32 len) {
     (void)buf;
     (void)len;
 }
+void DCFlushRangeNoSync(const void* buf, u32 len) {
+    (void)buf;
+    (void)len;
+}
+void DCStoreRange(const void* buf, u32 len) {
+    (void)buf;
+    (void)len;
+}
+void DCStoreRangeNoSync(const void* buf, u32 len) {
+    (void)buf;
+    (void)len;
+}
 void VIWaitForRetrace(void) {}
 
 /******************************************************************************

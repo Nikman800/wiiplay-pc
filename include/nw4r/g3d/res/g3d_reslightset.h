@@ -15,17 +15,17 @@ class ResAnmScn;
 struct ResLightSetData {
     static const u32 INVALID_ID = 0xFFFF;
 
-    u32 size;                                         // at 0x0
-    s32 toResAnmScnData;                              // at 0x4
-    s32 name;                                         // at 0x8
-    u32 id;                                           // at 0xC
-    u32 refNumber;                                    // at 0x10
-    s32 ambLightName;                                 // at 0x14
-    u16 ambLightId;                                   // at 0x18
+    be_u32 size;                                         // at 0x0
+    be_s32 toResAnmScnData;                              // at 0x4
+    be_s32 name;                                         // at 0x8
+    be_u32 id;                                           // at 0xC
+    be_u32 refNumber;                                    // at 0x10
+    be_s32 ambLightName;                                 // at 0x14
+    be_u16 ambLightId;                                   // at 0x18
     u8 numLight;                                      // at 0x1A
     u8 PADDING_0x1B[0x1C - 0x1B];                     // at 0x1B
-    s32 lightNames[G3DState::NUM_LIGHT_IN_LIGHT_SET]; // at 0x1C
-    u16 lightId[G3DState::NUM_LIGHT_IN_LIGHT_SET];    // at 0x3C
+    be_s32 lightNames[G3DState::NUM_LIGHT_IN_LIGHT_SET]; // at 0x1C
+    be_u16 lightId[G3DState::NUM_LIGHT_IN_LIGHT_SET];    // at 0x3C
 };
 
 class ResLightSet : public ResCommon<ResLightSetData> {
@@ -67,7 +67,7 @@ public:
     ResName GetLightResName(u32 idx) const {
         const ResLightSetData& r = ref();
 
-        const s32* pNames = r.lightNames;
+        const be_s32* pNames = r.lightNames;
         return NW4R_G3D_OFS_TO_RESNAME(pNames, pNames[idx]);
     }
 };

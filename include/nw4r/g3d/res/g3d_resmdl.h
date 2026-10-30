@@ -39,23 +39,23 @@ enum ScalingRule {
 };
 
 struct ResMtxIDToNodeIDData {
-    u32 numMtxID; // at 0x0
+    be_u32 numMtxID; // at 0x0
 };
 
 struct ResMdlInfoData : ResMdlInfoDataTypedef {
-    u32 size;                   // at 0x0
-    s32 toResMdlData;           // at 0x4
-    ScalingRule scaling_rule;   // at 0x8
-    TexMatrixMode tex_mtx_mode; // at 0xC
-    s32 vertex_size;            // at 0x10
-    s32 triangle_size;          // at 0x14
-    s32 original_path;          // at 0x18
-    u32 numViewMtx;             // at 0x1C
+    be_u32 size;                   // at 0x0
+    be_s32 toResMdlData;           // at 0x4
+    BE_ENUM(ScalingRule, u32) scaling_rule;   // at 0x8
+    BE_ENUM(TexMatrixMode, u32) tex_mtx_mode; // at 0xC
+    be_s32 vertex_size;            // at 0x10
+    be_s32 triangle_size;          // at 0x14
+    be_s32 original_path;          // at 0x18
+    be_u32 numViewMtx;             // at 0x1C
     bool need_nrm_mtx_array;    // at 0x20
     bool need_tex_mtx_array;    // at 0x21
     bool is_valid_volume;       // at 0x22
     u8 envelope_mtx_mode;       // at 0x23
-    s32 toMtxIDToNodeID;        // at 0x24
+    be_s32 toMtxIDToNodeID;        // at 0x24
     math::_VEC3 volume_min;     // at 0x28
     math::_VEC3 volume_max;     // at 0x34
 };
@@ -101,20 +101,20 @@ public:
  ******************************************************************************/
 struct ResMdlData {
     ResBlockHeaderData header;         // at 0x0
-    u32 revision;                      // at 0x8
-    s32 toResFileData;                 // at 0xC
-    s32 toResByteCodeDic;              // at 0x10
-    s32 toResNodeDic;                  // at 0x14
-    s32 toResVtxPosDic;                // at 0x18
-    s32 toResVtxNrmDic;                // at 0x1C
-    s32 toResVtxClrDic;                // at 0x20
-    s32 toResVtxTexCoordDic;           // at 0x24
-    s32 toResMatDic;                   // at 0x28
-    s32 toResTevDic;                   // at 0x2C
-    s32 toResShpDic;                   // at 0x30
-    s32 toResTexNameToTexPlttInfoDic;  // at 0x34
-    s32 toResPlttNameToTexPlttInfoDic; // at 0x38
-    s32 name;                          // at 0x3C
+    be_u32 revision;                      // at 0x8
+    be_s32 toResFileData;                 // at 0xC
+    be_s32 toResByteCodeDic;              // at 0x10
+    be_s32 toResNodeDic;                  // at 0x14
+    be_s32 toResVtxPosDic;                // at 0x18
+    be_s32 toResVtxNrmDic;                // at 0x1C
+    be_s32 toResVtxClrDic;                // at 0x20
+    be_s32 toResVtxTexCoordDic;           // at 0x24
+    be_s32 toResMatDic;                   // at 0x28
+    be_s32 toResTevDic;                   // at 0x2C
+    be_s32 toResShpDic;                   // at 0x30
+    be_s32 toResTexNameToTexPlttInfoDic;  // at 0x34
+    be_s32 toResPlttNameToTexPlttInfoDic; // at 0x38
+    be_s32 name;                          // at 0x3C
     ResMdlInfoData info;               // at 0x40
 };
 

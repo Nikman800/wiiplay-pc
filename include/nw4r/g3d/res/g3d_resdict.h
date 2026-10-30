@@ -8,17 +8,17 @@ namespace nw4r {
 namespace g3d {
 
 struct ResDicNodeData {
-    u16 ref;       // at 0x0
-    u16 flag;      // at 0x2
-    u16 idxLeft;   // at 0x4
-    u16 idxRight;  // at 0x6
-    s32 ofsString; // at 0x8
-    s32 ofsData;   // at 0xC
+    be_u16 ref;       // at 0x0
+    be_u16 flag;      // at 0x2
+    be_u16 idxLeft;   // at 0x4
+    be_u16 idxRight;  // at 0x6
+    be_s32 ofsString; // at 0x8
+    be_s32 ofsData;   // at 0xC
 };
 
 struct ResDicData {
-    u32 size;               // at 0x0
-    u32 numData;            // at 0x4
+    be_u32 size;               // at 0x0
+    be_u32 numData;            // at 0x4
     ResDicNodeData data[1]; // at 0x8
 };
 

@@ -4,6 +4,8 @@
 
 #include <revolution/OS.h>
 
+#include <port/be.h>
+
 namespace nw4r {
 namespace g3d {
 
@@ -60,6 +62,19 @@ inline f32 S10_5ToF32(register const s16* pPtr) {
 
     return f;
 }
+
+#if PORT_BE_WRAPPED
+// Host: big-endian file fields (g3d anim keys). GQR7 is S7.8 and GQR6 S10.5.
+inline f32 U16_0ToF32(const be_u16* pPtr) {
+    return static_cast<f32>(static_cast<u16>(*pPtr));
+}
+inline f32 S7_8ToF32(const be_s16* pPtr) {
+    return static_cast<f32>(static_cast<s16>(*pPtr)) / 256.0f;
+}
+inline f32 S10_5ToF32(const be_s16* pPtr) {
+    return static_cast<f32>(static_cast<s16>(*pPtr)) / 32.0f;
+}
+#endif
 
 /******************************************************************************
  *

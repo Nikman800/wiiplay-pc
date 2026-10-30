@@ -17,16 +17,16 @@ namespace g3d {
  *
  ******************************************************************************/
 struct ResVtxPosData {
-    u32 size;          // at 0x0
-    s32 toResMdlData;  // at 0x4
-    s32 toVtxPosArray; // at 0x8
-    s32 name;          // at 0xC
-    u32 id;            // at 0x10
-    GXCompCnt cmpcnt;  // at 0x14
-    GXCompType tp;     // at 0x18
+    be_u32 size;          // at 0x0
+    be_s32 toResMdlData;  // at 0x4
+    be_s32 toVtxPosArray; // at 0x8
+    be_s32 name;          // at 0xC
+    be_u32 id;            // at 0x10
+    BE_ENUM(GXCompCnt, u32) cmpcnt;  // at 0x14
+    BE_ENUM(GXCompType, u32) tp;     // at 0x18
     u8 frac;           // at 0x1C
     u8 stride;         // at 0x1D
-    u16 numPos;        // at 0x1E
+    be_u16 numPos;        // at 0x1E
     math::_VEC3 min;   // at 0x20
     math::_VEC3 max;   // at 0x2C
 };
@@ -71,16 +71,16 @@ public:
  *
  ******************************************************************************/
 struct ResVtxNrmData {
-    u32 size;          // at 0x0
-    s32 toResMdlData;  // at 0x4
-    s32 toVtxNrmArray; // at 0x8
-    s32 name;          // at 0xC
-    u32 id;            // at 0x10
-    GXCompCnt cmpcnt;  // at 0x14
-    GXCompType tp;     // at 0x18
+    be_u32 size;          // at 0x0
+    be_s32 toResMdlData;  // at 0x4
+    be_s32 toVtxNrmArray; // at 0x8
+    be_s32 name;          // at 0xC
+    be_u32 id;            // at 0x10
+    BE_ENUM(GXCompCnt, u32) cmpcnt;  // at 0x14
+    BE_ENUM(GXCompType, u32) tp;     // at 0x18
     u8 frac;           // at 0x1C
     u8 stride;         // at 0x1D
-    u16 numNrm;        // at 0x1E
+    be_u16 numNrm;        // at 0x1E
 };
 
 class ResVtxNrm : public ResCommon<ResVtxNrmData> {
@@ -123,16 +123,16 @@ public:
  *
  ******************************************************************************/
 struct ResVtxClrData {
-    u32 size;          // at 0x0
-    s32 toResMdlData;  // at 0x4
-    s32 toVtxClrArray; // at 0x8
-    s32 name;          // at 0xC
-    u32 id;            // at 0x10
-    GXCompCnt cmpcnt;  // at 0x14
-    GXCompType tp;     // at 0x18
+    be_u32 size;          // at 0x0
+    be_s32 toResMdlData;  // at 0x4
+    be_s32 toVtxClrArray; // at 0x8
+    be_s32 name;          // at 0xC
+    be_u32 id;            // at 0x10
+    BE_ENUM(GXCompCnt, u32) cmpcnt;  // at 0x14
+    BE_ENUM(GXCompType, u32) tp;     // at 0x18
     u8 stride;         // at 0x1C
     u8 PADDING_0x1D;   // at 0x1D
-    u16 numClr;        // at 0x1E
+    be_u16 numClr;        // at 0x1E
 };
 
 class ResVtxClr : public ResCommon<ResVtxClrData> {
@@ -175,16 +175,16 @@ public:
  *
  ******************************************************************************/
 struct ResVtxTexCoordData {
-    u32 size;            // at 0x0
-    s32 toResMdlData;    // at 0x4
-    s32 toTexCoordArray; // at 0x8
-    s32 name;            // at 0xC
-    u32 id;              // at 0x10
-    GXCompCnt cmpcnt;    // at 0x14
-    GXCompType tp;       // at 0x18
+    be_u32 size;            // at 0x0
+    be_s32 toResMdlData;    // at 0x4
+    be_s32 toTexCoordArray; // at 0x8
+    be_s32 name;            // at 0xC
+    be_u32 id;              // at 0x10
+    BE_ENUM(GXCompCnt, u32) cmpcnt;    // at 0x14
+    BE_ENUM(GXCompType, u32) tp;       // at 0x18
     u8 frac;             // at 0x1C
     u8 stride;           // at 0x1D
-    u16 numTexCoord;     // at 0x1E
+    be_u16 numTexCoord;     // at 0x1E
     math::_VEC2 min;     // at 0x20
     math::_VEC2 max;     // at 0x2C
 };

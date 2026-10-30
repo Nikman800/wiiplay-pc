@@ -85,7 +85,7 @@ f32 GetResKeyFrameAnmResult(const ResKeyFrameAnmData* pData, f32 frame) {
 }
 
 u32 GetResColorAnmResult(const ResColorAnmFramesData* pData, f32 frame) {
-    const u32* pColorArray = pData->frameColors;
+    const be_u32* pColorArray = pData->frameColors;
 
     f32 intPart;
     f32 fracPart = math::FModf(frame, &intPart);

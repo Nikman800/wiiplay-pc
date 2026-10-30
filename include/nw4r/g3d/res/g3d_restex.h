@@ -15,22 +15,22 @@ struct ResTexData {
     };
 
     ResBlockHeaderData header; // at 0x0
-    u32 revision;              // at 0x8
-    s32 toResFileData;         // at 0xC
-    s32 toTexData;             // at 0x10
-    s32 name;                  // at 0x14
-    u32 flag;                  // at 0x18
-    u16 width;                 // at 0x1C
-    u16 height;                // at 0x1E
+    be_u32 revision;              // at 0x8
+    be_s32 toResFileData;         // at 0xC
+    be_s32 toTexData;             // at 0x10
+    be_s32 name;                  // at 0x14
+    be_u32 flag;                  // at 0x18
+    be_u16 width;                 // at 0x1C
+    be_u16 height;                // at 0x1E
     union {
-        GXTexFmt fmt;
-        GXCITexFmt cifmt;
+        BE_ENUM(GXTexFmt, u32) fmt;
+        BE_ENUM(GXCITexFmt, u32) cifmt;
     }; // at 0x20
-    u32 mipmap_level;  // at 0x24
-    f32 min_lod;       // at 0x28
-    f32 max_lod;       // at 0x2C
-    s32 original_path; // at 0x30
-    s32 toResUserData; // at 0x34
+    be_u32 mipmap_level;  // at 0x24
+    be_f32 min_lod;       // at 0x28
+    be_f32 max_lod;       // at 0x2C
+    be_s32 original_path; // at 0x30
+    be_s32 toResUserData; // at 0x34
 };
 
 class ResTex : public ResCommon<ResTexData> {

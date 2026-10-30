@@ -7,6 +7,7 @@
 #include <port/resptr.h>
 #include <port/wide.h>
 
+#include <revolution/GX.h>
 #include <revolution/OS/OSAddress.h>
 
 #include <cstdio>
@@ -165,12 +166,58 @@ void TestWide() {
     CHECK(wcslen(m) == 3);
 }
 
+// Host GXInitTexObj / GXInitTlutObj (src/host_gxtexobj.cpp): the Wii object
+// layout, big-endian, with emulated physical addresses. Expected words worked
+// out by hand from src/revolution/GX/GXTexture.c.
+void TestGXObjects() {
+    u8* pImage = static_cast<u8*>(PortArenaAlloc(0x2000, 32));
+    u32 phys = OSCachedToPhysical(pImage);
+    CHECK(phys == (port_vaddr(pImage) & 0x3FFFFFFF));
+
+    GXTexObj tex;
+    std::memset(&tex, 0xCC, sizeof(tex));
+    GXInitTexObj(&tex, pImage, 64, 32, GX_TF_RGBA8, GX_REPEAT, GX_CLAMP, GX_FALSE);
+    const u8* t = reinterpret_cast<const u8*>(&tex);
+    CHECK(port_load_be32(t + 0x0) == 0x91);      // wrap 1/0, mag linear, min 4
+    CHECK(port_load_be32(t + 0x4) == 0);
+    CHECK(port_load_be32(t + 0x8) == 0x607C3F);  // fmt 6, h-1 31, w-1 63
+    CHECK(port_load_be32(t + 0xC) == phys >> 5);
+    CHECK(port_load_be32(t + 0x10) == 0);        // userData
+    CHECK(port_load_be32(t + 0x14) == GX_TF_RGBA8);
+    CHECK(port_load_be16(t + 0x1C) == 128);      // 16 x 8 tiles
+    CHECK(t[0x1E] == 3 && t[0x1F] == 2);         // loadFmt, flags
+
+    GXInitTexObjLOD(&tex, GX_LIN_MIP_LIN, GX_LINEAR, 0.0f, 2.0f, -1.0f, GX_FALSE,
+                    GX_TRUE, GX_ANISO_1);
+    // lod bias -1.0 -> (u8)-32 = 0xE0 at bits 15..22; min filter 6 (hw) at
+    // 24..26; edge LOD on -> bit 23 = 0.
+    CHECK(port_load_be32(t + 0x0) == (0x1 | 0x10 | (6u << 5) | (0xE0u << 9)));
+    CHECK(port_load_be32(t + 0x4) == (32u << 8));  // max LOD 2.0 * 16
+
+    GXInitTexObjCI(&tex, pImage, 8, 8, static_cast<GXTexFmt>(GX_TF_C8), GX_CLAMP, GX_CLAMP, GX_TRUE, GX_TLUT3);
+    CHECK(port_load_be32(t + 0x18) == GX_TLUT3);
+    CHECK((t[0x1F] & 3) == 1);                     // mipmap, not "no TLUT"
+    CHECK(port_load_be32(t + 0x4) == (48u << 8));  // max LOD 3 (8x8) * 16
+
+    GXTlutObj tlut;
+    std::memset(&tlut, 0xCC, sizeof(tlut));
+    GXInitTlutObj(&tlut, pImage + 0x1000, GX_TL_RGB5A3, 256);
+    const u8* l = reinterpret_cast<const u8*>(&tlut);
+    CHECK(port_load_be32(l + 0x0) == (GX_TL_RGB5A3 << 10));
+    CHECK(port_load_be32(l + 0x4) == (0x64000000 | ((phys + 0x1000) >> 5)));
+    CHECK(port_load_be16(l + 0x8) == 256);
+    CHECK(l[0xA] == 0xCC && l[0xB] == 0xCC);       // padding untouched
+
+    PortArenaFree(pImage);
+}
+
 } // namespace
 
 int main() {
     TestArena();
     TestResPtr();
     TestWide();
+    TestGXObjects();
     if (sFailures != 0) {
         std::printf("test_port: %d failures\n", sFailures);
         return 1;

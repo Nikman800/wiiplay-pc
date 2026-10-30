@@ -11,15 +11,15 @@ namespace g3d {
 
 struct ResPlttData {
     ResBlockHeaderData header; // at 0x0
-    u32 revision;              // at 0x8
-    s32 toResFileData;         // at 0xC
-    s32 toPlttData;            // at 0x10
-    s32 name;                  // at 0x14
-    GXTlutFmt fmt;             // at 0x18
-    u16 numEntries;            // at 0x1C
-    u16 PADDING_0x1E;          // at 0x1E
-    s32 original_path;         // at 0x20
-    s32 toResUserData;         // at 0x24
+    be_u32 revision;              // at 0x8
+    be_s32 toResFileData;         // at 0xC
+    be_s32 toPlttData;            // at 0x10
+    be_s32 name;                  // at 0x14
+    BE_ENUM(GXTlutFmt, u32) fmt;             // at 0x18
+    be_u16 numEntries;            // at 0x1C
+    be_u16 PADDING_0x1E;          // at 0x1E
+    be_s32 original_path;         // at 0x20
+    be_s32 toResUserData;         // at 0x24
 };
 
 class ResPltt : public ResCommon<ResPlttData> {

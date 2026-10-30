@@ -36,12 +36,12 @@ struct ResAnmAmbLightData {
         FLAG_CONST = (1 << 31)
     };
 
-    u32 size;              // at 0x0
-    s32 toResAnmScnData;   // at 0x4
-    s32 name;              // at 0x8
-    u32 id;                // at 0xC
-    u32 refNumber;         // at 0x10
-    u32 flags;             // at 0x14
+    be_u32 size;              // at 0x0
+    be_s32 toResAnmScnData;   // at 0x4
+    be_s32 name;              // at 0x8
+    be_u32 id;                // at 0xC
+    be_u32 refNumber;         // at 0x10
+    be_u32 flags;             // at 0x14
     ResColorAnmData color; // at 0x18
 };
 

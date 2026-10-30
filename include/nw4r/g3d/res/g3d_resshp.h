@@ -65,8 +65,8 @@ struct ResCacheVtxDescv {
 };
 
 struct ResMtxSetUsed {
-    u32 numMtxID;    // at 0x0
-    u16 vecMtxID[2]; // at 0x4
+    be_u32 numMtxID;    // at 0x0
+    be_u16 vecMtxID[2]; // at 0x4
 };
 
 struct ResShpData {
@@ -78,23 +78,23 @@ struct ResShpData {
         FLAG_INVISIBLE = (1 << 1),
     };
 
-    u32 size;                                         // at 0x0
-    s32 toResMdlData;                                 // at 0x4
-    s32 curMtxIdx;                                    // at 0x8
+    be_u32 size;                                         // at 0x0
+    be_s32 toResMdlData;                                 // at 0x4
+    be_s32 curMtxIdx;                                    // at 0x8
     ResCacheVtxDescv cache;                           // at 0xC
     ResTagDLData tagPrePrimDL;                        // at 0x18
     ResTagDLData tagPrimDL;                           // at 0x24
-    u32 vcdBitmap;                                    // at 0x30
-    u32 flag;                                         // at 0x34
-    s32 name;                                         // at 0x38
-    u32 id;                                           // at 0x3C
-    u32 numVtx;                                       // at 0x40
-    u32 numPolygon;                                   // at 0x44
-    s16 idVtxPosition;                                // at 0x48
-    s16 idVtxNormal;                                  // at 0x4A
-    s16 idVtxColor[GX_VA_TEX0 - GX_VA_CLR0];          // at 0x4C
-    s16 idVtxTexCoord[GX_POS_MTX_ARRAY - GX_VA_TEX0]; // at 0x50
-    s32 toMtxSetUsed;                                 // at 0x60
+    be_u32 vcdBitmap;                                    // at 0x30
+    be_u32 flag;                                         // at 0x34
+    be_s32 name;                                         // at 0x38
+    be_u32 id;                                           // at 0x3C
+    be_u32 numVtx;                                       // at 0x40
+    be_u32 numPolygon;                                   // at 0x44
+    be_s16 idVtxPosition;                                // at 0x48
+    be_s16 idVtxNormal;                                  // at 0x4A
+    be_s16 idVtxColor[GX_VA_TEX0 - GX_VA_CLR0];          // at 0x4C
+    be_s16 idVtxTexCoord[GX_POS_MTX_ARRAY - GX_VA_TEX0]; // at 0x50
+    be_s32 toMtxSetUsed;                                 // at 0x60
     ResMtxSetUsed msu;                                // at 0x64
 };
 

@@ -64,6 +64,17 @@ public:
         v_ = 0;
         return *this;
     }
+    // `slot = NULL`: GCC's NULL is an integer constant (__null), which would
+    // otherwise be ambiguous between the two overloads above. Only 0 is valid.
+    template <typename I,
+              typename = typename std::enable_if<std::is_integral<I>::value>::type>
+    res_ptr& operator=(I v) {
+        if (v != 0) {
+            PortArenaBadAddress(static_cast<u32>(v));
+        }
+        v_ = 0;
+        return *this;
+    }
 
     /** The u32 in the slot (host byte order): the file offset before
      * relocation, the emulated address after. */

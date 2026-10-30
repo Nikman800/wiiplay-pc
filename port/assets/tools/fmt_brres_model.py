@@ -347,7 +347,7 @@ def _tex0(data, offset):
         max_lod,
         original_path,
         to_res_user_data,
-    ) = _unpack(data, offset + 8, "IiiIIHHIIfFii")
+    ) = _unpack(data, offset + 8, "IiiIIHHIIffii")
     _require(revision == TEX0_REVISION, f"TEX0 revision {revision} != {TEX0_REVISION}")
     _require(to_res_file_data == -offset, "TEX0 toResFileData does not target the file header")
     _require(width != 0, "TEX0 width is zero")

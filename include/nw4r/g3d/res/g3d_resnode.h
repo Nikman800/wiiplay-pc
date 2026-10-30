@@ -55,24 +55,24 @@ struct ResNodeData : ResNodeDataTypedef {
         FLAG_BILLBOARD_PARENT = (1 << 10)
     };
 
-    u32 size;                 // at 0x0
-    s32 toResMdlData;         // at 0x4
-    s32 name;                 // at 0x8
-    u32 id;                   // at 0xC
-    u32 mtxID;                // at 0x10
-    u32 flags;                // at 0x14
-    Billboard bbmode;         // at 0x18
-    u32 bbref_nodeid;         // at 0x1C
+    be_u32 size;                 // at 0x0
+    be_s32 toResMdlData;         // at 0x4
+    be_s32 name;                 // at 0x8
+    be_u32 id;                   // at 0xC
+    be_u32 mtxID;                // at 0x10
+    be_u32 flags;                // at 0x14
+    BE_ENUM(Billboard, u32) bbmode;         // at 0x18
+    be_u32 bbref_nodeid;         // at 0x1C
     math::_VEC3 scale;        // at 0x20
     math::_VEC3 rot;          // at 0x2C
     math::_VEC3 translate;    // at 0x38
     math::_VEC3 volume_min;   // at 0x44
     math::_VEC3 volume_max;   // at 0x50
-    s32 toParentNode;         // at 0x5C
-    s32 toChildNode;          // at 0x60
-    s32 toNextSibling;        // at 0x64
-    s32 toPrevSibling;        // at 0x68
-    s32 toResUserData;        // at 0x6C
+    be_s32 toParentNode;         // at 0x5C
+    be_s32 toChildNode;          // at 0x60
+    be_s32 toNextSibling;        // at 0x64
+    be_s32 toPrevSibling;        // at 0x68
+    be_s32 toResUserData;        // at 0x6C
     math::_MTX34 modelMtx;    // at 0x70
     math::_MTX34 invModelMtx; // at 0xA0
 };

@@ -5,8 +5,13 @@ Status (2026-10-30): steps 0 to 4 of §7 are implemented in the host build (M0 a
 the MSL_C `wcs*`/`wmem*` functions, the `analyzeTag` big-endian read, ResFont, TPL with the
 `lyt_texMap.cpp` bound test, the `lyt::res` structs, and the `RPSysTagProcessor` /
 `RPPlayerNameTag` offsets); see `port/docs/HOST_BUILD.md` §4 to §10 for what was built and how it
-is tested. `swprintf` and `vswprintf` are not routed yet (HOST_BUILD.md §6). Everything from
-step 5 on is still design.
+is tested. `swprintf` and `vswprintf` are not routed yet (HOST_BUILD.md §6). Step 5 (g3d) is
+implemented too, with g3d-4 (PAT0) brought forward because `ResFile::Bind` runs it: g3d-1
+`RES_PTR` slots, g3d-2 under the agreed GX-object contract (Wii-layout `GXTexObj`/`GXTlutObj`
+holding big-endian emulated addresses, host `GXInitTexObj`/`GXInitTlutObj`), g3d-3 with no
+source change (the host `OSCachedToPhysical` already returns a `u32`), and every g3d resource
+struct on `be_*`; all 132 BRRES on the disc set up as the Wii image (HOST_BUILD.md §11).
+Everything from step 6 on is still design.
 Line numbers refer to `src/` and `include/` as of 2026-10-30 (identical to the decomp) and do not
 account for the step 0-2 edits.
 
@@ -228,6 +233,12 @@ the behaviour is identical.
 | g3d-3 | `ResShp::GXSetArray` g3d_resshp.cpp:146–154, from `ResShp::Init` :195–228. **Listed as "GX-consumed" in ASSETS.md, but it is a write into file memory** | `ResWriteCPCmd` writes `CP ARRAYBASE = reinterpret_cast<u32>(OSCachedToPhysical(pBase))` (BE bytes) into the shape's pre-primitive display list in the file | The GX layer, when the DL is called (`GXCallDisplayList` from the draw code) | M0: `OSCachedToPhysical` returns the physical address of the M0 address. `GXSetArray` decodes it with `OSPhysicalToCached` and `port_hptr`. On the host `OSCachedToPhysical` returns `u32`, so :151 → `PORT_PHYS(pBase)` (Wii: `reinterpret_cast<u32>(OSCachedToPhysical(pBase))`). 1 line. |
 | g3d-4 | `ResAnmTexPat::Bind` g3d_resanmtexpat.cpp:141,157; `Release` :175,179. **Not on the Find Mii path** (PAT0 is used by Shooting Range and others) | The PAT0 `toResTexArray` / `toResPlttArray` arrays (g3d_resanmtexpat.h:88–89) hold one `ResTex` / `ResPltt` per entry. `ResCommon` wraps one pointer, so each element is 4 bytes on the Wii and 8 on a 64-bit host | `GetAnmResult` :67–68, :96, :105; `Bind` :126–157 (validity test); `Release` | M1: on the host, read the arrays as `RES_PTR(ResTexData)` / `RES_PTR(ResPlttData)` through a typedef `PAT0_TEX_SLOT` (Wii: `ResTex`). Construction `ResTex tex(slot)` works through the implicit conversion. Stores: `= found` → `= found.ptr()` and `= ResTex(NULL)` → `= NULL` under `PORT_HOST`. About 10 lines. |
 
+Implemented (HOST_BUILD.md §4 and §11): g3d-1 as designed; g3d-2 as the contract above, with
+host `GXInitTexObj`/`GXInitTlutObj` storing the Wii words big-endian; g3d-3 needed no edit,
+because the host `OSCachedToPhysical` returns a `u32` and `reinterpret_cast<u32>` of a `u32` is
+the identity; g3d-4 with `PAT0_TEX_SLOT`/`PAT0_PLTT_SLOT` (a `res_ptr` that assigns from
+`ResTex`/`ResPltt`), because `ResFile::Bind` runs `ResAnmTexPat::Bind` for every file.
+
 Not a pointer issue, listed for completeness: `ResLightSet::Bind` (g3d_reslightset.cpp:17)
 writes u16 light ids, and the material display-list patch helpers write big-endian bytes.
 Neither needs a pointer change.
@@ -419,8 +430,10 @@ Total in `src/` and `include/` for the whole game: about 140 lines, all macro-ex
    that host `OSAlloc` and `MEMAllocFromExpHeap` are carved from the same block. Also confirm
    whether a larger MEM2 is wanted for debugging; the encoding allows up to `0x0FFFFFFF` per
    arena.
-2. **The GX layer stores M0 addresses.** This is the same question as ASSETS.md §5.4. The
-   proposal is that host `GXTexObj` and `GXTlutObj` keep the Wii sizes and hold M0 addresses,
+2. **The GX layer stores M0 addresses.** Decided (2026-10-30): GX objects inside model files
+   keep the Wii sizes and layouts and hold big-endian emulated addresses; display lists and
+   vertex arrays stay GX-native; the Phase 7 GX layer decodes them (HOST_BUILD.md §11). This is
+   the same question as ASSETS.md §5.4. The proposal was that host `GXTexObj` and `GXTlutObj` keep the Wii sizes and hold M0 addresses,
    and that FIFO and display-list address decode goes through `OSPhysicalToCached` and
    `port_hptr`.
 3. **Unused slot writes.** `EmitterResource.name` and `TextureData.name` have no readers.

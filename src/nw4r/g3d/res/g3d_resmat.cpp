@@ -1001,7 +1001,7 @@ void ResMatChan::GXSetChanCtrl(GXChannelID id, GXBool enable, GXColorSrc ambSrc,
                                GXDiffuseFn diffuseFn, GXAttnFn attnFn) {
     Chan& rChan = ref().chan[id & 1];
 
-    u32* pCtrl;
+    be_u32* pCtrl;
     if ((id & 2) == 0) {
         pCtrl = &rChan.paramChanCtrlC;
     } else {

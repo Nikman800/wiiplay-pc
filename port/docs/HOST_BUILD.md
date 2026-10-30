@@ -1,8 +1,9 @@
 # Host build: the loader harnesses, the big-endian field wrapper and pointer slots
 
 Status (2026-10-30): the first pieces of the game that run natively on a PC are the disc load
-path, the font loader, the message loader, TPL binding and the layout loader (`nw4r::lyt`
-build and animation binding, no drawing yet).
+path, the font loader, the message loader, TPL binding, the layout loader (`nw4r::lyt`
+build and animation binding, no drawing yet) and the g3d resource loader (`nw4r::g3d::ResFile`
+check, init and bind, no drawing yet).
 
 - The decompiled Yaz0 decoder and U8 archive code, compiled with GCC for Linux x86-64, open every
   archive on the player's disc and read every file inside. The result matches
@@ -17,10 +18,16 @@ build and animation binding, no drawing yet).
   materials, 207 groups), and every `.brlan` (604) is bound to every layout of its archive
   through `Layout::CreateAnimTransform` / `AnimTransformBasic` (4248 binds). Everything matches
   an independent decoding with `port/assets/tools/fmt_layout.py` (§1, the layout harness).
+- The real `nw4r::g3d` resource code sets up all 132 `.brres` files on the disc (all inside
+  archives) the way `RPGrpModelResManager` does: `ResFile::CheckRevision`, `Init` (shape vertex
+  array commands), `Bind` (textures, palettes, PAT0) and `ResAnmScn::Bind`. Each set-up file is
+  the Wii's in-memory image of that file, and every model, texture, palette and animation
+  matches `port/assets/tools/fmt_brres_model.py` and an animation reader in the test (§11).
 
-`POINTERS.md` steps 0 to 4 are implemented: M0 (emulated Wii addresses for all host heap memory),
+`POINTERS.md` steps 0 to 5 are implemented: M0 (emulated Wii addresses for all host heap memory),
 `RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, ResFont (§5 to §7 below), TPL
-and the layout resource structs (§9), and the two hard-coded runtime offsets (§10).
+and the layout resource structs (§9), the two hard-coded runtime offsets (§10), and g3d with the
+GX texture-object contract (§11).
 
 ## 1. Build and run
 
@@ -29,7 +36,7 @@ Requirements: GCC/G++ (tested with 15.2), GNU make and Python 3. CMake is not ne
 
 ```sh
 cd port/host
-make                       # 64-bit (primary): build/host64/{arc_harness,res_harness,lyt_harness,test_*}
+make                       # 64-bit (primary): build/host64/{arc_harness,res_harness,lyt_harness,g3d_harness,test_*}
 make test                  # unit tests + archive and resource comparisons (DISC defaults to ~/wii-play/extracted/files)
 make test DISC=/path/to/extracted/files
 make M32=1 test            # same code built with -m32 into build/host32 (cross-check)
@@ -61,14 +68,23 @@ files: TPL 471, BRLYT 140, BRLAN 604
 lines: T 471/471, TD 472/472, L 140/140, P 4120/4120, M 2633/2633, G 207/207, A 4248/4248, AC 41949/41949 (harness/python)
 missing 0, extra 0
 OK
+g3d_harness: 132 BRRES (bound: 131 by themselves, 1 with the archive's other BRRES, 0 unresolved), 177 models, 564 textures, 5 palettes, 222 animations; set-up checks: 1340 shapes (4227 array commands), 665 texture infos (665 tex objs, 0 tlut objs), 56 PAT0 slots, 49005 bytes changed; 0 errors (pointer size 8)
+files: BRRES 132; animations: CHR0 147, CLR0 27, PAT0 10, SCN0 16, SRT0 22
+lines: F 132/132, G 314/314, M 177/177, T 564/564, P 5/5, A 222/222 (harness/python)
+missing 0, extra 0
+OK
 ```
+
+The number of changed bytes depends on the emulated addresses the arena hands out, so it
+differs slightly between the 64-bit and `-m32` builds (48690 there); everything else is the same.
 
 | Target | What it runs |
 |---|---|
-| `unit` | `test_be`, `test_be_c` (wrapper), `test_port`, `test_port_c` (M0 arena, `RES_PTR`, wide functions, C++ and C), `test_layout` (compile-time struct layout checks); also compiles the step 4 units (§10) |
+| `unit` | `test_be`, `test_be_c` (wrapper), `test_port`, `test_port_c` (M0 arena, `RES_PTR`, wide functions, host `GXInitTexObj`/`GXInitTlutObj` words, C++ and C), `test_layout` (compile-time struct layout checks); also compiles the step 4 units (§10) |
 | `archives` | `arc_harness` + `tests/test_archives.py` |
 | `resources` | `res_harness` + `tests/test_resources.py` |
 | `layouts` | `lyt_harness` + `tests/test_layouts.py` |
+| `models` | `g3d_harness` + `tests/test_models.py` (§11) |
 
 The harnesses take well under a second each. The Python reference walks take about 13 s
 (archives, which hashes every file), 3 s (resources) and 3 s (layouts). Nothing is written to disk except the
@@ -209,12 +225,18 @@ These are deliberately minimal and synchronous. The Phase 7 platform layer repla
   caller casts to `u32`.
 - **Text**: `PortSwapBmgText` (§6).
 - **TPL**: `TPLBind` / `TPLGet` (§9).
-- **GX**: every GX call that `lyt` and `ut::CharWriter` link is a no-op (`src/host_gx.cpp`).
-- **MTX**: `PSMTXCopy`, `Concat`, `Scale`, `TransApply` and `RotRad` in plain C++ (the decomp's
+- **GX objects**: `GXInitTexObj`, `GXInitTexObjCI`, `GXInitTexObjLOD`, `GXInitTexObjTlut`,
+  `GXGetTexObjTlut` and `GXInitTlutObj` fill the Wii-layout objects with big-endian words and
+  emulated physical addresses (`src/host_gxtexobj.cpp`, §11).
+- **GX**: every other GX call that `lyt`, `ut::CharWriter` and the g3d resource code link is a
+  no-op (`src/host_gx.cpp`), including `GXSetArray` and `GXCallDisplayList`. The same file has
+  `nw4r::g3d::detail::Copy32ByteBlocks` as a `memcpy` (`g3d_cpu.cpp` is paired-single
+  assembly).
+- **MTX**: `PSMTXCopy`, `Concat`, `Scale`, `TransApply`, `RotRad` and `Identity` in plain C++ (the decomp's
   versions are paired-single assembly).
 - **MEM**: `MEMAllocFromAllocator` / `MEMFreeToAllocator` dispatch through the allocator's
   function table, as `src/revolution/MEM/mem_allocator.c` does.
-- **VI, DC**: no-ops.
+- **VI, DC**: no-ops (`DCFlushRange[NoSync]`, `DCStoreRange[NoSync]`, `DCInvalidateRange`).
 
 ## 2. The big-endian field wrapper
 
@@ -282,9 +304,10 @@ Rules:
     the decomp's `build.ninja`, writing to a temporary directory.
   - It compares each object byte for byte with the decomp checkout's object.
   - It skips a unit when any of its other dependencies differs between the two checkouts.
-- **Result on 2026-10-30, after the TPL, layout and step 4 changes.** All 734 units that
-  depend on the touched files (§4; the list is `TOUCHED` in the script, 34 files) are
-  byte-identical, and none were skipped. They include every `nw4r/lyt` unit,
+- **Result on 2026-10-30, after the g3d changes (§11).** All 734 units that
+  depend on the touched files (§4; the list is `TOUCHED` in the script, 65 files) are
+  byte-identical, and none were skipped. They include every `nw4r/lyt` and `nw4r/g3d` unit
+  (508 units depend on the g3d files),
   `RPPlayerNameTag.o` and the unlinked `RPSysTagProcessor.o` (identical to the decomp's object,
   so its 4 differences from the target are unchanged). Run it after every change to a decomp file:
 
@@ -335,6 +358,9 @@ All of these are compile errors or truncations in 64-bit only; none is a problem
 | `include/nw4r/ut/ut_algorithm.h` `GetIntPtr` | `reinterpret_cast<u32>(ptr)`. It is the basis of `AddOffsetToPtr`, `GetOffsetFromPtr` and `ComparePtr`, which every nw4r resource accessor uses | `#if defined(PORT_HOST)`: returns `uintptr_t` |
 | `src/egg/core/eggDvdFile.cpp` `DvdFile::sync` | `reinterpret_cast<s32>(OSMessage)`: the DVD result travels through a message queue as a `void*` | `#if defined(PORT_HOST)`: cast through `intptr_t` |
 | `include/revolution/OS/OSAddress.h` | `OSPhysicalToCached`/`Uncached` turn a `u32` into a pointer | host shadow header through M0 (§1 host stand-ins); `-Wno-int-to-pointer-cast` is gone and the cast is now an error everywhere |
+| `include/nw4r/g3d/g3d_obj.h` `TypeObj::GetTypeID` | `reinterpret_cast<u32>` of the type-name address (only compared for equality) | `#if defined(PORT_HOST)`: returns `uintptr_t` |
+| `include/egg/gfxe/eggCpuTexture.h` `setBuffer` | `EGG_ASSERT((u32)pBuffer % 32 == 0)` | `#if defined(PORT_HOST)`: the same assert through `uintptr_t` (same `#line`) |
+| g3d PAT0 `toResTexArray` / `toResPlttArray` | arrays of `ResTex` / `ResPltt` (one pointer each) overlaid on 4-byte file slots | `PAT0_TEX_SLOT` / `PAT0_PLTT_SLOT` (§11) |
 
 ### Pointer slots inside files
 
@@ -390,6 +416,11 @@ check in §2 confirms all of them.
 | `src/Pack/RPKernel/RPSysTagProcessor.cpp` | §10. |
 | `include/Pack/RPKernel/RPSysSystemWinMgr.h` | `friend class RPSysTagProcessor;` (§10). |
 | `src/Pack/RPParty/RPPartyCommon/RPPlayerNameTag.cpp` | §10: an `#if defined(PORT_HOST)` include and an `#if defined(PORT_HOST)` argument. |
+| `include/nw4r/g3d/res/*.h` (23 headers: `g3d_rescommon`, `resdict`, `resmdl`, `resmat`, `resshp`, `restev`, `restex`, `respltt`, `resvtx`, `resnode`, `reslightset`, `resanm`, `resanmchr`, `resanmclr`, `resanmtexpat`, `resanmtexsrt`, `resanmvis`, `resanmshp`, `resanmscn`, `resanmamblight`, `resanmlight`, `resanmfog`, `resanmcamera`) | §11: every `u16`/`s16`/`u32`/`s32`/`f32` member of the file structs is `be_*`, every enum member `BE_ENUM(E, u32)`; type tokens only. The runtime `*AnmResult` structs, `BlendVtx` and `ResCacheVtxDescv` are unchanged. `g3d_rescommon.h` and `g3d_resanm.h` include `<port/be.h>`; `g3d_resmat.h` includes `<port/resptr.h>` and declares `pTexData`/`pPlttData` as `RES_PTR(...)`. `g3d_rescommon.h`: `NW4R_G3D_RESFILE_NAME_DEF` has a `#if PORT_BE_WRAPPED` form that initialises `len` with `be_u32(...)` (the Wii form is the original). `g3d_resanm.h` (`GetResBoolAnmFramesResult`) and `g3d_reslightset.h` (`GetLightResName`): one local pointer type each is `be_u32*` / `be_s32*`. |
+| `src/nw4r/g3d/res/g3d_resmat.cpp`, `g3d_reslightset.cpp`, `g3d_resanm.cpp`, `g3d_resanmtexsrt.cpp` | §11: local pointers into file fields are `be_*` (`pCtrl`; `SetBind`/`IsBound` parameters and `pId`; `pColorArray`; `pToTexData`). Type tokens only. |
+| `src/nw4r/g3d/res/g3d_resanmtexpat.cpp` | §11: `PAT0_TEX_SLOT` / `PAT0_PLTT_SLOT` (Wii: `typedef ResTex` / `ResPltt`; host: a 4-byte `res_ptr` that assigns from `ResTex`/`ResPltt`, under `#if defined(PORT_HOST)`) replace `ResTex`/`ResPltt` as the array element type in `GetAnmResult`, `Bind` and `Release`; the name arrays are read as `be_s32`. |
+| `include/nw4r/g3d/platform/g3d_cpu.h` | `#include <port/be.h>`; under `#if PORT_BE_WRAPPED`, `fastcast::U16_0ToF32`, `S7_8ToF32` and `S10_5ToF32` overloads for `be_u16*`/`be_s16*` (CHR0 key frames). |
+| `include/nw4r/g3d/g3d_obj.h`, `include/egg/gfxe/eggCpuTexture.h` | §3: `uintptr_t` under `#if defined(PORT_HOST)`. |
 
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
@@ -418,6 +449,7 @@ Design: `POINTERS.md` §2. Implementation:
   | `RES_PTR_RAW(slot)` | `reinterpret_cast<u32>(slot)` / `(u32)(slot)` | `slot.raw()`: the u32 in host order (offset before relocation, address after) | same |
   | `PORT_PTR_TO_U32(p)` | `reinterpret_cast<u32>(p)` / `(u32)(p)` | `port_vaddr(p)`; for a `res_ptr` argument its `raw()` | `port_vaddr(p)` |
   | `PORT_U32_TO_PTR(T, v)` | `reinterpret_cast<T>(v)` / `(T)(v)` | `reinterpret_cast<T>(port_hptr(v))` | `(T)port_hptr(v)` |
+  | `slot = NULL` (C++) | `slot = NULL` | `operator=` for integer constants: stores 0 (any other value aborts) | — |
   | `PORT_STORE_PTR32(slot, p)` | `slot = PORT_PTR_TO_U32(p)` | same | same |
   | `PORT_RES_PTR_WRAPPED` | 0 | 1 | 1 |
 
@@ -464,14 +496,21 @@ moved to `be_*`/`RES_PTR` so far: `BinaryFileHeader`, `BinaryBlockHeader`, `Char
 structs (checked from a derived class because they are protected), `RPSysMessage::Entry`, the
 four TPL structs, the `lyt::res` blocks and value types (`AnimationTarget`, `StepKey` and
 `HermiteKey` are local to `lyt_animation.cpp`; the layout harness covers them), and
-`ut::Color`. It also checks that DAT1 text elements are 2 bytes. The decomp's `TPL.h` comments
+`ut::Color`, and the g3d file structs (dictionary, file, MDL0 and its info, node, vertex
+arrays, pre-primitive DL, shape, material with its GX objects, TEV, TEX0, PLT0, every animation
+header and info block, light set, key frames) plus `GXTexObj`/`GXTlutObj` sizes. It also checks
+that DAT1 text elements are 2 bytes. The decomp's `TPL.h` comments
 `TPLClutHeader.unpacked` as `at 0x1`; it is at 0x2 (after the `u16`), on the Wii too. The checks run when the file compiles, in both
 the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrapper types.
 
 ## 8. Next steps
 
-- `POINTERS.md` step 5 (g3d). It also makes `RPPlayerNameTag.cpp` build in the 64-bit host
-  build: `g3d_obj.h` and `eggCpuTexture.h` cast pointers to `u32`.
+- g3d beyond loading (§11): the `math::_VEC3`/`_MTX34`/`_VEC2` members of the file structs
+  (node SRT and matrices, bounding volumes, vertex-array min/max, camera/light/fog values,
+  texture-matrix effects) are still plain floats, so they read byte-swapped on a little-endian
+  host. Nothing on the load path reads them; the calc and draw code will need `res::` value types
+  as in `lyt` (§9). Animation evaluation (`GetAnmResult`) compiles but is not validated: it also
+  uses `nw4r::math` and OS fast-cast helpers (`OSu16tof32`, `F32ToU16`) that are inline assembly.
 - Drawing layouts needs the Phase 7 GX layer behind `src/host_gx.cpp`, and the
   `nw4r::math` inline-assembly helpers: `math_arithmetic.h` `FAbs` (and others written as
   `register` + asm) return an uninitialised value on the host, because `ASM(...)` compiles away.
@@ -523,4 +562,94 @@ the 64-bit and `-m32` builds. Add a block for each struct that moves to the wrap
   adds g3d data this unit does not have), so the host form sits in `#if defined(PORT_HOST)`:
   `pParams->pHeads[mPlayer]->mAdditionalInfo.name`, with `RPKokeshiMgr.h` (the
   `RPKokeshiHead` definition) included under the same guard. The Wii branch is the original line.
-  It compiles in the `-m32` host build; the 64-bit build waits for the g3d headers (§8).
+  It compiles in both host builds (the 64-bit build since the g3d and `eggCpuTexture.h` fixes,
+  §3).
+
+## 11. g3d resources (POINTERS.md step 5)
+
+### What runs
+
+`tests/g3d_harness.cpp` walks the disc like the other harnesses. For every mounted archive it
+collects the files that start with `bres` (132 on the US disc, all inside archives; none on the
+disc's top level) and sets each one up in place as
+`RPGrpModelResManager::InternalCreateData` (`src/Pack/RPGraphics/RPGrpModelResManager.cpp`)
+does, with the real decompiled `nw4r::g3d` resource code (`src/nw4r/g3d/res/*.cpp`, 22 units):
+
+1. `ResFile::CheckRevision` (every MDL0, TEX0, PLT0 and animation).
+2. `ResFile::Init`: `ResShp::Init` writes the CP `ARRAYBASE`/`ARRAYSTRIDE` commands for each
+   vertex array into the shape's pre-primitive display list (`ResShp::GXSetArray`); the other
+   `Init`s only flush the data cache.
+3. `ResFile::Bind(itself)`: `ResMat::Bind` → `ResTexPlttInfo::Bind` stores the `ResTexData` /
+   `ResPlttData` address in the material and initialises the material's `GXTexObj` / `GXTlutObj`;
+   `ResAnmTexPat::Bind` fills the PAT0 texture and palette arrays.
+4. `ResAnmScn::Bind(itself)` for each SCN0 (light-set ids).
+
+The decompiled game code binds a file only to itself (there is no `ResFile::Bind(other)` call
+in `src/Pack`; the API supports it). One file needs another:
+`Common/RPCowScene/common.carc/G3D/cow_field2P.brres` does not resolve all its textures by
+itself, so the harness then binds each file that is still unresolved to the other BRRES of its
+archive, which resolves it. After that every texture, palette and PAT0 slot on the disc is bound.
+
+It prints, through the decompiled accessors: per file the root group count, the
+`CheckRevision` result and both bind results; every root group with its entry names; per MDL0
+the material, shape, node, vertex array, TEV and texture-info counts, `numViewMtx` and the
+scaling rule; per TEX0 the size, format, mipmap count, CI flag, image offset and LOD range
+(`ResTex::GetTexObjParam`); per PLT0 the format and entry count; per animation (CHR0, CLR0,
+SRT0, PAT0, SCN0; VIS0 and SHP0 are supported but not on the disc) the revision, frame count,
+policy, node/material/light-set count and the size of its data dictionary.
+
+`tests/test_models.py` builds the same lines from `port/assets/tools/fmt_brres_model.py`
+(imported read-only; container, MDL0, TEX0, PLT0) and its own animation header reader (the
+animation parser in `port/assets/tools` is not finished). It also predicts the bind results
+from the format: a model binds when every name in its texture/palette name dictionaries is in
+the file's (or, finally, the archive's) texture/palette groups, and `ResFile::Bind` returns the
+last PAT0's result when there is one (the `@bug` noted in `g3d_resfile.cpp`). One
+`fmt_brres_model.py` bug turned up: TEX0 is unpacked with `">IiiIIHHIIfFii"`, where `F` is a
+complex number, so its `max_lod`, `original_path` and `toResUserData` are wrong; the test
+reads `max_lod` itself.
+
+### The set-up file is the Wii's image
+
+Contract (coordinator decision on POINTERS.md §8 question 2): GX objects inside model files
+(`GXTexObj` 0x20, `GXTlutObj` 0xC) keep their Wii sizes and layouts and hold 32-bit emulated
+Wii addresses (M0); the Phase 7 GX layer decodes them. Display lists and vertex arrays stay
+big-endian and GX-native, and `GXSetArray`-style patches write emulated physical addresses
+big-endian, exactly as on the Wii. So, for a buffer at the same emulated address, a set-up file
+is byte-identical to the Wii's in-memory copy.
+
+- **g3d-1** (`pTexData`, `pPlttData`): `RES_PTR(ResTexData)` / `RES_PTR(ResPlttData)`. The
+  code is unchanged; `r.pTexData = NULL` in `Release` uses a new `res_ptr::operator=` for
+  integer constants (GCC's `NULL` is an integer; anything but 0 aborts).
+- **g3d-2** (GX objects): `src/host_gxtexobj.cpp` is `GXInitTexObj`, `GXInitTexObjCI`,
+  `GXInitTexObjLOD`, `GXInitTexObjTlut`, `GXGetTexObjTlut` and `GXInitTlutObj` with the bit
+  layout of `src/revolution/GX/GXTexture.c` (`GXTexObjImpl` / `GXTlutObjImpl`), computed in
+  host order and stored big-endian; the image and palette address is `OSCachedToPhysical` of
+  the M0 address, and `userData` (a `void*` on the Wii) is 0, as after `GXInitTexObj` on the
+  Wii. Float-to-`u8` conversions go through `s32`, as `fctiwz` does, so a negative LOD bias
+  gives the Wii's byte. `test_port` checks the words for hand-worked examples.
+- **g3d-3** (`ResShp::GXSetArray`): no source change. On the host `OSCachedToPhysical`
+  returns the physical address as a `u32` (§1), so `reinterpret_cast<u32>(...)` of it is the
+  identity, and `ResWriteCPCmd` writes it big-endian.
+- **g3d-4** (PAT0 arrays): `PAT0_TEX_SLOT` / `PAT0_PLTT_SLOT` in `g3d_resanmtexpat.cpp` (§4).
+  Not needed for Find Mii, but `ResFile::Bind` runs it for every PAT0.
+
+`g3d_harness` checks every set-up file against an independent reading of the bytes and fails
+on any difference:
+
+- every changed byte lies in a slot that set-up writes (pre-primitive array commands, material
+  texture/palette slots, `ResTexObjData`/`ResTlutObjData`, PAT0 arrays, SCN0 light-set ids);
+- every CP command is `08 A0+n <base>` / `08 B0+n <stride>`, where `<base>` is the emulated
+  physical address of the vertex array the shape names (4227 commands in 1340 shapes);
+- every bound material slot holds the emulated address of a TEX0 / PLT0, and each `GXTexObj`
+  holds that texture's image address (`image3`), width, height and format (`image0`, `fmt`),
+  `userData` 0 and the mipmap flag, with the map marked used (665 texture objects); each
+  `GXTlutObj` the palette address, format and size (no material on the disc names a palette:
+  `namePltt` is 0 in all 665 texture infos, although 3 files carry 5 PLT0; so
+  `GXInitTlutObj` is covered by `test_port` only);
+- every bound PAT0 texture slot holds the emulated address of the texture its name array names
+  (56 slots).
+
+### Not covered yet
+
+The `math::_VEC3`, `_VEC2` and `_MTX34` members of the file structs stay plain (§8), and
+animation evaluation is not validated. Neither is on the load path.

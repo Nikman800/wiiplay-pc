@@ -1,5 +1,6 @@
 /**
- * Host stand-ins for the GX, MTX and MEM allocator calls that nw4r::lyt links
+ * Host stand-ins for the GX, MTX and MEM allocator calls that nw4r::lyt and the
+ * nw4r::g3d resource code link (GX texture/TLUT objects: host_gxtexobj.cpp)
  * (port/docs/HOST_BUILD.md §1).
  *
  * The layout harness builds layouts and binds animations without drawing, so
@@ -97,17 +98,6 @@ void PSMTXRotRad(Mtx m, char axis, f32 rad) {
 /* GX: no-ops until the Phase 7 GX layer */
 void GXBegin(GXPrimitive, GXVtxFmt, u16) {}
 void GXClearVtxDesc(void) {}
-u32 GXGetTexObjTlut(GXTexObj*) {
-    return 0;
-}
-void GXInitTexObj(GXTexObj*, void*, u16, u16, GXTexFmt, GXTexWrapMode, GXTexWrapMode,
-                  GXBool) {}
-void GXInitTexObjCI(GXTexObj*, void*, u16, u16, GXTexFmt, GXTexWrapMode, GXTexWrapMode,
-                    GXBool, u32) {}
-void GXInitTexObjLOD(GXTexObj*, GXTexFilter, GXTexFilter, f32, f32, f32, GXBool, GXBool,
-                     GXAnisotropy) {}
-void GXInitTexObjTlut(GXTexObj*, u32) {}
-void GXInitTlutObj(GXTlutObj*, void*, GXTlutFmt, u16) {}
 void GXLoadPosMtxImm(const Mtx, u32) {}
 void GXLoadTexMtxImm(const Mtx, u32, GXMtxType) {}
 void GXLoadTexObj(const GXTexObj*, GXTexMapID) {}
@@ -150,5 +140,28 @@ void GXSetTexCoordGen2(GXTexCoordID, GXTexGenType, GXTexGenSrc, u32, GXBool, u32
 void GXSetVtxAttrFmt(GXVtxFmt, GXAttr, GXCompCnt, GXCompType, u8) {}
 void GXSetVtxDesc(GXAttr, GXAttrType) {}
 void GXSetZTexture(GXZTexOp, GXTexFmt, u32) {}
+/* linked by nw4r::g3d resource code (drawing and set-up paths) */
+void GXCallDisplayList(void*, u32) {}
+void GXSetArray(GXAttr, const void*, u8) {}
+
+void PSMTXIdentity(Mtx m) {
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 4; j++) {
+            m[i][j] = i == j ? 1.0f : 0.0f;
+        }
+    }
+}
 
 } // extern "C"
+
+/* nw4r::g3d::detail::Copy32ByteBlocks (src/nw4r/g3d/platform/g3d_cpu.cpp is
+ * paired-single assembly). */
+namespace nw4r {
+namespace g3d {
+namespace detail {
+void Copy32ByteBlocks(void* pDst, const void* pSrc, u32 size) {
+    std::memcpy(pDst, pSrc, size & ~31u);
+}
+} // namespace detail
+} // namespace g3d
+} // namespace nw4r

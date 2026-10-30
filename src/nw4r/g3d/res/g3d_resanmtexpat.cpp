@@ -5,6 +5,23 @@
 namespace nw4r {
 namespace g3d {
 
+#if defined(PORT_HOST)
+// toResTexArray / toResPlttArray hold one 4-byte pointer slot per entry
+// (port/docs/POINTERS.md g3d-4); ResTex/ResPltt are 8 bytes on a 64-bit host.
+template <typename TRes, typename TData>
+struct PortPat0Slot : port::res_ptr<TData> {
+    PortPat0Slot& operator=(const TRes& rRes) {
+        this->set(const_cast<TData*>(rRes.ptr()));
+        return *this;
+    }
+};
+typedef PortPat0Slot<ResTex, ResTexData> PAT0_TEX_SLOT;
+typedef PortPat0Slot<ResPltt, ResPlttData> PAT0_PLTT_SLOT;
+#else
+typedef ResTex PAT0_TEX_SLOT;
+typedef ResPltt PAT0_PLTT_SLOT;
+#endif
+
 ResFile ResAnmTexPat::GetParent() const {
     return ofs_to_obj<ResFile>(ref().toResFileData);
 }
@@ -48,7 +65,7 @@ const ResAnmTexPatFrmData* SearchFrame(const ResAnmTexPatAnmData* pAnmData,
     return pFrmData;
 }
 
-inline ResName GetResNameFromOffsetArray(s32* pStringArray, int idx) {
+inline ResName GetResNameFromOffsetArray(be_s32* pStringArray, int idx) {
     s32 offset = pStringArray[idx];
     return NW4R_G3D_OFS_TO_RESNAME(pStringArray, offset);
 }
@@ -64,8 +81,8 @@ void ResAnmTexPat::GetAnmResult(TexPatAnmResult* pResult, u32 idx,
     u32 flags = pMatData->flags;
 
     const ResAnmTexPatData& r = ref();
-    const ResTex* pResTexArray = ofs_to_ptr<ResTex>(r.toResTexArray);
-    const ResPltt* pResPlttArray = ofs_to_ptr<ResPltt>(r.toResPlttArray);
+    const PAT0_TEX_SLOT* pResTexArray = ofs_to_ptr<PAT0_TEX_SLOT>(r.toResTexArray);
+    const PAT0_PLTT_SLOT* pResPlttArray = ofs_to_ptr<PAT0_PLTT_SLOT>(r.toResPlttArray);
 
     pResult->bTexExist = 0;
     pResult->bPlttExist = 0;
@@ -120,11 +137,11 @@ bool ResAnmTexPat::Bind(const ResFile file) {
     int numTexture = rInfoData.numTexture;
     int numPalette = rInfoData.numPalette;
 
-    s32* pTexNameArray = ofs_to_ptr<s32>(ref().toTexNameArray);
-    s32* pPlttNameArray = ofs_to_ptr<s32>(ref().toPlttNameArray);
+    be_s32* pTexNameArray = ofs_to_ptr<be_s32>(ref().toTexNameArray);
+    be_s32* pPlttNameArray = ofs_to_ptr<be_s32>(ref().toPlttNameArray);
 
-    ResTex* pResTexArray = ofs_to_ptr<ResTex>(ref().toResTexArray);
-    ResPltt* pResPlttArray = ofs_to_ptr<ResPltt>(ref().toResPlttArray);
+    PAT0_TEX_SLOT* pResTexArray = ofs_to_ptr<PAT0_TEX_SLOT>(ref().toResTexArray);
+    PAT0_PLTT_SLOT* pResPlttArray = ofs_to_ptr<PAT0_PLTT_SLOT>(ref().toResPlttArray);
 
     int numBound = 0;
 
@@ -168,8 +185,8 @@ void ResAnmTexPat::Release() {
     int numTexture = rInfoData.numTexture;
     int numPalette = rInfoData.numPalette;
 
-    ResTex* pResTexArray = ofs_to_ptr<ResTex>(ref().toResTexArray);
-    ResPltt* pResPlttArray = ofs_to_ptr<ResPltt>(ref().toResPlttArray);
+    PAT0_TEX_SLOT* pResTexArray = ofs_to_ptr<PAT0_TEX_SLOT>(ref().toResTexArray);
+    PAT0_PLTT_SLOT* pResPlttArray = ofs_to_ptr<PAT0_PLTT_SLOT>(ref().toResPlttArray);
 
     for (int i = 0; i < numTexture; i++) {
         pResTexArray[i] = ResTex(NULL);

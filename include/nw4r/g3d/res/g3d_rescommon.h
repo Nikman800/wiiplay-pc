@@ -4,6 +4,8 @@
 
 #include <revolution/GX.h>
 
+#include <port/be.h>
+
 /******************************************************************************
  *
  * Macros
@@ -13,9 +15,15 @@
 /**
  * Define ResName pascal string for file resource groups.
  */
+#if PORT_BE_WRAPPED
+#define NW4R_G3D_RESFILE_NAME_DEF(VAR, STR)                                    \
+    nw4r::g3d::ResNameData27 ResNameData_##VAR ALIGN(32) = {                   \
+        be_u32(sizeof(STR) - 1), STR}
+#else
 #define NW4R_G3D_RESFILE_NAME_DEF(VAR, STR)                                    \
     nw4r::g3d::ResNameData27 ResNameData_##VAR ALIGN(32) = {sizeof(STR) - 1,   \
                                                             STR}
+#endif
 
 /**
  * Similar to "ofs_to_obj" but accounting for the additional -4 offset.
@@ -139,14 +147,14 @@ private:
  */
 struct ResBlockHeaderData {
     char kind[4]; // at 0x0
-    u32 size;     // at 0x4
+    be_u32 size;     // at 0x4
 };
 
 /**
  * Name for file resource groups.
  */
 struct ResNameData27 {
-    u32 len;                    // at 0x0
+    be_u32 len;                    // at 0x0
     char str[32 - sizeof(u32)]; // at 0x4
 };
 
@@ -156,7 +164,7 @@ struct ResNameData27 {
  *
  ******************************************************************************/
 struct ResNameData {
-    u32 len;     // at 0x0
+    be_u32 len;     // at 0x0
     char str[4]; // at 0x4
 };
 
@@ -181,9 +189,9 @@ public:
  *
  ******************************************************************************/
 struct ResTagDLData {
-    u32 bufSize; // at 0x0
-    u32 cmdSize; // at 0x4
-    s32 toDL;    // at 0x8
+    be_u32 bufSize; // at 0x0
+    be_u32 cmdSize; // at 0x4
+    be_s32 toDL;    // at 0x8
 };
 
 class ResTagDL : public ResCommon<ResTagDLData> {

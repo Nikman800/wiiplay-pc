@@ -131,8 +131,13 @@ public:
     void setBuffer(void* pBuffer) {
 #line 180
         EGG_ASSERT(pBuffer);
+#if defined(PORT_HOST)
+#line 180
+        EGG_ASSERT(( uintptr_t )pBuffer % 32 == 0);
+#else
 #line 180
         EGG_ASSERT(( u32 )pBuffer % 32 == 0);
+#endif
 
         mpBuffer = pBuffer;
         clearFlag(cFlag_HasHeader);

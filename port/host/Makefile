@@ -59,12 +59,24 @@ CFLAGS := -std=gnu11 $(COMMON) -Werror=pointer-to-int-cast
 # member init order and anonymous-namespace bases are as in the original.
 CXXFLAGS := -std=gnu++17 -fno-exceptions -fno-rtti $(COMMON) \
             -Wno-invalid-offsetof -Wno-subobject-linkage -Wno-reorder
+# g3d_resanmchr.cpp switches a u32 over enumerators of (1 << 31) (an int);
+# CodeWarrior accepts it, C++11 calls it a narrowing conversion.
+CXXFLAGS += -Wno-narrowing
 
 # nw4r::lyt (layouts and layout animations), built and bound without drawing.
 LYT_SRCS := $(addprefix src/nw4r/lyt/,lyt_animation.cpp lyt_arcResourceAccessor.cpp \
     lyt_bounding.cpp lyt_common.cpp lyt_drawInfo.cpp lyt_group.cpp lyt_init.cpp \
     lyt_layout.cpp lyt_material.cpp lyt_pane.cpp lyt_picture.cpp \
     lyt_resourceAccessor.cpp lyt_texMap.cpp lyt_textBox.cpp lyt_window.cpp)
+
+# nw4r::g3d resource code (POINTERS.md step 5): ResFile CheckRevision, Init,
+# Bind; no drawing.
+G3D_SRCS := $(addprefix src/nw4r/g3d/res/,g3d_rescommon.cpp g3d_resdict.cpp \
+    g3d_resfile.cpp g3d_resmdl.cpp g3d_resmat.cpp g3d_resshp.cpp g3d_restev.cpp \
+    g3d_restex.cpp g3d_resvtx.cpp g3d_resnode.cpp g3d_resanm.cpp g3d_resanmchr.cpp \
+    g3d_resanmclr.cpp g3d_resanmtexpat.cpp g3d_resanmtexsrt.cpp g3d_resanmvis.cpp \
+    g3d_resanmshp.cpp g3d_resanmscn.cpp g3d_resanmamblight.cpp g3d_resanmlight.cpp \
+    g3d_resanmcamera.cpp g3d_reslightset.cpp)
 
 # Real decompiled sources compiled for the host (unmodified unless listed in
 # docs/HOST_BUILD.md).
@@ -88,7 +100,8 @@ DECOMP_SRCS := \
     src/nw4r/ut/ut_TagProcessorBase.cpp \
     src/nw4r/math/math_triangular.cpp \
     src/egg/util/eggMsgRes.cpp \
-    $(LYT_SRCS)
+    $(LYT_SRCS) \
+    $(G3D_SRCS)
 
 # MSL_C wide-string functions, compiled under port_* names (port/wide.h).
 # Their headers live in include/MSL/internal; include/MSL is searched last so
@@ -97,16 +110,15 @@ MSL_SRCS := \
     src/MSL_C/wstring.c \
     src/MSL_C/wmem.c
 
-HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp
+HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp \
+    src/host_gxtexobj.cpp
 
 # POINTERS.md step 4 sites (§5.1): compiled (not linked; most of RPKernel and
 # RPParty does not build on the host yet) so the host forms keep building.
-# RPPlayerNameTag also needs the g3d headers, which are 64-bit clean only
-# after POINTERS.md step 5, so the 64-bit build skips it.
-STEP4_SRCS := src/Pack/RPKernel/RPSysTagProcessor.cpp
-ifeq ($(M32),1)
-STEP4_SRCS += src/Pack/RPParty/RPPartyCommon/RPPlayerNameTag.cpp
-endif
+# RPPlayerNameTag also pulls in the g3d and EGG CpuTexture headers (64-bit
+# clean since POINTERS.md step 5).
+STEP4_SRCS := src/Pack/RPKernel/RPSysTagProcessor.cpp \
+    src/Pack/RPParty/RPPartyCommon/RPPlayerNameTag.cpp
 STEP4_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(STEP4_SRCS))
 
 DECOMP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(DECOMP_SRCS))
@@ -117,8 +129,8 @@ LIB := $(OUT)/libwiiplay_loader.a
 TESTS := $(OUT)/test_be $(OUT)/test_be_c $(OUT)/test_port $(OUT)/test_port_c \
          $(OUT)/test_layout
 
-.PHONY: all test unit archives resources layouts clean
-all: $(OUT)/arc_harness $(OUT)/res_harness $(OUT)/lyt_harness $(TESTS) $(STEP4_OBJS)
+.PHONY: all test unit archives resources layouts models clean
+all: $(OUT)/arc_harness $(OUT)/res_harness $(OUT)/lyt_harness $(OUT)/g3d_harness $(TESTS) $(STEP4_OBJS)
 
 $(OUT)/decomp/%.c.o: $(REPO)/%.c
 	@mkdir -p $(dir $@)
@@ -148,6 +160,9 @@ $(OUT)/res_harness: $(HOST)/tests/res_harness.cpp $(HOST)/tests/rpsysmessage_uni
 	$(CXX) $(CXXFLAGS) $(filter %.cpp,$^) $(LIB) -o $@
 
 $(OUT)/lyt_harness: $(HOST)/tests/lyt_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(LIB) -o $@
+
+$(OUT)/g3d_harness: $(HOST)/tests/g3d_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(LIB) -o $@
 
 $(OUT)/test_be: $(HOST)/tests/test_be.cpp $(HOST)/include/port/be.h
@@ -181,7 +196,10 @@ resources: $(OUT)/res_harness
 layouts: $(OUT)/lyt_harness
 	python3 $(HOST)/tests/test_layouts.py --harness $(OUT)/lyt_harness --disc $(DISC)
 
-test: unit archives resources layouts
+models: $(OUT)/g3d_harness
+	python3 $(HOST)/tests/test_models.py --harness $(OUT)/g3d_harness --disc $(DISC)
+
+test: unit archives resources layouts models
 
 clean:
 	rm -rf $(HOST)/build

@@ -13,6 +13,7 @@
 
 #include <Pack/RPKernel/RPSysMessage.h>
 #include <egg/util/eggMsgRes.h>
+#include <nw4r/g3d.h>
 #include <nw4r/lyt.h>
 #include <nw4r/ut.h>
 #include <revolution/TPL.h>
@@ -175,6 +176,59 @@ PORT_LAYOUT_OFFSET(lres::AnimationBlock, animContOffsetsOffset, 0x10);
 PORT_LAYOUT_SIZE(lres::AnimationInfo, 0x8);
 PORT_LAYOUT_SIZE(lres::AnimationContent, 0x18);
 PORT_LAYOUT_SIZE(nw4r::ut::Color, 0x4);
+
+// nw4r::g3d resources (include/nw4r/g3d/res; POINTERS.md §4 and step 5).
+namespace g3d = nw4r::g3d;
+PORT_LAYOUT_SIZE(g3d::ResDicNodeData, 0x10);
+PORT_LAYOUT_OFFSET(g3d::ResDicData, data, 0x8);
+PORT_LAYOUT_OFFSET(g3d::ResFileData, dict, 0x10);
+PORT_LAYOUT_SIZE(g3d::ResNameData, 0x8);
+PORT_LAYOUT_SIZE(g3d::ResTagDLData, 0xC);
+PORT_LAYOUT_SIZE(g3d::ResMdlData, 0x80);
+PORT_LAYOUT_OFFSET(g3d::ResMdlData, name, 0x3C);
+PORT_LAYOUT_OFFSET(g3d::ResMdlData, info, 0x40);
+PORT_LAYOUT_OFFSET(g3d::ResMdlInfoData, toMtxIDToNodeID, 0x24);
+PORT_LAYOUT_OFFSET(g3d::ResNodeData, toParentNode, 0x5C);
+PORT_LAYOUT_SIZE(g3d::ResNodeData, 0xD0);
+PORT_LAYOUT_SIZE(g3d::ResVtxPosData, 0x38);
+PORT_LAYOUT_OFFSET(g3d::ResVtxPosData, stride, 0x1D);
+PORT_LAYOUT_OFFSET(g3d::ResVtxTexCoordData, numTexCoord, 0x1E);
+PORT_LAYOUT_SIZE(g3d::ResPrePrimDL, 0xE0);
+PORT_LAYOUT_OFFSET(g3d::ResShpData, tagPrePrimDL, 0x18);
+PORT_LAYOUT_OFFSET(g3d::ResShpData, idVtxPosition, 0x48);
+PORT_LAYOUT_OFFSET(g3d::ResShpData, idVtxTexCoord, 0x50);
+PORT_LAYOUT_OFFSET(g3d::ResShpData, msu, 0x64);
+PORT_LAYOUT_SIZE(g3d::ResTexPlttInfoData, 0x34);
+PORT_LAYOUT_OFFSET(g3d::ResTexPlttInfoData, pTexData, 0x8);
+PORT_LAYOUT_OFFSET(g3d::ResTexPlttInfoData, pPlttData, 0xC);
+PORT_LAYOUT_OFFSET(g3d::ResTexPlttInfoData, lod_bias, 0x28);
+PORT_LAYOUT_SIZE(g3d::ResTexObjData, 0x104);
+PORT_LAYOUT_SIZE(g3d::ResTlutObjData, 0x64);
+PORT_LAYOUT_OFFSET(g3d::ResMatData, texObjData, 0x3C);
+PORT_LAYOUT_OFFSET(g3d::ResMatData, tlutObjData, 0x140);
+PORT_LAYOUT_OFFSET(g3d::ResMatData, texSrtData, 0x1A4);
+PORT_LAYOUT_OFFSET(g3d::ResMatData, chan, 0x3EC);
+PORT_LAYOUT_OFFSET(g3d::ResTevData, dl, 0x20);
+PORT_LAYOUT_SIZE(g3d::ResTexData, 0x38);
+PORT_LAYOUT_OFFSET(g3d::ResTexData, mipmap_level, 0x24);
+PORT_LAYOUT_SIZE(g3d::ResPlttData, 0x28);
+PORT_LAYOUT_OFFSET(g3d::ResPlttData, numEntries, 0x1C);
+PORT_LAYOUT_OFFSET(g3d::ResAnmChrData, info, 0x1C);
+PORT_LAYOUT_OFFSET(g3d::ResAnmChrInfoData, scalingRule, 0x8);
+PORT_LAYOUT_OFFSET(g3d::ResAnmClrData, info, 0x1C);
+PORT_LAYOUT_OFFSET(g3d::ResAnmTexSrtData, info, 0x1C);
+PORT_LAYOUT_OFFSET(g3d::ResAnmTexSrtInfoData, policy, 0x8);
+PORT_LAYOUT_OFFSET(g3d::ResAnmTexPatData, info, 0x2C);
+PORT_LAYOUT_OFFSET(g3d::ResAnmTexPatInfoData, policy, 0x8);
+PORT_LAYOUT_SIZE(g3d::ResAnmTexPatFrmData, 0x8);
+PORT_LAYOUT_OFFSET(g3d::ResAnmVisData, info, 0x1C);
+PORT_LAYOUT_OFFSET(g3d::ResAnmShpData, info, 0x20);
+PORT_LAYOUT_OFFSET(g3d::ResAnmScnData, info, 0x30);
+PORT_LAYOUT_OFFSET(g3d::ResLightSetData, lightId, 0x3C);
+PORT_LAYOUT_SIZE(g3d::ResKeyFrameData, 0xC);
+PORT_LAYOUT_SIZE(g3d::ResAnmChrFrm48Data, 0x6);
+PORT_LAYOUT_SIZE(GXTexObj, 0x20);
+PORT_LAYOUT_SIZE(GXTlutObj, 0xC);
 
 } // namespace
 

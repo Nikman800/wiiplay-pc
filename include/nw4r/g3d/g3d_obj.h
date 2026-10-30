@@ -48,10 +48,17 @@ public:
         explicit TypeObj(const ResNameDataT<N>& rName)
             : mName(reinterpret_cast<const ResNameDataPT*>(&rName)) {}
 
+#if defined(PORT_HOST)
+        uintptr_t GetTypeID() const {
+            // @note Address is used for comparing TypeObjs
+            return reinterpret_cast<uintptr_t>(mName);
+        }
+#else
         u32 GetTypeID() const {
             // @note Address is used for comparing TypeObjs
             return reinterpret_cast<u32>(mName);
         }
+#endif
 
         const char* GetTypeName() const {
             return mName->str;

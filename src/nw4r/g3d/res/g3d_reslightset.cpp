@@ -4,11 +4,11 @@ namespace nw4r {
 namespace g3d {
 namespace {
 
-inline void SetBind(u16* pId, u32 id) {
+inline void SetBind(be_u16* pId, u32 id) {
     *pId = id;
 }
 
-inline bool IsBound(const u16* pId) {
+inline bool IsBound(const be_u16* pId) {
     return *pId != ResLightSetData::INVALID_ID;
 }
 
@@ -41,7 +41,7 @@ bool ResLightSet::Bind(const ResAnmScn scene) {
         numAllLight += numLight;
 
         for (u32 i = 0; i < numLight; i++) {
-            u16* pId = &r.lightId[i];
+            be_u16* pId = &r.lightId[i];
 
             if (IsBound(pId)) {
                 numBound++;
