@@ -106,7 +106,7 @@ void RPSysStringTagParm::read(EGG::Stream& rStream) {
  * @param rStream Output stream
  */
 void RPSysStringTagParm::write(EGG::Stream& rStream) {
-    rStream.writeString(mpValue);
+    rStream.writeString(const_cast<char*>(mpValue));
 }
 
 /**

@@ -53,10 +53,15 @@ static const char* sButtonAnimations[] = {
     "playerSelect_01_activeButton_00.brlan", "playerSelect_01_pushButton_00.brlan",
     "playerSelect_01_offButton_00.brlan", NULL
 };
+// GCC does not accept a C linkage block around static member definitions
+#if !defined(PORT_HOST)
 extern "C" {
+#endif
 const char* RPPlayerSettingPanel::sRowAnimName = "playerSelect_01_activeBar_00.brlan";
 const char* RPPlayerSettingPanel::sSportsAnimName = "playerSelect_01_onOffSports_00.brlan";
+#if !defined(PORT_HOST)
 }
+#endif
 static const char* sTitleNames[] = {
     "T_handSelect", "T_tennis_00", "T_baseball_00", "T_bowling_00", "T_golf_00", "T_boxing_00",
     "T_title_00", "T_title_01", "T_title_02", "T_title_03", "T_title_04", "T_title_05"

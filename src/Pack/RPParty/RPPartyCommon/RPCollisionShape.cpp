@@ -2,6 +2,12 @@
 #include <egg/gfxe/eggDrawGX.h>
 #include <math.h>
 
+// The address of a temporary (CodeWarrior accepts `&T(...)`; the host form is in
+// port/host/include/decomp/compat.h)
+#if !defined(PORT_TEMP_PTR)
+#define PORT_TEMP_PTR(x) (&(x))
+#endif
+
 extern "C" void RP_BBox_reset2(RPBBox*);
 extern "C" EGG::Vector3f calcRPY__Q23EGG9Matrix34fCFv(const EGG::Matrix34f*);
 extern "C" EGG::Vector3f cross__Q23EGG8Vector3fCFRCQ23EGG8Vector3f(const EGG::Vector3f*, const EGG::Vector3f&);
@@ -344,9 +350,9 @@ void RPCollisionShape::Draw() {
         EGG::Vector3f dir = mRot;
         if (!ShapeNanVec(dir) && dir.normalise() != ShapeIdentity(0.0f)) {
             EGG::Matrix34f arrow;
-            arrow.setBase(0, __ml__Q23EGG8Vector3fCFf(&EGG::Vector3f(dir.y, -dir.x, dir.z), 2.5f));
+            arrow.setBase(0, __ml__Q23EGG8Vector3fCFf(PORT_TEMP_PTR(EGG::Vector3f(dir.y, -dir.x, dir.z)), 2.5f));
             arrow.setBase(1, __ml__Q23EGG8Vector3fCFf(&mRot, RP_CollisionShape_arrowLength));
-            arrow.setBase(2, __ml__Q23EGG8Vector3fCFf(&EGG::Vector3f(-dir.z, -dir.x, dir.y), 2.5f));
+            arrow.setBase(2, __ml__Q23EGG8Vector3fCFf(PORT_TEMP_PTR(EGG::Vector3f(-dir.z, -dir.x, dir.y)), 2.5f));
             arrow.setBase(3, mPos);
             EGG::DrawGX::BeginDrawCornY();
             GXColor color = sArrowColor;

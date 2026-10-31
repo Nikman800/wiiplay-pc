@@ -23,6 +23,7 @@ static inline nw4r::g3d::ScnObj* G3D_ConstructScnObj(const nw4r::g3d::ResMdl& md
     return pScnObj;
 }
 
+template <>
 RPGrpModelAnm* RPGrpModelAnmG3D::Construct(RPGrpModel* pModel) {
     RPGrpModelAnm* pAnm = new RPGrpModelAnmImplement(pModel);
     pAnm->Configure();

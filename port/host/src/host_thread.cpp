@@ -157,6 +157,9 @@ void SwitchTo(HostThread* next) {
 // Devices (PortOSAddDevice): the DVD drive and the NAND of HOST_BUILD.md §22.
 const int MAX_DEVICES = 8;
 PortOSDeviceFunc sDevices[MAX_DEVICES];
+// The clock (HOST_BUILD.md §29): time passes only when every thread waits and
+// no device has work left; it then advances to the next timed event.
+PortOSDeviceFunc sClock = NULL;
 int sDeviceCount = 0;
 
 // Every thread is blocked (or the main thread idles): the hardware gets to
@@ -177,15 +180,45 @@ bool RunDevices() {
     return any;
 }
 
+// Nothing can run and no device has work: let time pass to the next timed
+// event (a retrace, an audio frame), whose handlers run in interrupt context.
+bool RunClock() {
+    if (sClock == NULL) {
+        return false;
+    }
+    sInterruptDepth++;
+    bool any = sClock() != 0;
+    sInterruptDepth--;
+    if (sInterruptDepth == 0) {
+        sReschedulePending = false;
+    }
+    return any;
+}
+
+// Threads in PortOSSpinWait wait on this key; anything a device or the clock
+// does wakes them.
+const char sSpinKey = 0;
+
+void WakeSpinners() {
+    for (size_t i = 0; i < sThreads.size(); i++) {
+        HostThread* t = sThreads[i];
+        if (t->state == ST_WAITING && t->waitKey == &sSpinKey) {
+            t->state = ST_READY;
+            t->waitKey = NULL;
+        }
+    }
+}
+
 // The current thread can no longer run: switch to the best ready thread.
 void Block(const void* key) {
     sCurrent->state = ST_WAITING;
     sCurrent->waitKey = key;
     HostThread* next;
     while ((next = BestReady(NULL)) == NULL) {
-        if (!RunDevices()) {
+        if (!RunDevices() && !RunClock()) {
             Fail("deadlock: every thread is blocked");
         }
+        WakeSpinners();
     }
     SwitchTo(next);
 }
@@ -266,6 +299,15 @@ void PortOSIdle(void) {
     }
 }
 
+void PortOSSpinWait(void) {
+    Init();
+    Block(&sSpinKey);
+}
+
+void PortOSSetClock(PortOSDeviceFunc func) {
+    sClock = func;
+}
+
 void PortOSAddDevice(PortOSDeviceFunc func) {
     for (int i = 0; i < sDeviceCount; i++) {
         if (sDevices[i] == func) {
@@ -317,6 +359,23 @@ BOOL OSCreateThread(OSThread* thread, OSThreadFunc func, void* funcArg, void* st
     t->ctx.uc_link = NULL;
     makecontext(&t->ctx, Trampoline, 0);
     return TRUE;
+}
+
+BOOL OSSetThreadPriority(OSThread* thread, s32 prio) {
+    HostThread* t = Find(thread);
+    if (t == NULL || prio < 0 || prio > 31) {
+        return FALSE;
+    }
+    t->prio = prio;
+    thread->priority = prio;
+    thread->base = prio;
+    Reschedule();
+    return TRUE;
+}
+
+s32 OSGetThreadPriority(OSThread* thread) {
+    HostThread* t = Find(thread);
+    return t != NULL ? t->prio : thread->priority;
 }
 
 s32 OSResumeThread(OSThread* thread) {

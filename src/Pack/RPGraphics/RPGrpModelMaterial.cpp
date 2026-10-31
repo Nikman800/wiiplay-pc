@@ -135,8 +135,14 @@ inline void RPGrpModelMaterial::ReadEffectMtx() {
     for (u32 i = 0; i < 8; i++) {
         nw4r::math::MTX34 mtx;
         if (texSrt.GetEffectMtx(i, &mtx)) {
+#if defined(PORT_HOST)
+            // The resource's matrix is big-endian: point at a native copy instead (SyncEffectMtx
+            // writes it back through ResTexSrt::SetEffectMtx)
+            mpEffectMtx[i] = new nw4r::math::MTX34(mtx);
+#else
             mpEffectMtx[i] =
                 static_cast<nw4r::math::MTX34*>(&texSrt.ref().effect[i].effectMtx);
+#endif
         }
     }
 }

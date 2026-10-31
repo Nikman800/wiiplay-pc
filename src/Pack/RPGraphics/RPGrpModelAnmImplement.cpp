@@ -34,6 +34,31 @@ const RPGrpModelAnm::AnmPlayPolicy RPGrpModelAnmG3D::FROM_G3D_POLICY[] = {
     AnmPlayPolicy_OneTime, // Wii Play: a sixth entry
 };
 
+#if defined(PORT_HOST)
+// GCC needs an explicit specialization declared before its first use. CodeWarrior places a
+// specialization's code by its first declaration, so the Wii build leaves them undeclared here.
+template <>
+s16 RPGrpModelAnmG3D::RemoveBlendAnm(Anm anm, u8 arg1, u8 arg2);
+template <>
+s16 RPGrpModelAnmG3D::GetBlendAnm(Anm anm, u8 arg1, u8 arg2);
+template <>
+inline void RPGrpModelAnmG3D::RegistAnmChr(AnmIdx idx, const nw4r::g3d::ResAnmChr chr);
+template <>
+inline void RPGrpModelAnmG3D::RegistAnmClr(AnmIdx idx, const nw4r::g3d::ResAnmClr clr);
+template <>
+inline void RPGrpModelAnmG3D::RegistAnmTexPat(AnmIdx idx, const nw4r::g3d::ResAnmTexPat pat);
+template <>
+inline void RPGrpModelAnmG3D::RegistAnmTexSrt(AnmIdx idx, const nw4r::g3d::ResAnmTexSrt srt);
+template <>
+inline void RPGrpModelAnmG3D::RegistAnmVis(AnmIdx idx, const nw4r::g3d::ResAnmVis vis);
+template <>
+inline void RPGrpModelAnmG3D::RegistAnmShp(AnmIdx idx, const nw4r::g3d::ResAnmShp shp);
+template <>
+nw4r::g3d::AnmObj* RPGrpModelAnmG3D::GetAnmObj(Anm anm, AnmIdx idx) const;
+template <>
+f32 RPGrpModelAnmG3D::GetUpdateRate(Anm anm, AnmIdx idx) const;
+#endif
+
 template <RPGrpModel::Kind K>
 void RPGrpModelAnmImplement<K>::RegistFromResFile(Anm anm, AnmIdx idx,
                                          RPGrpHandle handle,

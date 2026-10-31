@@ -13,6 +13,12 @@
 #include <Pack/RPKernel/RPSysKokeshiManager.h>
 #include <Pack/RPUtility/RPUtlRandom.h>
 
+// The address of a temporary (CodeWarrior accepts `&T(...)`; the host form is in
+// port/host/include/decomp/compat.h)
+#if !defined(PORT_TEMP_PTR)
+#define PORT_TEMP_PTR(x) (&(x))
+#endif
+
 f32 RPDoll::sAngles[2][2] = {{5.0f, -5.0f}, {5.0f, -5.0f}};
 f32 RPDoll::sScale[2] = {15.5f, 16.5f};
 f32 RPDoll::sLookDistance = 500.0f;
@@ -636,8 +642,8 @@ void RPDoll::EditJointWorldMtx(RPGrpModel*, u16, nw4r::math::MTX34* pMtx) {
     x.normalise();
     EGG::Vector3f direction = __pl__Q23EGG8Vector3fCFRCQ23EGG8Vector3f(
         &y, __ml__Q23EGG8Vector3fCFf(
-                &__ml__Q23EGG8Vector3fCFf(
-                    static_cast<const EGG::Vector3f*>(&mLookDir), mLookWeight),
+                PORT_TEMP_PTR(__ml__Q23EGG8Vector3fCFf(
+                    static_cast<const EGG::Vector3f*>(&mLookDir), mLookWeight)),
                 sBillboardFactor));
     EGG::Vector3f projection = __ml__Q23EGG8Vector3fCFf(&x, direction.dot(x));
     EGG::Vector3f up = __mi__Q23EGG8Vector3fCFRCQ23EGG8Vector3f(&direction, projection);

@@ -266,4 +266,16 @@ static inline unsigned int __rlwimi(unsigned int base, unsigned int value, unsig
 // CodeWarrior's `#pragma unused(x)` etc. are ignored by GCC/Clang (with a
 // warning); nothing else to do here.
 
+// `&T(...)`, the address of a temporary (CodeWarrior accepts it; C++ does not):
+// a const reference keeps the temporary until the end of the full expression.
+#ifdef __cplusplus
+extern "C++" {
+template <typename T>
+static inline const T* PortTempPtr(const T& t) {
+    return &t;
+}
+}
+#define PORT_TEMP_PTR(x) PortTempPtr(x)
+#endif
+
 #endif

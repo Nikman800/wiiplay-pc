@@ -642,6 +642,10 @@ void AISetDSPSampleRate(u32 rate) {
 }
 
 /* Host entry points (port/host.h). */
+int PortAXIsInitialised(void) {
+    return sAxOutInitialised ? 1 : 0;
+}
+
 void PortAXRunFrame(short* out) {
     if (!sAxOutInitialised) {
         std::fprintf(stderr, "host_ax: PortAXRunFrame before AXInit\n");

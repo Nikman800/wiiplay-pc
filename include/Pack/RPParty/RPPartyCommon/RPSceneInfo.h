@@ -18,6 +18,11 @@ class RPSysMiddleDB;
  * RPPartyRootScene::Configure, deleted by its Exit and RP_SceneInfo_destroyInstance).
  * @note Wii Play-only framework class; the name is a project convention (ledger RP_SceneInfo).
  */
+#if defined(PORT_HOST)
+// RPSceneInfo_2.cpp defines it with C linkage; GCC needs that before the friend declaration
+extern "C" void RP_createSceneInfo();
+#endif
+
 class RPSceneInfo {
     friend void RP_createSceneInfo();
 

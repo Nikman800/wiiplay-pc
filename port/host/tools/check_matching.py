@@ -268,6 +268,22 @@ TOUCHED = [
     "src/egg/gfxe/eggStateGX.cpp",
     "src/egg/gfxe/eggDrawGX.cpp",
     "src/egg/gfxe/eggLightTexture.cpp",
+    # §29: the game's frame loop (RPGrpModel*, RPGrpRenderer, effects, scenes on the host)
+    "src/Pack/RPGraphics/RPGrpModelAnmImplement.cpp",
+    "src/Pack/RPGraphics/RPGrpModelImplement.cpp",
+    "src/Pack/RPGraphics/RPGrpModelMaterial.cpp",
+    "src/egg/core/eggProcessMeter.cpp",
+    "src/Pack/RPParty/RPPartyCommon/RPBodyJoints.cpp",
+    "src/Pack/RPParty/RPPartyCommon/RPCollisionShape.cpp",
+    "src/Pack/RPParty/RPPartyCommon/RPDoll.cpp",
+    "src/Pack/RPParty/RPPartyCommon/RPPlayerSettingPanel.cpp",
+    "src/Pack/RPSystem/RPSysTagParms.cpp",
+    "include/Pack/RPParty/RPPartyCommon/RPSceneInfo.h",
+    "src/Pack/RPParty/RPPartyCommon/RPDebugGraph.cpp",
+    "src/RVLFaceLib/RFL_System.c",
+    "src/nw4r/ef/drawstrategy/ef_drawfreestrategy.cpp",
+    "src/nw4r/ef/drawstrategy/ef_drawbillboardstrategy.cpp",
+    "src/nw4r/ef/drawstrategy/ef_drawdirectionalstrategy.cpp",
 ]
 
 

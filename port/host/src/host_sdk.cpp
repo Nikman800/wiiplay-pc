@@ -60,7 +60,7 @@ extern "C" void PortHostSetDiscRoot(const char* pRoot) {
 
 extern "C" {
 
-void OSReport(const char* msg, ...) {
+__attribute__((weak)) void OSReport(const char* msg, ...) {
     va_list args;
     va_start(args, msg);
     std::vfprintf(stderr, msg, args);
@@ -146,7 +146,10 @@ void DCStoreRangeNoSync(const void* buf, u32 len) {
     (void)buf;
     (void)len;
 }
-void VIWaitForRetrace(void) {}
+__attribute__((weak)) void VIWaitForRetrace(void) {}
+// Without the cooperative threads (src/host_thread.cpp) nothing else can run:
+// a poll just polls again (HOST_BUILD.md §29).
+__attribute__((weak)) void PortOSSpinWait(void) {}
 
 /******************************************************************************
  * DVD

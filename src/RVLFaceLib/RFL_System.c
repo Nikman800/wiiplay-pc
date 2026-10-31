@@ -3,6 +3,9 @@
 #include <revolution/MEM.h>
 
 #include <string.h>
+#if defined(PORT_HOST)
+#include <port/host.h>
+#endif
 
 #define RFL_SYSTEM_HEAP_SIZE 0x24800
 #define RFL_WORK_SIZE 0x4B000
@@ -233,6 +236,12 @@ RFLErrcode RFLWaitAsync(void) {
 
     do {
         status = RFLGetAsyncStatus();
+#if defined(PORT_HOST)
+        // Nothing preempts a polling thread on the host: let the NAND callbacks run
+        if (status == RFLErrcode_Busy) {
+            PortOSSpinWait();
+        }
+#endif
     } while (status == RFLErrcode_Busy);
 
     return status;

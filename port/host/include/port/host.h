@@ -40,6 +40,8 @@ int PortSCLoadConfig(const char* path);
  * on success, 0 if the buffer is not a 16-bit BMG or a tag is malformed.
  */
 int PortSwapBmgText(void* pBmg);
+/* PortSwapBmgText's mark in the last reserved byte of a swapped BMG header. */
+#define PORT_BMG_SWAPPED 0x48
 
 /*
  * Threads (src/host_thread.cpp, HOST_BUILD.md §21): cooperative and
@@ -55,6 +57,14 @@ void PortOSIdle(void);
  * thread is blocked and when the main thread idles (src/host_thread.cpp). */
 typedef int (*PortOSDeviceFunc)(void);
 void PortOSAddDevice(PortOSDeviceFunc func);
+/* The clock (HOST_BUILD.md §29): when every thread is blocked and no device has
+ * work, it is called (in interrupt context) to advance time to the next timed
+ * event; it returns 0 if nothing can happen any more (a deadlock). */
+void PortOSSetClock(PortOSDeviceFunc func);
+/* A thread polling for something an interrupt would change (HOST_BUILD.md §29):
+ * every other ready thread runs, then the devices or the clock, and the caller
+ * resumes after that. */
+void PortOSSpinWait(void);
 
 /*
  * AX (src/host_ax.cpp, HOST_BUILD.md §21): the DSP as a software mixer.
@@ -78,6 +88,23 @@ typedef void (*PortAXVoiceTap)(const PortAXVoiceTrace* trace, void* user);
 void PortAXSetVoiceTap(PortAXVoiceTap tap, void* user);
 
 void PortAXRunFrame(short* out);
+/* Non-zero once AXInit has set up the output (PortAXRunFrame may run). */
+int PortAXIsInitialised(void);
+
+/* The host VI and game clock (src/host_vi.cpp, HOST_BUILD.md §29). */
+typedef void (*PortVIRetraceHook)(u32 retraceCount, void* user);
+typedef void (*PortVIAudioSink)(const short* samples, u32 frames, void* user);
+void PortVIInitClock(void);
+/* Called at every retrace, first (scripted input, WPAD reports). */
+void PortVISetRetraceHook(PortVIRetraceHook hook, void* user);
+/* Every AX frame's stereo samples (PORT_AX_FRAME_SAMPLES frames). */
+void PortVISetAudioSink(PortVIAudioSink sink, void* user);
+unsigned long long PortVIAudioFrames(void);
+long long PortVIGameTimeUnits(void); /* 1/60000 s */
+int PortVIIsBlack(void);
+
+/* Health_strapArchive (main.dol .data6) is at most this big (host_boot.cpp). */
+#define PORT_STRAP_ARCHIVE_MAX 0x20500
 /* Test switch: every voice converts with this srcSelect (2: none, one input
  * sample per output) instead of its own; -1 restores the PB's. */
 void PortAXSetSrcOverride(int srcSelect);

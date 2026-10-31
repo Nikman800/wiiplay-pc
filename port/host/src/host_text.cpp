@@ -15,6 +15,7 @@
 #include <port/host.h>
 
 #include <cstring>
+#include <cstdlib>
 #include <vector>
 
 extern "C" int PortSwapBmgText(void* pBmg) {
@@ -22,6 +23,11 @@ extern "C" int PortSwapBmgText(void* pBmg) {
 
     if (std::memcmp(p, "MESGbmg1", 8) != 0 || p[0x10] != 2) {
         return 0; // not a BMG, or not 16-bit text
+    }
+    // Swapped once: the last reserved header byte marks it (HOST_BUILD.md §29:
+    // EGG::MsgRes swaps every BMG it is given, and buffers are shared)
+    if (p[0x1F] == PORT_BMG_SWAPPED) {
+        return 1;
     }
 
     u32 dataSize = port_load_be32(p + 0x8);
@@ -54,7 +60,11 @@ extern "C" int PortSwapBmgText(void* pBmg) {
     u16 entrySize = port_load_be16(pInf + 0xA);
 
     // One flag per byte of DAT1: messages may share text, swap each unit once.
-    std::vector<u8> done(datSize, 0);
+    // (malloc: operator new may be the game's heap)
+    u8* done = static_cast<u8*>(std::calloc(datSize + 2, 1));
+    if (done == NULL) {
+        return 0;
+    }
 
     for (u16 i = 0; i < numEntries; i++) {
         u32 pos = port_load_be32(pInf + 0x10 + i * entrySize);
@@ -71,6 +81,7 @@ extern "C" int PortSwapBmgText(void* pBmg) {
             if (code == 0x1A) {
                 u32 length = pDat[pos + 2]; // bytes, including the 0x1A unit
                 if (length < 2 || pos + length > datSize) {
+                    std::free(done);
                     return 0;
                 }
                 for (u32 k = 2; k < length; k++) {
@@ -84,5 +95,7 @@ extern "C" int PortSwapBmgText(void* pBmg) {
         }
     }
 
+    std::free(done);
+    p[0x1F] = PORT_BMG_SWAPPED;
     return 1;
 }

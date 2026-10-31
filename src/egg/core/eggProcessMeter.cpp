@@ -247,7 +247,7 @@ void ProcessMeter::callbackDrawSync(u16 token) {
 void* ProcessMeter::run() {
     while (true) {
         OSMessage msg = waitMessageBlock();
-        u32 tick = reinterpret_cast<u32>(msg);
+        u32 tick = static_cast<u32>(reinterpret_cast<uintptr_t>(msg));
 
         BOOL enabled = OSDisableInterrupts();
 

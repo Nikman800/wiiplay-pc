@@ -730,6 +730,44 @@ $(OUT)/gx3d_harness: $(HOST)/tests/gx3d_harness.cpp $(HOST)/tests/disc_walk.h $(
 	$(CXX) $(CXXFLAGS) -I$(HOST)/aurora -MMD $< $(GX_SDK_OBJS) $(GX3D_OBJS) $(LIB) \
 	    -L$(AURORA_BUILD) -lwiiplay_gx -Wl,-rpath,$(AURORA_BUILD) -Wl,--gc-sections -o $@
 
+# The game's own boot and frame loop (docs/HOST_BUILD.md §29): the decomp's main,
+# RPSysSystem, the scene manager and creator, the boot (health and safety) and
+# title scenes, on every platform layer (§22 heaps/DVD/NAND/SC, §23 WPAD, §21 AX,
+# §26-28 GX on Aurora) plus a host VI (src/host_vi.cpp) that paces game time.
+# The game's units are taken whole and linked with --gc-sections: only what the
+# reached code references stays. src/host_boot.cpp has the stand-ins that remain.
+RP_DIRS := RPKernel RPSystem RPGraphics RPAudio RPUtility RPParty/RPPartyCommon
+BOOT_RP_SRCS := $(patsubst $(REPO)/%,%,$(sort $(foreach d,$(RP_DIRS),$(wildcard $(REPO)/src/Pack/$(d)/*.cpp))))
+BOOT_LIB_SRCS := $(patsubst $(REPO)/%,%,$(sort \
+    $(wildcard $(REPO)/src/egg/*/*.cpp) \
+    $(wildcard $(REPO)/src/nw4r/ut/*.cpp) $(wildcard $(REPO)/src/nw4r/math/*.cpp) \
+    $(wildcard $(REPO)/src/nw4r/ef/*.cpp) $(wildcard $(REPO)/src/nw4r/ef/*/*.cpp) \
+    $(wildcard $(REPO)/src/nw4r/g3d/*.cpp) $(wildcard $(REPO)/src/nw4r/g3d/*/*.cpp) \
+    $(wildcard $(REPO)/src/homebuttonMiniLib/*.cpp) $(wildcard $(REPO)/src/RVLFaceLib/*.c) \
+    $(wildcard $(REPO)/src/revolution/AXFX/*.c)))
+BOOT_SDK_SRCS := $(addprefix src/revolution/AX/,AX.c AXAlloc.c AXVPB.c AXAux.c AXSPB.c AXProf.c) \
+    $(addprefix src/revolution/MEM/,mem_expHeap.c mem_frameHeap.c mem_heapCommon.c mem_list.c \
+    mem_allocator.c) \
+    src/revolution/OS/OSArena.c src/revolution/OS/OSAlloc.c \
+    src/revolution/DVD/dvdfs.c src/revolution/DVD/dvdqueue.c \
+    src/revolution/KPAD/KPAD.c src/revolution/WENC/wenc.c
+# Minigame units the party menus reference (the Mii entries of Wally's game config)
+BOOT_SRCS := $(sort $(BOOT_RP_SRCS) $(BOOT_LIB_SRCS) $(BOOT_SDK_SRCS) $(SND_SRCS) \
+    src/Pack/RPParty/RPWlyScene/RPWlyGameConfig.cpp)
+BOOT_HOST_SRCS := src/host_os.cpp src/host_dvd.cpp src/host_nand.cpp src/host_sc.cpp \
+    src/host_thread.cpp src/host_os_clock.c src/host_snd.cpp src/host_ax.cpp src/host_wpad.cpp \
+    src/host_input.cpp src/host_reslist.cpp src/host_g3d.cpp src/host_gfx_stubs.c \
+    src/host_vi.cpp src/host_boot.cpp src/host_main.cpp
+BOOT_OBJS := $(sort $(patsubst %,$(OUT)/decomp/%.o,$(filter-out $(GX_SDK_SRCS),$(BOOT_SRCS))) \
+    $(patsubst %,$(OUT)/host/%.o,$(BOOT_HOST_SRCS))) $(OUT)/decomp/src/main.cpp.o
+# The decomp's main is the game's entry point; the host's main (host_main.cpp)
+# sets up the platform and calls it under this name.
+$(OUT)/decomp/src/main.cpp.o: CXXFLAGS += -Dmain=PortGameMain
+$(OUT)/boot: $(HOST)/aurora/wpgx.h $(GX_SDK_OBJS) $(BOOT_OBJS) $(WPGX_LIB) $(LIB)
+	$(CXX) $(CXXFLAGS) $(GX_SDK_OBJS) $(BOOT_OBJS) $(LIB) \
+	    -L$(AURORA_BUILD) -lwiiplay_gx -Wl,-rpath,$(AURORA_BUILD) -Wl,--gc-sections -o $@
+$(OUT)/host/src/host_main.cpp.o $(OUT)/host/src/host_vi.cpp.o: CXXFLAGS += -I$(HOST)/aurora
+
 .PHONY: gx gx-aurora-tests FORCE
 FORCE:
 all: $(OUT)/gx_harness $(OUT)/gxlyt_harness $(OUT)/gx3d_harness
@@ -749,15 +787,24 @@ gx: $(OUT)/gx_harness $(OUT)/gxlyt_harness $(OUT)/gx3d_harness gx-aurora-tests
 	python3 $(HOST)/tests/test_gxlyt.py --harness $(OUT)/gxlyt_harness --disc $(DISC) --scratch $(GX_SCRATCH)
 	python3 $(HOST)/tests/test_gx3d.py --harness $(OUT)/gx3d_harness --disc $(DISC) --scratch $(GX_SCRATCH)/gx3d
 test: gx
+# The game's boot to the title screen, headless on lavapipe (§29)
+.PHONY: boot
+all: $(OUT)/boot
+# Its own scratch directory (NAND saves, Aurora data): test_gx wipes GX_SCRATCH, and
+# make runs them in parallel.
+BOOT_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-boot
+boot: $(OUT)/boot
+	python3 $(HOST)/tests/test_boot.py --boot $(OUT)/boot --disc $(DISC) --scratch $(BOOT_SCRATCH)
+test: boot
 else
-.PHONY: gx gx-aurora-tests
-gx gx-aurora-tests:
+.PHONY: gx gx-aurora-tests boot
+gx gx-aurora-tests boot:
 	@echo "$@: skipped (NO_GX=1)"
-test: gx
+test: gx boot
 endif
 else
-.PHONY: gx gx-aurora-tests
-gx gx-aurora-tests:
+.PHONY: gx gx-aurora-tests boot
+gx gx-aurora-tests boot:
 	@echo "$@: skipped (the GX layer is 64-bit only)"
-test: gx
+test: gx boot
 endif

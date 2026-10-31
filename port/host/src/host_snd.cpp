@@ -42,49 +42,49 @@ BOOL OSRestoreInterrupts(BOOL status) {
     sInterrupts = status;
     return old;
 }
-u32 OSGetTick(void) {
+__attribute__((weak)) u32 OSGetTick(void) {
     return ++sTick;
 }
 
 /* DVD */
-s32 DVDCancel(DVDCommandBlock* block) {
+__attribute__((weak)) s32 DVDCancel(DVDCommandBlock* block) {
     (void)block;
     return 0;
 }
-BOOL DVDCancelAsync(DVDCommandBlock* block, DVDCommandCallback callback) {
+__attribute__((weak)) BOOL DVDCancelAsync(DVDCommandBlock* block, DVDCommandCallback callback) {
     if (callback != NULL) {
         callback(0, block);
     }
     return TRUE;
 }
-s32 DVDGetDriveStatus(void) {
+__attribute__((weak)) s32 DVDGetDriveStatus(void) {
     return DVD_STATE_IDLE;
 }
 
 /* NAND */
-s32 NANDOpen(const char* path, NANDFileInfo* info, u8 mode) {
+__attribute__((weak)) s32 NANDOpen(const char* path, NANDFileInfo* info, u8 mode) {
     (void)path;
     (void)info;
     (void)mode;
     return NAND_RESULT_NOEXISTS;
 }
-s32 NANDClose(NANDFileInfo* info) {
+__attribute__((weak)) s32 NANDClose(NANDFileInfo* info) {
     (void)info;
     return NAND_RESULT_OK;
 }
-s32 NANDRead(NANDFileInfo* info, void* buf, u32 len) {
+__attribute__((weak)) s32 NANDRead(NANDFileInfo* info, void* buf, u32 len) {
     (void)info;
     (void)buf;
     (void)len;
     return NAND_RESULT_FATAL_ERROR;
 }
-s32 NANDSeek(NANDFileInfo* info, s32 offset, NANDSeekMode whence) {
+__attribute__((weak)) s32 NANDSeek(NANDFileInfo* info, s32 offset, NANDSeekMode whence) {
     (void)info;
     (void)offset;
     (void)whence;
     return NAND_RESULT_FATAL_ERROR;
 }
-s32 NANDReadAsync(NANDFileInfo* info, void* buf, u32 len, NANDAsyncCallback callback,
+__attribute__((weak)) s32 NANDReadAsync(NANDFileInfo* info, void* buf, u32 len, NANDAsyncCallback callback,
                   NANDCommandBlock* block) {
     (void)info;
     (void)buf;
@@ -93,13 +93,13 @@ s32 NANDReadAsync(NANDFileInfo* info, void* buf, u32 len, NANDAsyncCallback call
     (void)block;
     return NAND_RESULT_FATAL_ERROR;
 }
-s32 NANDWrite(NANDFileInfo* info, const void* buf, u32 len) {
+__attribute__((weak)) s32 NANDWrite(NANDFileInfo* info, const void* buf, u32 len) {
     (void)info;
     (void)buf;
     (void)len;
     return NAND_RESULT_FATAL_ERROR;
 }
-s32 NANDWriteAsync(NANDFileInfo* info, const void* buf, u32 len, NANDAsyncCallback callback,
+__attribute__((weak)) s32 NANDWriteAsync(NANDFileInfo* info, const void* buf, u32 len, NANDAsyncCallback callback,
                    NANDCommandBlock* block) {
     (void)info;
     (void)buf;
@@ -108,12 +108,12 @@ s32 NANDWriteAsync(NANDFileInfo* info, const void* buf, u32 len, NANDAsyncCallba
     (void)block;
     return NAND_RESULT_FATAL_ERROR;
 }
-s32 NANDGetLength(NANDFileInfo* info, u32* length) {
+__attribute__((weak)) s32 NANDGetLength(NANDFileInfo* info, u32* length) {
     (void)info;
     *length = 0;
     return NAND_RESULT_FATAL_ERROR;
 }
-s32 NANDGetCurrentDir(char* out) {
+__attribute__((weak)) s32 NANDGetCurrentDir(char* out) {
     out[0] = '/';
     out[1] = '\0';
     return NAND_RESULT_OK;

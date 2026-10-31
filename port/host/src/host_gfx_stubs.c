@@ -137,6 +137,6 @@ PORT_STUB_MANGLED_WEAK(obj_destroy, "_ZN4nw4r3g3d6G3dObj7DestroyEv", "g3d::G3dOb
 
 /* Data the kept code refers to (.bss on the Wii). */
 void* port_stub_bom_game_manager __asm__("_ZN16RPBomGameManager9sInstanceE") = 0;
-unsigned int RP_randSeedX;
-unsigned int RP_randSeedY;
-float RP_vecZero[3];
+__attribute__((weak)) unsigned int RP_randSeedX;
+__attribute__((weak)) unsigned int RP_randSeedY;
+__attribute__((weak)) float RP_vecZero[3];

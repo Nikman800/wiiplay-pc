@@ -146,13 +146,15 @@ def mul(m, n):
             m[3] * n[0] + m[4] * n[3], m[3] * n[1] + m[4] * n[4], m[3] * n[2] + m[4] * n[5] + m[5])
 
 
-def expected_frame(files, clear):
+def expected_frame(files, clear, w_out=W, h_out=H, scale_x=1.0):
+    """The frame at the layout's file values. w_out x h_out pixels; layout x is scaled by
+    scale_x (the boot's 2D view: the 608-unit layout across a 640-pixel EFB, §29)."""
     blyt = files["blyt/" + LAYOUT]
     lay = fmt_layout.parse_brlyt(blyt)
     secs = lay["sections"]
     tex_names = [e["name"] for e in next(s for s in secs if s["kind"] == "txl1")["entries"]]
     mats = next(s for s in secs if s["kind"] == "mat1")["materials"]
-    frame = [list(clear) for _ in range(W * H)]
+    frame = [list(clear) for _ in range(w_out * h_out)]
     glob_mtx, glob_alpha, visible = {}, {}, {}
     drawn = []
     for p in pane_tree(secs):
@@ -183,17 +185,17 @@ def expected_frame(files, clear):
         # pane rectangle corners -> screen pixels (layout y up; screen y down)
         det = m[0] * m[4] - m[1] * m[3]
         corners = [(left, top), (left + w, top), (left, top - h), (left + w, top - h)]
-        sx = [m[0] * x + m[1] * y + m[2] + W / 2 for x, y in corners]
-        sy = [H / 2 - (m[3] * x + m[4] * y + m[5]) for x, y in corners]
-        x0, x1 = max(0, int(math.floor(min(sx)))), min(W, int(math.ceil(max(sx))))
-        y0, y1 = max(0, int(math.floor(min(sy)))), min(H, int(math.ceil(max(sy))))
+        sx = [(m[0] * x + m[1] * y + m[2]) * scale_x + w_out / 2 for x, y in corners]
+        sy = [h_out / 2 - (m[3] * x + m[4] * y + m[5]) for x, y in corners]
+        x0, x1 = max(0, int(math.floor(min(sx)))), min(w_out, int(math.ceil(max(sx))))
+        y0, y1 = max(0, int(math.floor(min(sy)))), min(h_out, int(math.ceil(max(sy))))
         tc = [(c["x"], c["y"]) for c in p["texCoords"][0:4]]
         cols = [((v >> 24) & 255, (v >> 16) & 255, (v >> 8) & 255, v & 255) for v in p["vtxCols"]]
         c0, c1 = mat["tev"][0], mat["tev"][1]
         for py in range(y0, y1):
-            ly = H / 2 - (py + 0.5)
+            ly = h_out / 2 - (py + 0.5)
             for px in range(x0, x1):
-                lx = px + 0.5 - W / 2
+                lx = (px + 0.5 - w_out / 2) / scale_x
                 # inverse affine: screen -> pane local
                 dx, dy = lx - m[2], ly - m[5]
                 ux = (m[4] * dx - m[1] * dy) / det
@@ -213,7 +215,7 @@ def expected_frame(files, clear):
                 a = max(0.0, min(255.0, out[3]))
                 if not alpha_pass(mat["alpha"], int(round(a))):
                     continue
-                dst = frame[py * W + px]
+                dst = frame[py * w_out + px]
                 for i in range(3):
                     dst[i] = max(0.0, min(255.0, out[i])) * a / 255.0 + dst[i] * (255.0 - a) / 255.0
     return frame, drawn

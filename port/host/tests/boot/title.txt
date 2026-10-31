@@ -1,0 +1,8 @@
+# Boot to the title screen (port/docs/HOST_BUILD.md §29): remote 0 connects at
+# once, points at the screen centre and presses A on the health and safety screen
+# (after the boot scene's loading, which ends around retrace 165).
+0 connect
+0 mouse 320 228
+200 press A
+206 release A
+end 100000

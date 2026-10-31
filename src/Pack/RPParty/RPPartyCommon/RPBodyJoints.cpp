@@ -3,7 +3,10 @@
 #include <Pack/RPGraphics/RPGrpModel.h>
 #include <Pack/RPKernel/RPSysKokeshiManager.h>
 
+// GCC does not accept a C linkage block around static member definitions
+#if !defined(PORT_HOST)
 extern "C" {
+#endif
 const char* RPPartyBodyManager::sClothesFileName[2] = {"G3D/clothes.brres", NULL};
 
 const char* RPPartyBodyManager::sClothesNames[24][2][2] = {
@@ -48,7 +51,9 @@ const char* RPPartyBodyManager::sBodyFileNames[10][2] = {
 
 // Friend clothes start index; defined at the end of the file (read from .sdata2, not folded)
 extern "C" const u16 lbl_8043ED78;
+#if !defined(PORT_HOST)
 }
+#endif
 
 const char* RPPartyBodyManager::GetClothesFileName() {
     return sClothesFileName[0];

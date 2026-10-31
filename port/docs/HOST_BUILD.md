@@ -52,6 +52,9 @@ check, init and bind, no drawing yet).
   encoder; the health screen layout renders pixel-exactly through `nw4r::lyt` (§26), and Laser
   Hockey's 3D table is built, calculated and drawn by the real `nw4r::g3d` and EGG scene code
   (§27).
+- The game boots on the host (§29): the decomp's own `main` runs `RPSysSystem`'s start-up and
+  frame loop, the boot scene draws the health and safety screen (pixel-exact against a model of
+  the layout), a scripted A press moves to the title screen, with sound, deterministically.
 
 `POINTERS.md` steps 0 to 7 are implemented: M0 (emulated Wii addresses for all host heap memory),
 `RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, ResFont (§5 to §7 below), TPL
@@ -3362,3 +3365,155 @@ OK
 - A copy the CPU reads within the frame that made it (a frame split at `GXDrawDone`), if a reader
   turns up; Shooting Range's light maps (`RPGrpDrawPathLightMap`, light textures captured with
   copies) as the next scene; lit materials; `GXPoke*` / `GXPeek*` on Aurora's readback.
+
+## 29. Milestone 4: the game's own boot and frame loop, to the title screen
+
+`build/host64/boot` is the game: the decomp's `main` (`src/main.cpp`, compiled as `PortGameMain`)
+runs `RPSysSystem::initialize`, `create`, `setup` and `mainLoop` on the host platform layers. No
+harness repeats game set-up any more: `RPSysSceneCreator` makes the boot scene
+(`RPSysBootScene`: the health and safety screen, the static resources loaded on its task thread),
+a scripted A press makes the scene manager fade to the Party Pack title scene (`RPCommonMessage`
+in this project: the save-data check and `RPTitleLyt`), and the title screen runs with its music.
+Headless on lavapipe, 420 frames (7 s of game time) take about 4 s.
+
+### The host executable
+
+| File | What |
+|---|---|
+| `port/host/src/host_main.cpp` | **New.** The entry point: arguments; what the IPL / apploader / OSInit leave (`PortOSInit`, the disc, the NAND, SC, `NANDInit`, `SCInit`); `Health_strapArchive` read from the disc's `sys/main.dol` (.data6); scripted remotes; the VI clock; Aurora (640x456 EFB, headless or `--window`), the address resolver over M0, copy writeback, the GX sink; then `PortGameMain`. Each `GXCopyDisp` ends an Aurora frame: the host prints a `FRAME` line, saves / hashes the frame read back, and ends the run after `--frames`. Host code here uses `malloc` only (`operator new` is the game's `EGG::Heap`). |
+| `port/host/src/host_vi.cpp` | **New.** VI, time and alarms on a virtual clock (below). |
+| `port/host/src/host_boot.cpp` | **New.** The stand-ins that remain (below). |
+| `port/host/src/host_thread.cpp` | `PortOSSetClock` (time passes only when every thread is blocked and no device has work), `PortOSSpinWait` (a polling thread lets the others, the devices and the clock run), `OSSetThreadPriority` / `OSGetThreadPriority`. |
+| `port/host/src/host_ax.cpp` | `PortAXIsInitialised`. |
+| `port/host/src/host_text.cpp` | `PortSwapBmgText` marks a swapped BMG (last reserved header byte, `PORT_BMG_SWAPPED`) and returns at once for a marked one; `malloc` for its work flags. |
+| `port/host/include/revolution/OS/OSMemory.h` | **New** shadow: `OSIsMEM1Region` / `OSIsMEM2Region` test the emulated address (`port_vaddr`). |
+| `port/host/include/decomp/compat.h` | `PORT_TEMP_PTR(x)`: the address of a temporary through a const reference. |
+| `host_sdk.cpp`, `host_snd.cpp`, `host_gfx_stubs.c` | `OSReport`, `VIWaitForRetrace`, `PortOSSpinWait` (a no-op), host_snd's DVD / NAND stand-ins, `RP_randSeedX/Y`, `RP_vecZero`: weak, so the real definitions win where they are linked. The boot therefore uses the game's own `OSReport` (empty, "stubbed for release"). |
+
+`make boot` (64-bit, part of `make test`; `M32=1` and `NO_GX=1` print "skipped") builds the
+executable and runs `tests/test_boot.py`. The link takes every unit of `RPKernel`, `RPSystem`,
+`RPGraphics`, `RPAudio`, `RPUtility` and `RPParty/RPPartyCommon`, all of EGG, `nw4r` (ut, math,
+ef, g3d, lyt, snd), the HOME Menu library, RVLFaceLib, AXFX, the GX SDK units of §26, the AX / MEM
+/ OSArena / OSAlloc / DVD fs / KPAD / WENC units, `RPWlyGameConfig.cpp` (the party menus' Mii
+entries) and the loader library, with `--gc-sections`: what the reached code needs stays.
+
+```
+boot --disc FILES --nand DIR --data-dir DIR [--sc FILE] [--frames N] [--input SCRIPT]
+     [--save FRAME:PATH.rgba]... [--hash] [--audio PATH.raw] [--window] [--log-level N] [--trace]
+```
+
+Output: `BOOT` (adapter, EFB size), one `FRAME` line per displayed frame (index, retrace count,
+game time in 1/60000 s, `RPSysSceneMgr`'s current scene ID, AX frames so far, with `--hash` an
+FNV-1a hash of the frame), `SCENE` lines (with `--trace`) when the scene changes, `END`.
+`--audio` writes the mixer's output (s16 stereo, 32 kHz).
+
+### Time: the VI clock
+
+Game time is virtual and deterministic, in units of 1/60000 s. It passes only when every
+cooperative thread is blocked and no device (DVD, NAND) has work: the clock then jumps to the next
+event and runs it in interrupt context: a **retrace** every 1001 units (NTSC; the host's retrace
+hook applies the input script and `PortWPADRunFrame`, then the pre-retrace callback, the
+`VIWaitForRetrace` sleepers, the post-retrace callback, i.e. `EGG::AsyncDisplay`'s frame tick),
+an **AX frame** every 180 units (3 ms) once `AXInit` has run (`PortAXRunFrame`: the sound thread
+wakes; 96 stereo samples to the audio sink), and **alarms** (`OSSetAlarm`, periodic alarms: the
+HOME Menu, the remote speaker, RFL's retries). `OSGetTime` is the clock in bus ticks plus one
+tick per call since the last event (busy-wait loops see time move); game time 0 is
+2007-01-01 00:00. `OSTicksToCalendarTime` is the Gregorian conversion. VI records the frame
+buffer, black and render mode; DTV status 0, interlaced scan: the NTSC 640x456 render mode.
+The frame loop is the game's: `AsyncDisplay::beginFrame` sleeps on the retrace, copies the EFB
+(`GXCopyDisp`: the host's frame boundary), the scene manager calculates and draws, audio and
+controller managers run.
+
+### Decomp changes (all byte-identical on the Wii; `check_matching`: 974 units identical)
+
+| File | Change | Why |
+|---|---|---|
+| `RPGrpModelImplement.cpp` | `template <>` before `RPGrpModelAnmG3D::Construct` | GCC requires the explicit-specialisation syntax (§20's blocker) |
+| `RPGrpModelAnmImplement.cpp` | `#if defined(PORT_HOST)`: declarations of the 11 specialisations used before their definitions | GCC needs a specialisation declared before its first use; any such declaration changes CodeWarrior's output (it places a specialisation by its first declaration), so the Wii build keeps none |
+| `RPGrpModelMaterial.cpp` | `ReadEffectMtx`: on the host the effect matrix pointer is a native copy (`new MTX34(mtx)`) | the resource's matrix is big-endian; `SyncEffectMtx` writes the copy back through `ResTexSrt::SetEffectMtx` |
+| `RPSysSystem.cpp` | `mMemorySize` read through `OSPhysicalToCached(0x28)` | the boot information is in M0, not at host address 0x80000028 |
+| `eggProcessMeter.cpp` | the tick in an `OSMessage` read through `uintptr_t` | 64-bit cast |
+| `eggMsgRes.cpp` | `#if defined(PORT_HOST)`: the constructor calls `PortSwapBmgText` (idempotent) | every BMG the game reads, whichever unit loads it, gets host-order text once (the title's "Press A and B." showed as "?" before) |
+| `RFL_System.c` | `#if defined(PORT_HOST)`: `RFLWaitAsync` calls `PortOSSpinWait` while busy | a pure polling loop: nothing preempts it on the host, so the NAND callbacks never ran |
+| `ef_drawbillboardstrategy.cpp`, `ef_drawdirectionalstrategy.cpp`, `ef_drawfreestrategy.cpp` | the static texture-coordinate arrays through `PORT_GP_STATIC` | the GP reads them (the cursor's particle trail is the first ef draw) |
+| `RPBodyJoints.cpp`, `RPPlayerSettingPanel.cpp` | the `extern "C"` block around static member definitions is Wii-only | GCC rejects C linkage on members |
+| `RPCollisionShape.cpp`, `RPDoll.cpp` | `&T(...)` is `PORT_TEMP_PTR(T(...))` (defined in the unit for the Wii, `(&(x))`, because these units use the decomp's precompiled header) | address of a temporary |
+| `RPDebugGraph.cpp` | the `extern` redeclaration of `RPRumblePattern::sSlots` is Wii-only | GCC reads it as a second definition |
+| `RPSysTagParms.cpp` | `writeString(const_cast<char*>(mpValue))` | `TagType` is `const char*` under `NONMATCHING` |
+| `RPSceneInfo.h` | `#if defined(PORT_HOST)`: `extern "C" void RP_createSceneInfo();` before the friend declaration | the definition has C linkage |
+
+Note on matching checks: Pack units are compiled with the decomp checkout's precompiled header
+(`PartyPack.mch`), so a macro added to a header in that PCH is not seen by CodeWarrior; host-only
+additions to such headers are guarded with `PORT_HOST`, and Wii-side macros go into the unit.
+
+### What runs for real now
+
+Everything on the boot path: `RPSysSystem` (initialize: heaps, `EGG::GraphicsFifo` / `GXInit`,
+Video, XfbManager, AsyncDisplay, ProcessMeter, threads, Exception; setup: resource / assert /
+reserve heaps, every singleton of `createFromSystemHeap`, the effect and sound work, save data,
+HOME Menu, NWC24 manager, fonts, controllers), `RPSysSceneMgr` / `RPSysSceneCreator` / `EGG::SceneManager`
+with fades, `RPSysBootScene` (its task thread loads the static archives, the message window,
+system windows, the Kokeshi / RFL resources, effects, pause menu, HOME Menu button info, the
+banner, the cache archives), `RPCommonMessage` (title), `RPGrpRenderer` (2D and 3D views,
+`RPGrpDrawPathManager`, `RPScnProcDrawHook`), the `RPGrpModel*` layer (linked; the title draws no
+model), `RPSysEffectMgr` / `RPSysEffectCreator` with `nw4r::ef` drawn through the real strategies,
+`RPSysLayout`, `RPSysCursorDrawMgr` (the pointer and its trail), `RPSndAudioMgr` on the software AX
+mixer, `RPSysCoreControllerMgr` / KPAD on the scripted WPAD backend, NAND saves. The harnesses'
+stand-ins for these (§26-§28: hand-made `RPGrpModelScene`, `RPSysSystem::setup` parts, audio
+manager set-up, cursor) are not used by the boot.
+
+### Stand-ins that remain (`host_boot.cpp`)
+
+| Kind | What |
+|---|---|
+| Data not attributed to a unit | `lbl_80316CB8` (EGG::Exception's pad combination), `lbl_80316CC8` ("timeStamp.txt", "Now Loading"), `Health_strapArchive` (filled from main.dol), `RPSndAudioActorBase::sActorList`, `AudioSound3DActor` / `AudioSoundActorBaseWithCamera<4>` statics, the `RPDollMgr` / `RPPlayerConfirm` / `RPSceneInfo` singletons, `ScnMdl1Mat1Shp`'s type name |
+| No device | WiiConnect24 (`NWC24*` fail with `NWC24_ERR_FATAL`; the game records "not available"), the IPL ROM font (`OSInitFont` fails; drawing with it aborts), VF (none), `WPADReadFaceData` (no controller), reset / power callbacks recorded only, `OSReturnToMenu` / `OSShutdownSystem` exit |
+| Called by CodeWarrior name | `EGG_Vector2f_operator_minus/plus`, `__mi__`, `__pl__`, `__ml__`, `cross__` of `EGG::Vector3f`, `SetBrightnessColor__19RPSysKokeshiManager...`: forwarded to the real arithmetic / function |
+| Not linked | the nine minigame scenes: their vtables are tables of a function that aborts with "a minigame scene is not linked" |
+
+Not exercised yet: `AsyncDisplay::clearEFB` (its static Z texture would need `PORT_GP_STATIC_BE32`;
+the boot always copies), the HOME Menu, the ROM font, Mii drawing (no Miis on a fresh NAND).
+
+### The test (`tests/test_boot.py`)
+
+Three runs: A (`tests/boot/title.txt`: remote 0 connects, A at retrace 200; 420 frames, hashes,
+two frames and the audio saved), B (the same; determinism), C (no input, 300 frames).
+
+| Check | How | Verified |
+|---|---|---|
+| Scenes | `RPSysSceneMgr`'s IDs against `RPSysSceneCreator.h`'s enum (parsed with `PACK_PARTY`): -1, 0 (boot), 25 (Party Pack title), the title within the 30-frame fade after the press; without input the boot scene stays | yes |
+| Health screen | frame 150 against `test_gxlyt.py`'s model of `strap_00_U.brlyt` (independent decoding of main.dol / Yaz0 / U8 / BRLYT / TPL), with the layout's 608 units across the 640-pixel EFB: every pixel within 3 | yes: max diff 0 |
+| Frames and time | consecutive frames, game time = retraces x 1001 units, retraces increasing | yes |
+| Audio | AX frames = game time / 3 ms (from AXInit on), the raw file's size, sound after the title starts | yes (counts); the music itself is not compared |
+| Log | Aurora warnings only the documented ones (device destroyed, a readback pending at shutdown), every unhandled register in test_gx3d's list plus BP 0x47 / 0x48 (draw sync token: synchronous on the host), nothing unresolved; no `boot:` / thread / arena message; the END line (no aborting stand-in reached) | yes |
+| Determinism | 420 frame hashes and the scene trace identical over two runs | yes |
+| Title | differs from the health screen; shows the orange "Play" logo (pixel count) | property only; the look is visual (`title.png` with `--png`) |
+
+Expected output (part of `make test` on 64-bit, after `test_gx3d`):
+
+```
+test_boot: 420 frames on lavapipe; scenes -1 -> 0 (boot) -> 25 (title) at retrace 233, A pressed at 200
+  health screen (frame 150) vs the strap layout model at 640/608: max diff 0, mean 0.043, 0 over 3
+  title (frame 419): 220054 pixels differ from the health screen, 8971 orange logo pixels (visual check: title.png)
+  time: 423 retraces, 2335 AX frames; audio after the title starts: peak 12831, rms 1853.5
+  log: 1 allowed warnings (Device lost: Device was destroyed.); 21 unhandled registers, all documented
+  determinism: 420 frame hashes identical over two runs: True; without input the boot scene stays: True
+errors: 0
+OK
+```
+
+No Aurora change was needed for this milestone.
+
+### Next steps
+
+- Menus, then each minigame: press A and B on the title (the save check, `RPPartyRootScene`,
+  `RPAvatarScene` and the party menus with `RPDoll`, `RPPlayerSettingPanel`, Mii drawing through
+  RFL), then link the minigame scenes one by one in place of the aborting vtables (their units'
+  remaining GCC errors: §29's sweep found 18 in RPBil/Bom/Cow/Duc/Fsh/Hky/Pnp/Tnk/Wly units).
+- A window and real input / audio devices: `--window` opens Aurora's SDL window but nothing
+  presents it at the game's pace yet; SDL input into the §23 mapping layer; the AX output to an
+  audio device.
+- Pacing: game time runs as fast as the host can draw; a real-time mode should sleep to the
+  next retrace and keep AX frames on the audio device's clock.
+- The ROM font (a substitute font for `RomFont`), `AsyncDisplay::clearEFB`'s Z texture, the
+  HOME Menu, NWC24 left unavailable.

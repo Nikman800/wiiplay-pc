@@ -1,7 +1,10 @@
 #include <Pack/RPParty/RPPartyCommon/RPRumblePattern.h>
 #include <egg/core/eggController.h>
 
+#if !defined(PORT_HOST)
+// (GCC reads this redeclaration as a second definition)
 extern RPRumblePattern RPRumblePattern::sSlots[4][4];
+#endif
 
 inline void RPRumblePattern::ClearAll() {
     for (int channel = 0; channel < 4; ++channel) {

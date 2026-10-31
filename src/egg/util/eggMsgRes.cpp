@@ -3,6 +3,9 @@
 
 #include <egg/prim.h>
 #include <egg/util.h>
+#if defined(PORT_HOST)
+#include <port/host.h>
+#endif
 
 namespace EGG {
 
@@ -26,6 +29,10 @@ const MsgRes::MsgIDMask MsgRes::cMsgIdMaskSet[cFormSupplementMax] = {
 };
 
 MsgRes::MsgRes(const void* data) {
+#if defined(PORT_HOST)
+    // The text is UTF-16BE: to host order once per file (port/host/src/host_text.cpp)
+    PortSwapBmgText(const_cast<void*>(data));
+#endif
 #line 53
     EGG_ASSERT(data);
 

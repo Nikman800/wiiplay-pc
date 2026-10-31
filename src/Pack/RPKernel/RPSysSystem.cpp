@@ -77,7 +77,7 @@ void RPSysSystem::initialize() {
     sConfigData.mMem2Start = start2;
     end2 = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(mem2Hi) & ~31);
     sConfigData.mMem2End = end2;
-    sConfigData.mMemorySize = *reinterpret_cast<u32*>(0x80000028);
+    sConfigData.mMemorySize = *static_cast<u32*>(OSPhysicalToCached(0x28));
     OSSetMEM1ArenaLo(end1);
     OSSetMEM1ArenaHi(end1);
     OSSetMEM2ArenaLo(end2);
