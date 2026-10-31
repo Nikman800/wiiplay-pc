@@ -1,0 +1,15 @@
+# Table Tennis, a whole game (port/docs/HOST_BUILD.md §33): test_play.py appends this to
+# tests/boot/menus_saved.txt (which ends on the party menu), without its `end`.
+# The Table Tennis icon on the party menu -> the explanation screen
+3400 mouse 95 140
+3430 press A
+3436 release A
+# "A: Start"
+3800 mouse 320 228
+3830 press A
+3836 release A
+# The game-side player (host_probe_games.cpp) plays from here: it reads the game's own state
+# and sets the remote (pointer, buttons, tilt, acceleration); on the results it points at
+# "Play a different game" and presses A, back to the party menu
+3850 play 1
+end 100000

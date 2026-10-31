@@ -323,13 +323,15 @@ enum ScriptOp {
     OP_FSACCEL,
     OP_AIM,
     OP_FIRE,
+    OP_PLAY,
+    OP_SHAKE,
 };
 
 struct ScriptCmd {
     int frame;
     int chan;
     ScriptOp op;
-    f32 args[3];
+    f32 args[4];
     u16 buttons;
 };
 
@@ -341,6 +343,9 @@ struct PortInputScript {
     f32 width, height;
     int aim[WPAD_MAX_CONTROLLERS];
     int firePeriod[WPAD_MAX_CONTROLLERS], fireStart[WPAD_MAX_CONTROLLERS];
+    int play[WPAD_MAX_CONTROLLERS];
+    int shakeEnd[WPAD_MAX_CONTROLLERS];
+    f32 shakeAcc[WPAD_MAX_CONTROLLERS][3];
 };
 
 namespace {
@@ -358,7 +363,8 @@ const OpName sOps[] = {
     {"press", OP_PRESS, -1},    {"release", OP_RELEASE, -1}, {"roll", OP_ROLL, 1},
     {"pitch", OP_PITCH, 1},     {"accel", OP_ACCEL, 3},     {"stick", OP_STICK, 2},
     {"fsroll", OP_FSROLL, 1},   {"fspitch", OP_FSPITCH, 1}, {"fsaccel", OP_FSACCEL, 3},
-    {"aim", OP_AIM, 1},         {"fire", OP_FIRE, 1},
+    {"aim", OP_AIM, 1},         {"fire", OP_FIRE, 1},       {"play", OP_PLAY, 1},
+    {"shake", OP_SHAKE, 4},
 };
 
 int tokenize(char* line, char** tok, int max) {
@@ -579,6 +585,22 @@ void PortInputScriptApply(PortInputScript* script, int frame, PortInputState sta
         case OP_AIM:
             script->aim[c.chan] = c.args[0] != 0.0f;
             break;
+        case OP_PLAY:
+            script->play[c.chan] = c.args[0] != 0.0f;
+            break;
+        case OP_SHAKE:
+            // An acceleration pulse on top of `accel` for N frames (a flick or a jerk)
+            if (script->shakeEnd[c.chan] > frame) {
+                for (int i = 0; i < 3; i++) {
+                    st.accel[i] -= script->shakeAcc[c.chan][i];
+                }
+            }
+            for (int i = 0; i < 3; i++) {
+                script->shakeAcc[c.chan][i] = c.args[i];
+                st.accel[i] += c.args[i];
+            }
+            script->shakeEnd[c.chan] = c.frame + static_cast<int>(c.args[3]);
+            break;
         case OP_FIRE:
             script->firePeriod[c.chan] = static_cast<int>(c.args[0]);
             script->fireStart[c.chan] = c.frame;
@@ -586,6 +608,16 @@ void PortInputScriptApply(PortInputScript* script, int frame, PortInputState sta
                 st.buttons &= static_cast<u16>(~WPAD_BUTTON_B);
             }
             break;
+        }
+    }
+    // The end of a shake pulse
+    for (int chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
+        if (script->shakeEnd[chan] != 0 && frame >= script->shakeEnd[chan]) {
+            for (int i = 0; i < 3; i++) {
+                states[chan].accel[i] -= script->shakeAcc[chan][i];
+                script->shakeAcc[chan][i] = 0.0f;
+            }
+            script->shakeEnd[chan] = 0;
         }
     }
     // Rapid fire: B pressed for the first half of every period
@@ -607,6 +639,12 @@ void PortInputScriptApply(PortInputScript* script, int frame, PortInputState sta
             states[chan].pointerValid = 1;
             states[chan].pointerX = x;
             states[chan].pointerY = y;
+        }
+    }
+    // Playing: the game-side probe (if linked) sets the whole input state
+    for (int chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
+        if (script->play[chan] && PortInputPlayHook != NULL) {
+            PortInputPlayHook(chan, frame, &states[chan]);
         }
     }
 }

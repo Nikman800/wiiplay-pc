@@ -114,8 +114,11 @@ Buttons: `A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C none`.
 
 - `make -C port/host test`: every harness, then the boot headless on lavapipe: the title, the
   menus, a short Shooting Range and a short Laser Hockey (about 8 minutes).
-- `make -C port/host playtest`: whole games, twice each for determinism: Shooting Range and
-  Laser Hockey from the party menu to the results and back (about 35 minutes). Run it
-  before committing a game milestone.
+- `make -C port/host playtest`: whole games, twice each for determinism: all nine minigames
+  from the party menu to the results and back, played by game-side players (HOST_BUILD.md
+  §31-§33; about 95 minutes). Run it before committing a game milestone. A subset:
+  `make -C port/host playtest PLAYTEST_ARGS="--only tanks,fishing"` (names: shooting, hockey,
+  findmii, posemii, tabletennis, billiards, fishing, charge, tanks); `--png DIR` saves the
+  screens checked.
 
 Both need the extracted disc (`DISC=/path/to/files`, default `~/wii-play/extracted/files`).

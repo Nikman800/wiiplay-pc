@@ -11,6 +11,10 @@
  * compiles (built by `make`, run by `make test`).
  */
 
+// RPColliderList's sentinel (below) is private
+#define private public
+#include <Pack/RPParty/RPPartyCommon/RPColliderList.h>
+#undef private
 #include <Pack/RPKernel/RPSysMessage.h>
 #include <egg/util/eggMsgRes.h>
 #include <nw4r/ef.h>
@@ -402,10 +406,29 @@ PORT_LAYOUT_OFFSET(nw4r::ef::EmitterInheritSetting, type, 0x6);
 PORT_LAYOUT_SIZE(nw4r::ef::AnimCurveHeader, 0x20);
 } // namespace anim_layout
 
+// List heads that double as an element (HOST_BUILD.md §33): the head's fields must sit where
+// the element's link fields are, whatever the compiler does with the element's vtable pointer.
+// Run-time (offsetof is not defined for a polymorphic class).
+bool SentinelsOk() {
+    bool ok = true;
+    RPColliderList list;
+    RPCollider* s = list.AsCollider();
+    if (static_cast<void*>(&s->mpNext) != static_cast<void*>(&list.mpHead) ||
+        static_cast<void*>(&s->mpPrev) != static_cast<void*>(&list.mpTail) ||
+        static_cast<void*>(&s->unk8) != static_cast<void*>(&list.unk8)) {
+        std::printf("test_layout: RPColliderList's head is not an RPCollider's links\n");
+        ok = false;
+    }
+    return ok;
+}
+
 } // namespace
 
 int main() {
-    std::printf("test_layout: OK (static_asserts, pointer size %zu)\n",
+    if (!SentinelsOk()) {
+        return 1;
+    }
+    std::printf("test_layout: OK (static_asserts, list sentinels, pointer size %zu)\n",
                 sizeof(void*));
     return 0;
 }

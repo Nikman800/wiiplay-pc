@@ -2549,7 +2549,10 @@ before that frame's reports, to channel 0 or the channel of the last `chan`: `ch
 `offscreen`, `dist M`, `press NAMES`, `release NAMES`, `roll DEG`, `pitch DEG`, `accel X Y Z`
 (g, KPAD's axes), `stick X Y`, `fsroll DEG`, `fspitch DEG`, `fsaccel X Y Z`, and for test runs of
 the game (§31) `aim 0|1` (each frame a game-side probe, if linked, puts the pointer on a target)
-and `fire PERIOD` (B pressed for the first half of every PERIOD frames; 0 stops). Defaults: no
+and `fire PERIOD` (B pressed for the first half of every PERIOD frames; 0 stops); since §33
+`play 0|1` (each frame a game-side player, if linked, sets the whole remote: pointer, buttons,
+roll ("twist"), pitch ("tilt"), acceleration, stick) and `shake X Y Z N` (an acceleration of
+X, Y, Z g on top of `accel` for N frames: a flick, a lift or a jerk). Defaults: no
 remote connected, battery 4, distance 2 m, level.
 
 ### The harness
@@ -4038,3 +4041,165 @@ its side; Tanks! uses the Nunchuk or the D-pad).
 - Laser Hockey's twist (the paddle angle from the remote's roll) is not driven by the test.
 - `-fno-aggressive-loop-optimizations` hides one class of out-of-bounds indexing; a sweep for
   the others (arrays indexed into the next member) would let it go.
+
+## 33. Milestone 8: every minigame played through; the net and the lines
+
+All nine minigames are now played headless from the party menu to their results and back by
+`make playtest`, each by a game-side player that reads the game's own state and works the
+virtual remote through the §23 input layer (pointer, buttons, twist, tilt, acceleration). The
+two visual oddities of §32's smoke runs were examined against the game's logic: Pose Mii's
+lines were a 64-bit bug (fixed); Table Tennis's net is covered by the game's own message
+window (not a bug). Playing Charge! found two more 64-bit bugs (fixed).
+
+### Files
+
+| File | What |
+|---|---|
+| `port/host/src/host_probe_games.cpp` | **New**, boot only. `PortGameProbeMore` (the FRAME line's `game=` for the seven games: `wly:`, `bom:`, `pnp:`, `bil:`, `fsh:`, `cow:`, `tnk:`) and `PortInputPlayHook` (a player per game, below). Reads only. |
+| `port/host/src/host_probe.cpp` | `PortGameProbe` falls through to `PortGameProbeMore` |
+| `port/host/src/host_input.cpp`, `include/port/input.h` | Script commands `play 0|1` (the weak `PortInputPlayHook` sets the whole remote each retrace) and `shake X Y Z N` (§23) |
+| `port/host/tests/play_games.py` | **New.** The seven games' runs (frames, screens) and checks |
+| `port/host/tests/test_play.py` | Runs them twice each with Shooting Range and Laser Hockey; `--only`, `--jobs`; `make playtest PLAYTEST_ARGS=...` |
+| `port/host/tests/boot/{findmii,posemii,tabletennis,billiards,fishing,charge,tanks}.txt` | **New.** The icon, "A: Start", `play 1` |
+| `port/host/tests/layout_asserts.cpp` | Run-time check: `RPColliderList`'s head lies over an `RPCollider`'s links (below) |
+| `port/host/tests/test_input.py`, `tests/input/tilt.txt` | `shake` in the script model and the tilt script |
+| `port/host/Makefile` | `host_probe_games.cpp` in the boot; `PLAYTEST_ARGS` |
+
+### Decomp changes (byte-identical on the Wii; `check_matching`: 974 units identical)
+
+| File | Change | Why |
+|---|---|---|
+| `RPBomBorder.cpp` | `SLOT_MODEL(p, i)` / `SLOT_OFFSET_Z(p, i)`: `p->mpModels[0]` / `p->mOffsetZ[0]` on the Wii, `mpModels[i]` / `mOffsetZ[i]` under `PORT_HOST` | the loops walk a pointer from `this` one pointer at a time, which is one `mOffsetZ` (f32) and one `mpModels` element only with 4-byte pointers. On the host the walk read `mOffsetZ[0]`, `[2]` and the first word of `mNodeMtx[0]`: Pose Mii's three borders were misplaced (below) |
+| `RPColliderList.h` | `PORT_HOST`: a pointer-sized first member | the list head doubles as a sentinel `RPCollider` (`AsCollider`): `mpHead` / `mpTail` / `unk8` must be where an `RPCollider` has `mpNext` / `mpPrev` / `unk8`. CodeWarrior puts `RPCollider`'s vtable pointer after its members, GCC first: an `Append` to an empty list wrote the collider over `mpTail` and the head stayed empty, so Charge!'s cow met no scarecrow, hurdle, tree or goal (and a later `Remove` wrote outside the list) |
+| `RPCowGoal.cpp`, `RPCowHud_3.cpp`, `RPCowHud_4.cpp`, `RPCowHud_8.cpp` | `PORT_HOST`: `RP_Mtx34_getColumn(pOut, mtx, col)` through the definition's own form (`EGG::Vector3f RP_Mtx34_getColumn(const EGG::Matrix34f&, int)`) | these units declare it in the PowerPC ABI form of that definition (a returned struct through a hidden first argument, the matrix by address); on x86-64 the call passed garbage: Charge! crashed in `RPCowPerfectMsg::Show` on the first group knocked down. A sweep of every `extern "C"` function declared with two return types found only these (and `Cow_stopBgm`, bool / void, whose result is never used) |
+
+### The two visual oddities of §32
+
+**Pose Mii, thin white lines in the intro.** They are the game's three miss-counter borders
+(`RPBomBorder`, `border_model`), which drop in one after another during the intro and then lie
+16 units apart at the bottom (one breaks on each miss). With the slot-walk bug above, border 0
+used its own offset, border 1 `mOffsetZ[2]`, border 2 a matrix element: they dropped at the wrong
+times and settled as two lines. Fixed: three lines 16 apart (frames compared before and after).
+*Check:* the `bom:` probe reports the three borders' z from their models' local matrices
+(`ScnObj::GetMtx(MTX_LOCAL)`); `check_posemii` requires 160 / 160 (x10) in every frame of play.
+
+**Table Tennis, the net missing after the first frames.** Frame by frame (every 10 frames from
+the explanation screen): the net is drawn until the "Hold your paddle." window appears, then
+only its two ends show, at the window's edges. The window (`pingpongMsg_01.brlyt`,
+`N_msgWidow_00` at y +20 in the layout's 608 x 456 centre space, `W_msgBg_01` 452 x 52) covers
+y 182-234 of the 640 x 456 EFB, where the net is in the serve-wait camera; the layout's own
+data, read independently with `fmt_layout.py`, puts it there. Once the paddle is held the window
+goes and the net is drawn in every frame of play. Nothing in the game starts the table's
+`pin_table_a` / `_b` animation or hides a model before a net hit (`RPPnpTable::HandleBallCollision`
+only, from `StepPhysics(TRUE)`). Not a bug; no change. *Check:* `net_drawn` in `play_games.py`:
+the share of dark (mesh) pixels in the net's band, about 0.45 in play and 0.07 under the window;
+the two play screens of the Table Tennis run must have more than 0.3.
+
+### The players (`host_probe_games.cpp`)
+
+Each retrace with `play 1`, the player of the scene running sets remote 0 from the game's own
+state; on every game's results (`RPMedalResult`, `RPResultMenu`) it points at "Play a different
+game" (window 320, 348) and presses A every 150 frames. The games' KPAD settings damp small
+pointer moves (`pos_play_radius` 0.06), so where accuracy matters the pointer is servoed: the
+error between the commanded position and what KPAD reported last frame is added back.
+
+| Game | How it plays (the game's own data) | The end |
+|---|---|---|
+| Find Mii | The targets are `mpAvatars[0 .. mTargetNum-1]` (copies of avatar 0); the pointer goes to `RPWlyAvatar::mScreenPos` (projected by the game each frame), A when the game's own hover (`mHoverIdx`) is on it; look-alikes stay hovered until all are picked | after 5 stages it picks wrong Miis (each takes 5 s off) until the time is up |
+| Pose Mii | The lowest falling bubble (`RPBomPanel`, largest z): the pointer at its next position (`mPos + mVel` over the cursor's range), the twist `(mAngle + mRotSpeed) / 4` (the Mii turns by four times the roll), A / B along the pose order 1 -> 2 -> 0 with the game's cooldown; the start bubble while waiting | at level 2 it stops matching; the third miss ends the game (in practice the misses come in level 2's first waves) |
+| Table Tennis | The racket waits on the plane z = 165; x where the ball, moving straight in x (`RPPnpBall::Integrate`), crosses it; the pointer from the game's screen-to-plane mapping solved by Newton steps; A to have the CPU serve | after 30 rallies the racket stays away |
+| Billiards | The ghost-ball point to pot the lowest ball in the pocket with the smallest cut whose first contact (`RPBilBallMgr::RaycastObjectBalls`) is that ball; the D-pad orbits the camera onto that heading; the pointer on the cue ball (`mCueBallScreenPos`), B, pull back (distance 1.2 -> 1.35), thrust (acceleration -z for 10 frames), release B; ball in hand: A at a few spots until allowed | all nine object balls off the table |
+| Fishing | Point at the rod's grip to cast; then the hook to 40 units in front of the nearest fish's mouth (not the "suka", which costs points), still while it comes to bite; on a bite (FIGHT) a yank: acceleration y -1.2 (KPAD acc y about -2.2) for 3 frames | the clock |
+| Charge! | Pointer off the screen, the remote on its side: roll 45 (full speed); steer by pitch toward the next scarecrow group along the course (the groups line it), then its nearest standing scarecrow, then the goal; a jerk (acceleration y -2.5 for 3 frames) about 16 frames before a hurdle | the goal (time bonus) |
+| Tanks! | D-pad (no Nunchuk) along a breadth-first path over the stage's cells to a cell that sees the nearest enemy; then still, the turret on the enemy (the pointer from `RPTnkCamera::ProjectToScreen`), B when the turret's line passes within 12 of it | after mission 2 it sits still: the enemies of mission 3 take its lives |
+
+### The test (`make playtest`)
+
+Each game twice from the all-games save (menus as `menus_saved.txt`, then the game's script),
+four runs at a time; Shooting Range and Laser Hockey as before. Per game: the scene trace
+(-1, 0, 25, 1, 27, the game, 27), the frame count, five or six screens (start, play, a scoring
+moment, the results, back on the party menu: each in its scene, all distinct; PNGs with
+`--png`), the log (documented Aurora warnings only, no `boot:` message: no stand-in reached),
+every frame hash and the scene trace identical over the two runs, and the game's own state:
+
+| Game | Checked (the game's own state) |
+|---|---|
+| Find Mii | states intro, question, search, clear ... result; at least 5 stages cleared (stage 6 reached); finds only from the search and never more than the stage's targets; wrong picks seen (the penalty) and taking time off |
+| Pose Mii | states 0, 1, 2, 3, 6, 7, 9, 11, 12; a level cleared and at least 50 bubbles matched; the score changes only with a match (or the level bonus); all misses used at the end; the borders 16 apart in every frame of play |
+| Table Tennis | states 0-5; at least 20 rallies; the hit count changes only in the rally, by one; the net drawn in play (screens) |
+| Billiards | states intro, start, play, score, ... game over; all 9 object balls off; balls leave the table only during a shot; the lowest ball only goes up |
+| Fishing | start states intro, wait, count, play; player states aim, wait, fight, land; at least 3 fish, points > 0, changing only with a catch; the clock runs out; the result reaches the medal |
+| Charge! | states 1, 4-8, the goal (9-14), 22, 24; points from scarecrows, only in play (and the time bonus at the goal); the cow runs over 3000 along the course |
+| Tanks! | mission 1 cleared (its enemy destroyed, then stage 1); kills only in play, one at a time; lives lost one at a time; failed (9) and the end menu (12) |
+
+`make test` keeps its short Shooting Range and Laser Hockey runs only: it takes about 8
+minutes (474 s measured, `make -j8 test`), and each further game would add a run of at least
+4000 frames (the menus alone are 3400), past the 10-minute budget.
+
+Expected output of `make playtest` (the new lines; four runs at a time on 12 cores, each at
+about 5 frames a second; 5697 s, about 95 minutes, for the 18 runs; the shooting and hockey lines as in §32):
+
+```
+test_play: 18 runs on lavapipe in 5697 s wall
+  find mii: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 22 -> 27 over 8600 frames; states 0 -> 1 -> 2 ->
+    3 -> 0 -> 1 -> 2 -> 3 ... 4; 5 stages cleared (stage 6 reached); 10 wrong picks, each taking
+    time off; time up; 5 distinct screens; log: 1 allowed warnings, 21 unhandled registers, all
+    documented
+    hashes and scenes identical over two runs: True
+  tanks: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 23 -> 27 over 8900 frames; states 0 -> 1 -> 2 -> 4
+    -> 6 -> 7 -> 2 -> 4 -> 5 -> 7 -> 2 -> 4 -> 6 -> 7 ...; missions cleared 2, 2 enemy tanks
+    destroyed, lives 0 at the end; 5 distinct screens; log: 1 allowed warnings, 21 unhandled
+    registers, all documented
+    hashes and scenes identical over two runs: True
+  billiards: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 20 -> 27 over 11100 frames; states 0 -> 1 -> 2
+    -> 3 -> 2 -> 3 -> 2 -> 4 -> 2 -> 3 -> 2 -> 4 -> 2 -> 4 -> 2 -> 3 -> 2 -> 3 -> 2 -> 3 -> 2 ->
+    3 -> 5; 10 shots, 3 fouls, all 9 object balls off: True; 5 distinct screens; log: 1 allowed
+    warnings, 21 unhandled registers, all documented
+    hashes and scenes identical over two runs: True
+  fishing: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 16 -> 27 over 12900 frames; start states 1 -> 2 ->
+    3 -> 4; 7 fish caught, 960 points; the clock ran out (6059 frames); result state 8; 5
+    distinct screens; log: 1 allowed warnings, 21 unhandled registers, all documented
+    hashes and scenes identical over two runs: True
+  table tennis: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 19 -> 27 over 7400 frames; states 0 -> 1 -> 2
+    -> 3 -> 4 -> 5; 30 returns by player 0, 30 rallies (final hit count 61); the net drawn in
+    play (dark share 0.45, 0.45); 5 distinct screens; log: 1 allowed warnings, 21 unhandled
+    registers, all documented
+    hashes and scenes identical over two runs: True
+  pose mii: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 24 -> 27 over 8750 frames; states 0 -> 1 -> 2 ->
+    3 -> 6 -> 7 -> 8 -> 3 -> 4 -> 3 -> 4 -> 3 ...; levels 2, 187 bubbles matched, score 192, 3/3
+    misses; borders 16 apart in all 2621 frames of play; 5 distinct screens; log: 1 allowed
+    warnings, 21 unhandled registers, all documented
+    hashes and scenes identical over two runs: True
+  charge: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 21 -> 27 over 10300 frames; states 0 -> 1 -> 2 -> 4
+    -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14 -> 22 -> 24; 193 points from
+    scarecrows, 17 groups knocked; ran 16297 along the course; goal: True; 6 distinct screens;
+    log: 1 allowed warnings, 21 unhandled registers, all documented
+    hashes and scenes identical over two runs: True
+errors: 0
+OK
+```
+
+### Verified headless vs. visual only
+
+Verified (the game's own state, the scene trace, the log, determinism over two runs): every
+minigame entered from the party menu, played by input to its results and back; the progress
+and score changes listed above; Pose Mii's borders in place; Table Tennis's net drawn in play
+(a pixel measure); the collider list and the column call fixed (Charge! scores, jumps hurdles,
+reaches the goal). Visual only (PNGs `<script>_<screen>.png` with `--png`): the look of every
+game's screens, effects, HUDs and results; what the window over Table Tennis's net looks like
+on a Wii was not compared with a capture (the layout data puts it there). By hand with
+`--window`: the games with a real remote or a gamepad (twist, tilt and the Nunchuk mappings of
+§30; Tanks! with the D-pad or the left stick).
+
+### Next steps
+
+- The players are deliberately simple (Pose Mii loses in level 2, Table Tennis stops at 30
+  rallies, Tanks! stops after mission 2); longer runs would cover the later levels and
+  missions (Tanks!' 20, Find Mii's 99 stages) at the cost of run time.
+- Two-player modes are not driven.
+- `make playtest` is long (four runs at a time); running the second run of each pair with
+  hashes only, or fewer lavapipe threads and more runs at once, may shorten it.
+- Sweeps done here: `reinterpret_cast<T*>(this)` over `include/` and `src/` (only
+  `RPColliderList::AsCollider` casts a class to an unrelated polymorphic type; the others are
+  vector types) and two-signature `extern "C"` declarations (above). Other 64-bit layout
+  assumptions may remain in code no player reaches (two-player modes, later levels).

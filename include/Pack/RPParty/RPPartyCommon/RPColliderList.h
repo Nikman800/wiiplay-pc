@@ -51,7 +51,11 @@ public:
  */
 class RPColliderList {
 public:
+#if defined(PORT_HOST)
+    RPColliderList() : mHostVptrSlot(NULL), mpHead(NULL), mpTail(NULL), unk8(0), unkA(0) {}
+#else
     RPColliderList() : mpHead(NULL), mpTail(NULL), unk8(0), unkA(0) {}
+#endif
 
     /**
      * @brief RPCollider::Draw on every collider [H]
@@ -128,6 +132,14 @@ private:
         return AsCollider();
     }
 
+#if defined(PORT_HOST)
+    // The sentinel cast above needs mpHead / mpTail / unk8 where RPCollider has mpNext / mpPrev /
+    // unk8. CodeWarrior puts RPCollider's vtable pointer after its members (at 0x10); GCC puts
+    // it first, so on the host a pointer-sized slot comes first here. (Without it, an Append to
+    // an empty list wrote the new collider over mpTail: Charge!'s cow met no scarecrow, hurdle
+    // or goal.) Never read; only the sentinel's vtable slot.
+    void* mHostVptrSlot;
+#endif
     RPCollider* mpHead; // at 0x0
     RPCollider* mpTail; // at 0x4
     u16 unk8;           // at 0x8 [L]

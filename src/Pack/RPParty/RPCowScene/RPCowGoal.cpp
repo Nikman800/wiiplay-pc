@@ -16,7 +16,22 @@
 
 extern "C" void RP_CollisionShape_getMtx(EGG::Matrix34f* pOut, const RPCollisionShape* pShape);
 // Column of a 3x4 matrix (ledger RP_Mtx34_getColumn, RPCollisionShape.cpp) [M]
+#if defined(PORT_HOST)
+// RPCollisionShape.cpp defines it returning the column. The declaration in the #else is the
+// Wii's ABI form of that (a returned struct through a hidden first argument, the matrix by
+// address); x86-64 returns the 12 bytes in registers, so the host calls the definition's form.
+// (Calling the Wii form crashed in RPCowPerfectMsg::Show on Charge!'s first knocked group.)
+extern "C" EGG::Vector3f RP_Mtx34_getColumn(const EGG::Matrix34f& rMtx, int col);
+static inline void RP_Mtx34_getColumnInto(nw4r::math::VEC3* pOut, const nw4r::math::MTX34& rMtx, int col) {
+    EGG::Vector3f v = RP_Mtx34_getColumn(reinterpret_cast<const EGG::Matrix34f&>(rMtx), col);
+    pOut->x = v.x;
+    pOut->y = v.y;
+    pOut->z = v.z;
+}
+#define RP_Mtx34_getColumn(pOut, rMtx, col) RP_Mtx34_getColumnInto(pOut, rMtx, col)
+#else
 extern "C" void RP_Mtx34_getColumn(nw4r::math::VEC3* pOut, const nw4r::math::MTX34& rMtx, int col);
+#endif
 
 EGG::Vector3f RPCowGoal::GetPos() const {
     return mpCollision->GetPos();

@@ -168,7 +168,7 @@ def script(scratch, name, parts):
     return path
 
 
-def run(boot, disc, scratch, name, env, extra, saved=False):
+def run(boot, disc, scratch, name, env, extra, saved=False, timeout=2400):
     d = os.path.join(scratch, name)
     for sub in ("nand", "data"):
         os.makedirs(os.path.join(d, sub), exist_ok=True)
@@ -176,7 +176,7 @@ def run(boot, disc, scratch, name, env, extra, saved=False):
         party_save(os.path.join(d, "nand"))
     cmd = [boot, "--disc", disc, "--nand", os.path.join(d, "nand"), "--data-dir",
            os.path.join(d, "data"), "--trace", "--hash", "--log-level", "0"] + extra
-    p = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=2400)
+    p = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
     if p.returncode != 0:
         sys.stderr.write(p.stderr[-4000:])
         raise SystemExit("FAIL: boot (%s) exited %d" % (name, p.returncode))

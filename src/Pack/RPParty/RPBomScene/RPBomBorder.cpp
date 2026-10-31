@@ -28,6 +28,17 @@ static inline RPBomBorder* NextSlot(RPBomBorder* p) {
     return reinterpret_cast<RPBomBorder*>(reinterpret_cast<RPGrpModel**>(p) + 1);
 }
 
+// The walk steps one pointer, which is both an mOffsetZ and an mpModels element only where
+// pointers are 4 bytes. On a 64-bit host the slot's members are read by index instead (stepping
+// 8 bytes read mOffsetZ[0], [2] and the first word of mNodeMtx: the borders were misplaced).
+#if defined(PORT_HOST)
+#define SLOT_MODEL(p, i) mpModels[i]
+#define SLOT_OFFSET_Z(p, i) mOffsetZ[i]
+#else
+#define SLOT_MODEL(p, i) p->mpModels[0]
+#define SLOT_OFFSET_Z(p, i) p->mOffsetZ[0]
+#endif
+
 // Frames each border waits before it drops in (StartIntro scales them by -10)
 const f32 RPBomBorder::sIntroDelays[3] = {60.0f, 90.0f, 120.0f};
 
@@ -111,11 +122,11 @@ void RPBomBorder::StateIdle() {
         i = 0;
         p = this;
         do {
-            p->mpModels[0]->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 0);
-            p->mpModels[0]->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 1);
-            p->mpModels[0]->GetModelAnm()->Start(RPGrpModelAnm::Anm_Clr, 1, 0.0f);
-            p->mpModels[0]->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Chr, 0, 2.0f);
-            p->mpModels[0]->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Clr, 1, 2.0f);
+            SLOT_MODEL(p, i)->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 0);
+            SLOT_MODEL(p, i)->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 1);
+            SLOT_MODEL(p, i)->GetModelAnm()->Start(RPGrpModelAnm::Anm_Clr, 1, 0.0f);
+            SLOT_MODEL(p, i)->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Chr, 0, 2.0f);
+            SLOT_MODEL(p, i)->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Clr, 1, 2.0f);
             i++;
             p = NextSlot(p);
         } while (i < 3);
@@ -236,24 +247,24 @@ void RPBomBorder::CalcModelMtx() {
     do {
         nw4r::math::VEC3 pos;
         pos = mPos;
-        pos.z += p->mOffsetZ[0];
+        pos.z += SLOT_OFFSET_Z(p, i);
         nw4r::math::MTX34 mtx;
         RPDucMakeMtx(&mtx, mRot, RP_vecOne, pos);
-        if (p->mpModels[0]->GetScnObj() != NULL) {
-            p->mpModels[0]->GetScnObj()->SetMtx(nw4r::g3d::ScnObj::MTX_LOCAL, &mtx);
+        if (SLOT_MODEL(p, i)->GetScnObj() != NULL) {
+            SLOT_MODEL(p, i)->GetScnObj()->SetMtx(nw4r::g3d::ScnObj::MTX_LOCAL, &mtx);
         }
-        p->mpModels[0]->SetBaseScale(mScale);
+        SLOT_MODEL(p, i)->SetBaseScale(mScale);
         if (i < left) {
-            p->mpModels[0]->SetVisible(true);
+            SLOT_MODEL(p, i)->SetVisible(true);
         } else {
-            p->mpModels[0]->SetVisible(false);
+            SLOT_MODEL(p, i)->SetVisible(false);
         }
-        if (p->mpModels[0]->GetModelAnm()->GetPlayIndex(RPGrpModelAnm::Anm_Chr) != 0 ||
+        if (SLOT_MODEL(p, i)->GetModelAnm()->GetPlayIndex(RPGrpModelAnm::Anm_Chr) != 0 ||
             mAnimating) {
-            p->mpModels[0]->UpdateFrame();
+            SLOT_MODEL(p, i)->UpdateFrame();
         }
-        p->mpModels[0]->Calc();
-        p->mpModels[0]->Entry();
+        SLOT_MODEL(p, i)->Calc();
+        SLOT_MODEL(p, i)->Entry();
         i++;
         p = NextSlot(p);
     } while (i < 3);
@@ -290,7 +301,7 @@ inline void RPBomBorder::ResetOffsets() {
     int i = 0;
     RPBomBorder* p = this;
     do {
-        p->mOffsetZ[0] = -16.0f * i;
+        SLOT_OFFSET_Z(p, i) = -16.0f * i;
         p = NextSlot(p);
     } while (++i < 3);
 }
@@ -302,11 +313,11 @@ inline void RPBomBorder::PlayFlashAnm() {
     s32 i = 0;
     RPBomBorder* p = this;
     do {
-        p->mpModels[0]->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 0);
-        p->mpModels[0]->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 1);
-        p->mpModels[0]->GetModelAnm()->Start(RPGrpModelAnm::Anm_Clr, 1, 0.0f);
-        p->mpModels[0]->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Chr, 0, 2.0f);
-        p->mpModels[0]->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Clr, 1, 2.0f);
+        SLOT_MODEL(p, i)->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 0);
+        SLOT_MODEL(p, i)->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 1);
+        SLOT_MODEL(p, i)->GetModelAnm()->Start(RPGrpModelAnm::Anm_Clr, 1, 0.0f);
+        SLOT_MODEL(p, i)->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Chr, 0, 2.0f);
+        SLOT_MODEL(p, i)->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Clr, 1, 2.0f);
         i++;
         p = NextSlot(p);
     } while (i < 3);
@@ -319,11 +330,11 @@ inline void RPBomBorder::PlayNormalAnm() {
     s32 i = 0;
     RPBomBorder* p = this;
     do {
-        p->mpModels[0]->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 0);
-        p->mpModels[0]->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 1);
-        p->mpModels[0]->GetModelAnm()->Start(RPGrpModelAnm::Anm_Clr, 0, 0.0f);
-        p->mpModels[0]->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Chr, 0, 1.0f);
-        p->mpModels[0]->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Clr, 0, 1.0f);
+        SLOT_MODEL(p, i)->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 0);
+        SLOT_MODEL(p, i)->GetModelAnm()->Cancel(RPGrpModelAnm::Anm_Clr, 1);
+        SLOT_MODEL(p, i)->GetModelAnm()->Start(RPGrpModelAnm::Anm_Clr, 0, 0.0f);
+        SLOT_MODEL(p, i)->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Chr, 0, 1.0f);
+        SLOT_MODEL(p, i)->GetModelAnm()->SetUpdateRate(RPGrpModelAnm::Anm_Clr, 0, 1.0f);
         i++;
         p = NextSlot(p);
     } while (i < 3);

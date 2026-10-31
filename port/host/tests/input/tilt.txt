@@ -1,5 +1,5 @@
 # Tilt: roll and pitch ramps (the pointer is lost when pitched too far),
-# a combined tilt, accelerations on top of gravity (some beyond the clamps).
+# a combined tilt, accelerations on top of gravity (some beyond the clamps), a shake.
 0 connect
 0 mouse 304 228
 20 roll 3.000
@@ -223,4 +223,8 @@
 886 accel 0 -3 0
 890 accel -0.7 0.4 2
 894 accel 0 0 0
+# shake: a jerk on top of the acceleration in force, for 3 frames
+905 accel 0.5 0 0
+908 shake 0 -2.5 0 3
+915 accel 0 0 0
 end 974

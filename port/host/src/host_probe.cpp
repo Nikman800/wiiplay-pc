@@ -39,6 +39,7 @@
 #undef protected
 
 extern "C" int PortGameProbe(char* buf, int len);
+extern "C" int PortGameProbeMore(char* buf, int len); // host_probe_games.cpp
 
 namespace {
 
@@ -165,7 +166,7 @@ extern "C" int PortGameProbe(char* buf, int len) {
         return HkyProbe(buf, len);
     }
     if (CurrentScene() != RPSysSceneCreator::ESceneID_RPDucScene) {
-        return 0;
+        return PortGameProbeMore(buf, len);
     }
     RPDucGame* game = RPDucGame::sInstance;
     RPDucScoreMgr* score = RPDucScoreMgr::sInstance;

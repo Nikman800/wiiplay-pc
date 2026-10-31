@@ -165,6 +165,13 @@ void PortInputScriptApply(PortInputScript* script, int frame, PortInputState sta
  * (the pointer stays). */
 int PortInputAimHook(int chan, f32* x, f32* y) __attribute__((weak));
 
+/* "FRAME play 1|0": while on, each retrace (after the script's commands and
+ * `aim`) this hook (weak; the boot's host_probe.cpp) may change any part of
+ * remote CHAN's state: the pointer, buttons, roll and pitch, acceleration,
+ * the Nunchuk stick. A game-side player for test runs. Returns 0 when it
+ * left the state alone. */
+int PortInputPlayHook(int chan, int frame, PortInputState* state) __attribute__((weak));
+
 #ifdef __cplusplus
 }
 #endif

@@ -120,6 +120,7 @@ def parse_script(path):
     if end is None:
         end = last + 1
     states = [State() for _ in range(4)]
+    shakes = [None] * 4    # (acceleration, end frame) of a `shake` in progress
     out = []
     i = 0
     for frame in range(end):
@@ -167,6 +168,16 @@ def parse_script(path):
                 s.fspitch = nums[0]
             elif op == 'fsaccel':
                 s.fsaccel = tuple(nums)
+            elif op == 'shake':
+                # on top of the acceleration in force, for nums[3] frames
+                if shakes[ch] is not None:
+                    s.accel = tuple(a - b for a, b in zip(s.accel, shakes[ch][0]))
+                shakes[ch] = (tuple(nums[:3]), frame + int(nums[3]))
+                s.accel = tuple(a + b for a, b in zip(s.accel, shakes[ch][0]))
+        for ch in range(4):
+            if shakes[ch] is not None and frame >= shakes[ch][1]:
+                states[ch].accel = tuple(a - b for a, b in zip(states[ch].accel, shakes[ch][0]))
+                shakes[ch] = None
         out.append([st.copy() for st in states])
     return window, out
 
