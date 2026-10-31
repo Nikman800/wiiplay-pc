@@ -292,7 +292,6 @@ void MinigameSceneNotLinked() {
 PORT_SCENE_VTABLE(bil, "_ZTV10RPBilScene")
 PORT_SCENE_VTABLE(bom, "_ZTV10RPBomScene")
 PORT_SCENE_VTABLE(cow, "_ZTV10RPCowScene")
-PORT_SCENE_VTABLE(duc, "_ZTV10RPDucScene")
 PORT_SCENE_VTABLE(fsh, "_ZTV10RPFshScene")
 PORT_SCENE_VTABLE(hky, "_ZTV10RPHkyScene")
 PORT_SCENE_VTABLE(pnp, "_ZTV10RPPnpScene")
@@ -305,7 +304,7 @@ namespace {
 // Offset to top and type info are 0 (no RTTI); every virtual slot aborts.
 __attribute__((constructor)) void FillSceneVtables() {
     void** tables[] = {boot_vtable_bil, boot_vtable_bom, boot_vtable_cow,
-                       boot_vtable_duc, boot_vtable_fsh, boot_vtable_hky,
+                       boot_vtable_fsh, boot_vtable_hky,
                        boot_vtable_pnp, boot_vtable_tnk, boot_vtable_wly};
     for (void** t : tables) {
         for (int i = 2; i < PORT_VTABLE_SLOTS; i++) {

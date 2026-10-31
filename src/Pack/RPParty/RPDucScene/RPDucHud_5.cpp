@@ -61,8 +61,13 @@ void RPDucEndLayout::DrawMiiIcons() {
     // with mpScreen public), but GetView(1)->GetScreen() swaps best/pScreen (r31/r30, 94/106) in
     // every declaration order tried (pScreen first, split declarations, an RPGrpView* local,
     // NULL-initialised); no friend of RPGrpView fits this layout class.
+#if defined(PORT_HOST)
+    // 0x10 is the 32-bit layout's offset
+    RPGrpScreen* pScreen = RPGrpRenderer::GetCurrent()->GetView(1)->GetScreen();
+#else
     RPGrpScreen* pScreen = *reinterpret_cast<RPGrpScreen**>(
         reinterpret_cast<char*>(RPGrpRenderer::GetCurrent()->GetView(1)) + 0x10);
+#endif
 
     RPDrawKokeshiIcon(RPMiiIconSet::sInstance->GetIcon(0),
                       best >= 100 ? mpLayout->findPane("N_1pFaceA_01")

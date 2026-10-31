@@ -2,9 +2,11 @@
 
 The port runs the decompiled game's own `main` on a PC (Linux, 64-bit) with Aurora
 (WebGPU through Dawn) for graphics and SDL3 for the window, input and sound. It plays
-the boot, the title, the save check, player and Mii selection and the party menu; the
-minigames are not linked yet (choosing one stops the game with "a minigame scene is not
-linked"). Technical notes: [HOST_BUILD.md](HOST_BUILD.md) §29-§30.
+the boot, the title, the save check, player and Mii selection, the party menu and the first
+minigame, Shooting Range (aim with the mouse, a gamepad's right stick or gyro; fire with B: the
+right mouse button, a gamepad's right shoulder or trigger). The other eight minigames are not
+linked yet (choosing one stops the game with "a minigame scene is not linked"). Technical
+notes: [HOST_BUILD.md](HOST_BUILD.md) §29-§31.
 
 ## What you need
 

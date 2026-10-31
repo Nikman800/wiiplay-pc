@@ -50,6 +50,8 @@
 
 extern int PortGameMain(int argc, char** argv);
 extern "C" u8 Health_strapArchive[];
+// Minigame state for the FRAME line (host_probe.cpp)
+extern "C" int PortGameProbe(char* buf, int len);
 
 namespace {
 
@@ -63,7 +65,7 @@ struct Save {
     int frame;
     const char* path;
 };
-const int MAX_SAVES = 16;
+const int MAX_SAVES = 256;
 
 struct Options {
     const char* disc = nullptr;
@@ -86,6 +88,9 @@ struct Options {
     int audioOut = -1;  // -1: with --window
     int liveInput = -1; // -1: with --window
     bool trace = false;
+    // --dump-copies FIRST:LAST:DIR (debugging): every EFB copy of those frames
+    int dumpFirst = -1, dumpLast = -1;
+    const char* dumpDir = nullptr;
     Save saves[MAX_SAVES];
     int saveCount = 0;
 } gOpt;
@@ -223,12 +228,41 @@ void FrameDone() {
     if (gOpt.hash) {
         std::printf("\thash=%016llx", static_cast<unsigned long long>(hash));
     }
+    char game[64];
+    if (PortGameProbe(game, sizeof game)) {
+        std::printf("\tgame=%s", game);
+    }
     std::printf("\n");
     gFrame++;
     if (gOpt.frames > 0 && gFrame >= gOpt.frames) {
         Finish();
     }
     BeginFrame();
+}
+
+// --dump-copies: the copy as written to memory and the EFB before it (raw files;
+// the name has the frame, the copy's index, address, format, size and source)
+void DumpCopy(const wpgx_copy_info* c, void*) {
+    static int sIndex = 0;
+    if (gFrame < gOpt.dumpFirst || gFrame > gOpt.dumpLast) {
+        return;
+    }
+    char path[512];
+    std::snprintf(path, sizeof path, "%s/copy_%05d_%03d_%08x_f%u_%ux%u_src%u,%u,%ux%u.bin", gOpt.dumpDir, gFrame,
+                  sIndex++ % 1000, c->address, c->format, c->width, c->height, c->src_left, c->src_top,
+                  c->src_width, c->src_height);
+    if (FILE* f = std::fopen(path, "wb")) {
+        std::fwrite(c->data, 1, c->size, f);
+        std::fclose(f);
+    }
+    if (c->efb != nullptr) {
+        std::snprintf(path, sizeof path, "%s/efb_%05d_%ux%u.rgba", gOpt.dumpDir, gFrame, c->efb_width,
+                      c->efb_height);
+        if (FILE* f = std::fopen(path, "wb")) {
+            std::fwrite(c->efb, 4, static_cast<size_t>(c->efb_width) * c->efb_height, f);
+            std::fclose(f);
+        }
+    }
 }
 
 void SinkWrite(const void* data, u32 size, void*) {
@@ -445,6 +479,16 @@ int main(int argc, char** argv) {
                 Usage(argv[0]);
             }
             gOpt.saves[gOpt.saveCount++] = {std::atoi(v), colon + 1};
+        } else if (is("--dump-copies") && more) {
+            const char* v = argv[++i];
+            const char* c1 = std::strchr(v, ':');
+            const char* c2 = c1 != nullptr ? std::strchr(c1 + 1, ':') : nullptr;
+            if (c2 == nullptr) {
+                Usage(argv[0]);
+            }
+            gOpt.dumpFirst = std::atoi(v);
+            gOpt.dumpLast = std::atoi(c1 + 1);
+            gOpt.dumpDir = c2 + 1;
         } else if (is("--hash")) {
             gOpt.hash = true;
         } else if (is("--window")) {
@@ -618,7 +662,7 @@ int main(int argc, char** argv) {
         Die("cannot open the input devices");
     }
     wpgx_set_address_resolver(Resolve, nullptr);
-    wpgx_set_copy_writeback(1, 0, nullptr, nullptr);
+    wpgx_set_copy_writeback(1, gOpt.dumpDir != nullptr, gOpt.dumpDir != nullptr ? DumpCopy : nullptr, nullptr);
     PortGXSetSink(&kSink);
     BeginFrame();
     std::printf("BOOT\tadapter=%s\tefb=%ux%u\n", wpgx_adapter_name(), EFB_WIDTH, EFB_HEIGHT);

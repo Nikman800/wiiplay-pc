@@ -286,6 +286,9 @@ TOUCHED = [
     "src/nw4r/ef/drawstrategy/ef_drawdirectionalstrategy.cpp",
     # Milestone 5 (HOST_BUILD.md §30): the menus
     "src/Pack/RPKernel/RPSysLayout.cpp",
+    # Milestone 6 (HOST_BUILD.md §31): Shooting Range
+    "src/Pack/RPParty/RPDucScene/RPDucField_2.cpp",
+    "src/Pack/RPParty/RPDucScene/RPDucHud_5.cpp",
 ]
 
 

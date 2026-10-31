@@ -321,6 +321,8 @@ enum ScriptOp {
     OP_FSROLL,
     OP_FSPITCH,
     OP_FSACCEL,
+    OP_AIM,
+    OP_FIRE,
 };
 
 struct ScriptCmd {
@@ -337,6 +339,8 @@ struct PortInputScript {
     int next;
     int end;
     f32 width, height;
+    int aim[WPAD_MAX_CONTROLLERS];
+    int firePeriod[WPAD_MAX_CONTROLLERS], fireStart[WPAD_MAX_CONTROLLERS];
 };
 
 namespace {
@@ -354,6 +358,7 @@ const OpName sOps[] = {
     {"press", OP_PRESS, -1},    {"release", OP_RELEASE, -1}, {"roll", OP_ROLL, 1},
     {"pitch", OP_PITCH, 1},     {"accel", OP_ACCEL, 3},     {"stick", OP_STICK, 2},
     {"fsroll", OP_FSROLL, 1},   {"fspitch", OP_FSPITCH, 1}, {"fsaccel", OP_FSACCEL, 3},
+    {"aim", OP_AIM, 1},         {"fire", OP_FIRE, 1},
 };
 
 int tokenize(char* line, char** tok, int max) {
@@ -571,6 +576,37 @@ void PortInputScriptApply(PortInputScript* script, int frame, PortInputState sta
         case OP_FSACCEL:
             std::memcpy(st.fsAccel, c.args, sizeof(st.fsAccel));
             break;
+        case OP_AIM:
+            script->aim[c.chan] = c.args[0] != 0.0f;
+            break;
+        case OP_FIRE:
+            script->firePeriod[c.chan] = static_cast<int>(c.args[0]);
+            script->fireStart[c.chan] = c.frame;
+            if (script->firePeriod[c.chan] <= 0) {
+                st.buttons &= static_cast<u16>(~WPAD_BUTTON_B);
+            }
+            break;
+        }
+    }
+    // Rapid fire: B pressed for the first half of every period
+    for (int chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
+        int period = script->firePeriod[chan];
+        if (period >= 2) {
+            int phase = (frame - script->fireStart[chan]) % period;
+            if (phase == 0) {
+                states[chan].buttons |= WPAD_BUTTON_B;
+            } else if (phase == period / 2) {
+                states[chan].buttons &= static_cast<u16>(~WPAD_BUTTON_B);
+            }
+        }
+    }
+    // Aiming: the game-side probe (if linked) places the pointer on a target
+    for (int chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
+        f32 x, y;
+        if (script->aim[chan] && PortInputAimHook != NULL && PortInputAimHook(chan, &x, &y)) {
+            states[chan].pointerValid = 1;
+            states[chan].pointerX = x;
+            states[chan].pointerY = y;
         }
     }
 }

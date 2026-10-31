@@ -66,7 +66,7 @@ void RPDucField::Reset() {
             pGrass->mPos.x = 13.0f * i + -91.0f;
             pGrass->mPos.y = 0.0f;
             pGrass->mPos.z = 60.0f;
-            pField = reinterpret_cast<RPDucField*>(reinterpret_cast<u8*>(pField) + 4);
+            pField = reinterpret_cast<RPDucField*>(reinterpret_cast<u8*>(pField) + sizeof(RPDucShtGrass*));
         } while (++i < 15);
     }
     {
@@ -104,7 +104,7 @@ void RPDucField::Calculate() {
             pGrass->mPos.x = 13.0f * i + -91.0f;
             pGrass->mPos.y = 0.0f;
             pGrass->mPos.z = 60.0f;
-            pField = reinterpret_cast<RPDucField*>(reinterpret_cast<u8*>(pField) + 4);
+            pField = reinterpret_cast<RPDucField*>(reinterpret_cast<u8*>(pField) + sizeof(RPDucShtGrass*));
         } while (++i < 15);
     }
     {

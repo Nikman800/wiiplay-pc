@@ -23,8 +23,10 @@
 #endif
 
 #ifdef __cplusplus
+#include <cstdarg>
 #include <cstddef>
 #else
+#include <stdarg.h>
 #include <stddef.h>
 #endif
 
@@ -55,6 +57,9 @@ int port_wcscmp(const wchar_t* a, const wchar_t* b);
 wchar_t* port_wcschr(const wchar_t* str, wchar_t chr);
 wchar_t* port_wmemcpy(wchar_t* dst, const wchar_t* src, size_t count);
 wchar_t* port_wmemchr(const wchar_t* ptr, wchar_t chr, size_t count);
+/* src/host_wprintf.cpp: the narrow printf, widened */
+int port_swprintf(wchar_t* buf, size_t n, const wchar_t* fmt, ...);
+int port_vswprintf(wchar_t* buf, size_t n, const wchar_t* fmt, va_list args);
 
 #ifdef __cplusplus
 }
@@ -70,6 +75,8 @@ using ::port_wcscmp;
 using ::port_wcschr;
 using ::port_wmemcpy;
 using ::port_wmemchr;
+using ::port_swprintf;
+using ::port_vswprintf;
 } // namespace std
 #endif
 
@@ -80,5 +87,7 @@ using ::port_wmemchr;
 #define wcschr port_wcschr
 #define wmemcpy port_wmemcpy
 #define wmemchr port_wmemchr
+#define swprintf port_swprintf
+#define vswprintf port_vswprintf
 
 #endif

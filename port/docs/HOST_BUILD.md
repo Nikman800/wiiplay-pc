@@ -2547,8 +2547,10 @@ to, `end N` the number of frames. Every other line is `FRAME COMMAND ARGS`, in f
 before that frame's reports, to channel 0 or the channel of the last `chan`: `chan N`, `connect`,
 `disconnect`, `nunchuk 0|1`, `battery 0-4`, `mouse PX PY`, `pointer X Y` (KPAD units),
 `offscreen`, `dist M`, `press NAMES`, `release NAMES`, `roll DEG`, `pitch DEG`, `accel X Y Z`
-(g, KPAD's axes), `stick X Y`, `fsroll DEG`, `fspitch DEG`, `fsaccel X Y Z`. Defaults: no remote
-connected, battery 4, distance 2 m, level.
+(g, KPAD's axes), `stick X Y`, `fsroll DEG`, `fspitch DEG`, `fsaccel X Y Z`, and for test runs of
+the game (§31) `aim 0|1` (each frame a game-side probe, if linked, puts the pointer on a target)
+and `fire PERIOD` (B pressed for the first half of every PERIOD frames; 0 stops). Defaults: no
+remote connected, battery 4, distance 2 m, level.
 
 ### The harness
 
@@ -3469,7 +3471,7 @@ manager set-up, cursor) are not used by the boot.
 | Data not attributed to a unit | `lbl_80316CB8` (EGG::Exception's pad combination), `lbl_80316CC8` ("timeStamp.txt", "Now Loading"), `Health_strapArchive` (filled from main.dol), `RPSndAudioActorBase::sActorList`, `AudioSound3DActor` / `AudioSoundActorBaseWithCamera<4>` statics, the `RPDollMgr` / `RPPlayerConfirm` / `RPSceneInfo` singletons, `ScnMdl1Mat1Shp`'s type name |
 | No device | WiiConnect24 (`NWC24*` fail with `NWC24_ERR_FATAL`; the game records "not available"), the IPL ROM font (`OSInitFont` fails; drawing with it aborts), VF (none), `WPADReadFaceData` (no controller), reset / power callbacks recorded only, `OSReturnToMenu` / `OSShutdownSystem` exit |
 | Called by CodeWarrior name | `EGG_Vector2f_operator_minus/plus`, `__mi__`, `__pl__`, `__ml__`, `cross__` of `EGG::Vector3f`, `SetBrightnessColor__19RPSysKokeshiManager...`: forwarded to the real arithmetic / function |
-| Not linked | the nine minigame scenes: their vtables are tables of a function that aborts with "a minigame scene is not linked" |
+| Not linked | the minigame scenes but Shooting Range (§31): their vtables are tables of a function that aborts with "a minigame scene is not linked" |
 
 Not exercised yet: `AsyncDisplay::clearEFB` (its static Z texture would need `PORT_GP_STATIC_BE32`;
 the boot always copies), the HOME Menu, the ROM font, Mii drawing (no Miis on a fresh NAND).
@@ -3705,3 +3707,139 @@ sensitivity and signs, tilt axes on real pads), mouse mapping in a scaled window
 - Mii names in host order everywhere they are drawn (the NAND Mii database, remote Miis); the
   eye whites on some guest Miis to compare against a Wii.
 - The HOME Menu, `AsyncDisplay::clearEFB`'s Z texture, NWC24 (unavailable).
+
+## 31. Milestone 6: the first minigame, Shooting Range
+
+From the party menu, Shooting Range (`RPDucScene`, scene 18) runs with the game's own code:
+the explanation screen, five rounds of targets (balloons, clay pigeons, bullseye and Mii-face
+targets, cans, UFOs, ducks; the Miis walk in on the last round), the "Finished!" banner, the medal, the results
+menu, and "Play a different game" back to the party menu. Headless and deterministic in the
+test; playable with `--window` (aim with the mouse, a gamepad's right stick or gyro; fire with
+B). No Aurora change was needed.
+
+### Files
+
+| File | What |
+|---|---|
+| `port/host/Makefile` | `RPParty/RPDucScene` joins the boot's units (all 36 build and link); `host_probe.cpp`, `host_wprintf.cpp`; the boot links with `--defsym=spCurrentScreen__13RPGrpRenderer=...` (`RPTextWriter.cpp` names `RPGrpRenderer::spCurrentScreen`, a private static, by its CodeWarrior name) |
+| `port/host/src/host_boot.cpp` | Shooting Range's vtable stand-in removed (eight remain) |
+| `port/host/include/decomp/compat.h` | `__fabsf` (the CodeWarrior intrinsic `RPDucAvatar.cpp` calls) |
+| `port/host/src/host_wprintf.cpp`, `include/port/wide.h` | **New.** `swprintf` / `vswprintf` for the 16-bit `wchar_t` (below) |
+| `port/host/src/host_probe.cpp` | **New**, boot only. Test probes: `PortGameProbe` (the FRAME line's `game=duc:STATE,ROUND,SCORE,HITS` from `RPDucGame` / `RPDucScoreMgr`) and `PortInputAimHook` (below). Reads only. |
+| `port/host/src/host_input.cpp`, `include/port/input.h` | Script commands `aim 0|1` and `fire PERIOD` (§23); `PortInputAimHook` is weak, so the other harnesses link without a probe |
+| `port/host/src/host_main.cpp` | `game=` in FRAME lines; up to 256 `--save`; `--dump-copies FIRST:LAST:DIR` (debugging: every EFB copy of those frames as written to memory, and the EFB before it) |
+| `port/host/tests/test_boot.py`, `tests/boot/shooting.txt` | The menus runs continue into Shooting Range (below) |
+
+### Decomp changes (byte-identical on the Wii; `check_matching`: 974 units identical)
+
+| File | Change | Why |
+|---|---|---|
+| `RPDucField_2.cpp` | the byte-stepped walker over `mpGrass` steps `sizeof(RPDucShtGrass*)` instead of 4 (two rows) | 4 is the 32-bit pointer size; on the host the walker read between pointers (crash in `RPDucField::Reset` on entering the scene) |
+| `RPDucHud_5.cpp` | `#if defined(PORT_HOST)`: `GetView(1)->GetScreen()` for the read of `RPGrpView` at offset 0x10 | 0x10 is `mpScreen`'s offset in the 32-bit layout; the Wii form is kept for its register allocation (NONMATCHING-DEBT note in the unit) |
+
+### Wide printf
+
+glibc's `swprintf` reads its format and writes its output in 4-byte characters; with
+`-fshort-wchar` every number the game formats came out wrong: "Level %d" on the round banner,
+"??" for scores and hit counts, the party menu's "Record: ... points". `port/wide.h` now
+redirects `swprintf` / `vswprintf` (including `std::` and `nw4r::ut::TextWriterBase`'s
+`vswprintf`) to `port_swprintf` / `port_vswprintf`: each conversion of the (ASCII) format is
+formatted by the narrow `vsnprintf` and widened; `%s` takes a `char` string, `%ls` a
+`wchar_t` string, as in C99 and MSL. The game's formats are `%d`, `%02d` and `%%%d.%df`.
+
+### Aiming in the test (`host_probe.cpp`)
+
+With `aim 1`, each retrace the probe picks a live target of `RPDucTargetRegistry`
+(`mAge >= 0`, active, not yet hit by player 0; not the Mii avatars, manager type 6), keeps it
+until it is gone, and projects its hit-sphere centre (`mPos + mHitOffset`) with the game's own
+`RPDucCamera::ProjectToScreen`; the pointer goes there (y negated: the projection's y is up,
+KPAD's down). Only while `RPDucGame::mInPlay`. `fire 6` presses B for 3 of every 6 frames.
+The game then does its own ray test, hits, scoring, effects and sounds.
+
+### The test
+
+`tests/boot/menus.txt` followed by `tests/boot/shooting.txt` (runs M1 and M2, 16200 frames):
+the party menu as before (§30), the Shooting Range icon, "A: Start", `aim 1` and `fire 6`
+through the five rounds, then "Play a different game". Checks, in addition to §30's:
+
+| Check | How | Verified |
+|---|---|---|
+| Scenes | -1, 0, 25, 1, 27, 18 (`ESceneID_RPDucScene`), 27 | yes |
+| Game states | the (state, round) sequence of `RPDucGame` from the FRAME lines: intro, then start / play / end for rounds 1-5, the score wait, the medal, the results menu | yes |
+| Score | changes only in play (state 3) or at a round's end (streak bonuses, state 4); goes up in play in every round; final score and hits > 0 | yes (the game's own state) |
+| Sound | round 1's part of the mixer output (BGM, shots, hits) is not silent | rms only; the sounds themselves are not compared |
+| Screens | eight frames (explanation, round start, a hit, targets, "Finished!", the medal, the results menu, back on the party menu) in the right scene and all distinct; PNGs with `--png` (`shoot_*.png`) | scene / distinctness; the look is visual |
+| Log | Aurora warnings only the documented ones, every unhandled register documented, no `boot:` message (no aborting stand-in) over the whole run | yes |
+| Determinism | every frame hash and the scene trace identical over M1 and M2 | yes |
+
+M1 / M2 now take about 10 minutes each on lavapipe (16200 frames); `test_boot` as a whole about
+13 minutes. Expected output (the new lines):
+
+```
+  menus: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 18 -> 27 over 16200 frames; 8 screens (...); save file
+    written; hashes identical over two runs: True
+  shooting range: states 1/1 -> 2/1 -> 3/1 -> 4/1 -> 2/2 -> ... -> 4/5 -> 5/5 -> 6/5 -> 7/5; score 534
+    (179 hits) over 204 score changes in play, every round scoring: True; sound in play: rms 4248.6;
+    8 distinct screens; log: 1 allowed warnings, 21 unhandled registers, all documented
+```
+
+The script is not a good player on purpose only in one way: it shoots whatever it finds first,
+including the targets that cost points (the -3 popups), so its score is not a high score.
+Back on the party menu the game unlocks stage two ("Stage two is now open!").
+
+### Rendering checks (one-off, not in the test)
+
+- *Lit materials* (`sht_field`'s grass, ground and trees, the targets, cans, balloons, UFOs:
+  lighting on in channel 0, ambient and material colour from registers, diffuse clamp, spot
+  attenuation, light set 0). At run time g3d's light set 0 has one light (white, at a far
+  position: directional; cosine and distance attenuation (1, 0, 0)) and an ambient of
+  (110, 110, 110). An instrumented Aurora build (shader output: ambient, the sum of
+  attenuation x diffuse, the number of lights in the mask) gave, on a bullseye target facing
+  the camera: one light in the mask, ambient 0.37, diffuse 0.53; the normal build draws the
+  white ring at 220 of the texture's 239 (0.92, clamp(0.37 + 0.53) = 0.90). (Darker targets
+  in a frame of an earlier build, at about 0.35, were not re-examined.)
+- *The "black ball"* in the clay rounds is a clay pigeon seen from below: `m_clay_ura`'s
+  texture is dark grey.
+- *Light textures (EFB copies).* With `--dump-copies`, each frame of the scene captures two
+  32x32 RGBA8 light textures from below the picture (y 456), and two more later in the frame;
+  the diffuse one is a lit sphere, the specular one a highlight at the upper left.
+- *Fog*: no `RPDuc` unit configures fog; the scene's `EGG::FogManager` keeps its default.
+
+### The Mii faces' bright side (from §30's PNGs)
+
+Some guest Miis in Select Mii have a pale, nearly white patch on one side of the face. The
+face material (`RPGrpModelRfl`, material type 0/1) is: stage 1 `lightmap0 x RASA + RASC`
+(RASC: the ambient, the colour channel has no lights; RASA: the alpha channel's lights),
+stage 2 that x C2 (the face and skin colour), stage 3 `+ lightmap1 x RASA` (specular). The
+texture coordinates are the view-space normal: s = 0.5 + 0.5 nx, t = 0.5 - 0.5 ny.
+
+- An independent model of the light-texture pass (`eggLightTexture.cpp`: the normal map read
+  through the indirect stage, ITF_8 with the -128 bias, the matrix -dir x 0.484375 at scale
+  2^-1, the 64x4 pattern ramp) against Aurora's shader: the same ramp texel to within 0.01
+  texel over a whole row; the texgen of the face material matches too.
+- The captured light textures (Select Mii, frame 2890): diffuse up to 204 (0.80, brightest at
+  the top), specular up to 101 (0.40, a highlight at the upper left); neither saturates.
+- So a light-skinned face gets `min(1, 0.8 + ambient) x skin + 0.4` at the upper left: white.
+  The pale patch is what this material computes from these light textures; nothing in the
+  Aurora path was found to differ from the hardware. Not compared with a capture from a
+  Wii (none available here): the light colours and the specular pattern come from
+  `RFL_Res`/Kokeshi light data that was not checked against hardware.
+
+### Verified headless vs. to try by hand
+
+Verified: the scene's units on the host, the whole game flow from the party menu and back,
+scoring from hits (the game's own state), determinism, the log, sound being produced during
+play. Visual only: the look of every Shooting Range screen (PNGs), effects (the hit bursts,
+feathers, can and target pieces drawn by `nw4r::ef`), the HUD (score, hit counter, bonus,
+"Level N"), the medal and results. By hand with `--window`: aiming with the mouse and gyro,
+the feel of the B trigger on a gamepad, the sounds and music on a device.
+
+### Next steps
+
+- The other eight minigames: link each scene in place of its aborting vtable; §29's GCC
+  errors in their units first (RPBil/Bom/Cow/Fsh/Hky/Pnp/Tnk/Wly), then their 32-bit layout
+  assumptions (pointer-size strides, hard-coded offsets: the two found here were found by
+  running, a sweep of `reinterpret_cast` with constants in each unit is cheaper).
+- The test's runtime: M1 / M2 replay the menus before Shooting Range; a NAND save state
+  would not help (the game state is in RAM). Running fewer lavapipe threads per run and
+  more runs at once may.

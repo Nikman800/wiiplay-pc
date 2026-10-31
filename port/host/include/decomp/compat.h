@@ -124,6 +124,9 @@ static inline float __fres(float x) {
 static inline double __fabs(double x) {
     return __builtin_fabs(x);
 }
+static inline float __fabsf(float x) {
+    return __builtin_fabsf(x);
+}
 static inline double __fnabs(double x) {
     return -__builtin_fabs(x);
 }

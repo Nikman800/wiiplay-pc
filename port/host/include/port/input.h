@@ -159,6 +159,12 @@ void PortInputScriptWindow(const PortInputScript* script, f32* width, f32* heigh
 /* Applies the commands of frame `frame` to the four channels' states. */
 void PortInputScriptApply(PortInputScript* script, int frame, PortInputState states[4]);
 
+/* "FRAME aim 1|0": while on, each retrace asks this hook (weak; defined by a
+ * game-side probe such as the boot's host_probe.cpp) where remote CHAN should
+ * point, in PortInputState's pointer coordinates; 0 = nothing to aim at
+ * (the pointer stays). */
+int PortInputAimHook(int chan, f32* x, f32* y) __attribute__((weak));
+
 #ifdef __cplusplus
 }
 #endif

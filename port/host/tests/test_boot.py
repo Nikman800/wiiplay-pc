@@ -66,8 +66,9 @@ ALLOWED_UNHANDLED[("BP", 0x47)] = "draw sync token (GXSetDrawSync is synchronous
 ALLOWED_UNHANDLED[("BP", 0x48)] = "draw sync token interrupt (synchronous on the host)"
 
 
-# The menu run (tests/boot/menus.txt): frames saved, and the scene each shows
-MENU_FRAMES = 4900
+# The menu run (tests/boot/menus.txt, then tests/boot/shooting.txt): frames saved, and
+# the scene each shows
+MENU_FRAMES = 16200
 MENU_SHOTS = [(650, "save_check"), (1990, "save_created"), (2390, "select_players"),
               (2890, "select_mii"), (3100, "guest_warning"), (3500, "play_with_mii"),
               (4200, "welcome"), (4890, "party_menu")]
@@ -77,6 +78,14 @@ MENU_SCENES = [("save_check", "ESceneID_RPPartyPackTitleScene"), ("save_created"
                ("guest_warning", "ESceneID_RPSysPlayerSelectScene"),
                ("play_with_mii", "ESceneID_RPSysPlayerSelectScene"),
                ("welcome", "ESceneID_RPPartyMainScene"), ("party_menu", "ESceneID_RPPartyMainScene")]
+# Shooting Range (§31): screens saved (with --png), checked as distinct screens of its scene
+SHOOT_SHOTS = [(5100, "explanation"), (5480, "round_start"), (5904, "hit"), (7500, "targets"),
+               (14950, "finished"), (15300, "medal"), (15740, "results_menu"), (16190, "back_to_menu")]
+SHOOT_SCENES = {"explanation": "ESceneID_RPPartyMainScene", "back_to_menu": "ESceneID_RPPartyMainScene"}
+# RPDucGame's states (RPDucGame.h): 1 intro, 2 round start, 3 round play, 4 round end,
+# 5 waiting for the score, 6 medal, 7 results menu; five rounds
+SHOOT_STATES = [(0, 0), (1, 1)] + [x for r in range(1, 6) for x in ((2, r), (3, r), (4, r))] \
+    + [(5, 5), (6, 5), (7, 5)]
 
 
 def scene_ids(repo):
@@ -113,7 +122,7 @@ def run(boot, disc, scratch, name, env, extra):
         os.makedirs(os.path.join(d, sub), exist_ok=True)
     cmd = [boot, "--disc", disc, "--nand", os.path.join(d, "nand"), "--data-dir",
            os.path.join(d, "data"), "--trace", "--hash", "--log-level", "0"] + extra
-    p = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)
+    p = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=2400)
     if p.returncode != 0:
         sys.stderr.write(p.stderr[-4000:])
         raise SystemExit("FAIL: boot (%s) exited %d" % (name, p.returncode))
@@ -123,7 +132,7 @@ def run(boot, disc, scratch, name, env, extra):
         kv = dict(x.split("=", 1) for x in f[1:] if "=" in x)
         if f[0] == "FRAME":
             frames.append((int(f[1]), int(kv["retrace"]), int(kv["time"]), int(kv["scene"]),
-                           int(kv["audio"]), kv.get("hash")))
+                           int(kv["audio"]), kv.get("hash"), kv.get("game")))
         elif f[0] == "SCENE":
             scenes.append((int(kv["retrace"]), int(kv["scene"])))
         elif f[0] == "END":
@@ -218,6 +227,58 @@ def check_live(inputs, scenes, end, live, stderr, title_id, errs):
     return wall, want, live
 
 
+def check_shooting(fm, stderr, shots, audio_path, ids, errs):
+    """Shooting Range from the party menu (§31): the game's own state through the run."""
+    duc_id = ids["ESceneID_RPDucScene"]
+    games = [(f[0], tuple(int(v) for v in f[6].split(":")[1].split(","))) for f in fm
+             if f[6] is not None and f[6].startswith("duc:")]
+    seq = []
+    for _, g in games:
+        if not seq or seq[-1] != g[:2]:
+            seq.append(g[:2])
+    if seq != SHOOT_STATES:
+        errs.append("shooting: (state, round) sequence %s, expected %s" % (seq, SHOOT_STATES))
+    # score changes: only while shooting (state 3) or at a round's end (bonuses, state 4)
+    changes, rounds = 0, set()
+    for (_, a), (_, b) in zip(games, games[1:]):
+        if b[2] != a[2]:
+            changes += 1
+            if b[0] not in (3, 4):
+                errs.append("shooting: score changed in state %d" % b[0])
+            if b[2] > a[2] and b[0] == 3:
+                rounds.add(b[1])
+    final = games[-1][1] if games else (0, 0, 0, 0)
+    if final[2] <= 0 or final[3] <= 0 or rounds != {1, 2, 3, 4, 5}:
+        errs.append("shooting: final score %d, hits %d, rounds scoring %s" % (final[2], final[3], sorted(rounds)))
+    for (f, name), (_, path) in zip(SHOOT_SHOTS, shots):
+        want = ids[SHOOT_SCENES[name]] if name in SHOOT_SCENES else duc_id
+        if fm[f][3] != want:
+            errs.append("shooting: frame %d (%s) in scene %d, expected %d" % (f, name, fm[f][3], want))
+    distinct = len(set(load_rgba(p) for _, p in shots))
+    if distinct != len(shots):
+        errs.append("shooting: %d distinct screens of %d" % (distinct, len(shots)))
+    # sound while playing (round 1: BGM, shots, hits)
+    play = [f for f, g in games if g[0] == 3 and g[1] == 1]
+    with open(audio_path, "rb") as f:
+        pcm = f.read()
+    a0, a1 = (fm[play[0]][4] * 96 * 4, fm[play[-1]][4] * 96 * 4) if play else (0, 0)
+    part = struct.unpack("<%dh" % ((a1 - a0) // 2), pcm[a0:a1]) if a1 > a0 else ()
+    rms = (sum(v * v for v in part) / max(1, len(part))) ** 0.5
+    if rms < 100:
+        errs.append("shooting: no sound during round 1 (rms %.1f)" % rms)
+    # the log of the whole run
+    log_errs = []
+    test_gx3d.ALLOWED_LOG, saved_log = ALLOWED_LOG, test_gx3d.ALLOWED_LOG
+    test_gx3d.ALLOWED_UNHANDLED, saved_unh = ALLOWED_UNHANDLED, test_gx3d.ALLOWED_UNHANDLED
+    try:
+        allowed, unhandled = test_gx3d.check_log(stderr, log_errs)
+    finally:
+        test_gx3d.ALLOWED_LOG, test_gx3d.ALLOWED_UNHANDLED = saved_log, saved_unh
+    errs += ["shooting: " + e for e in log_errs]
+    return (" -> ".join("%d/%d" % x for x in seq[1:]), final[2], final[3], changes,
+            rounds == {1, 2, 3, 4, 5}, rms, distinct, sum(allowed.values()), len(unhandled))
+
+
 def load_rgba(path):
     with open(path, "rb") as f:
         data = f.read()
@@ -264,10 +325,18 @@ def main():
     live_result = check_live(inputs, sd, endd, lived, errd, title_id, errs)
 
     # --- the deterministic runs, concurrently ---------------------------------------------
-    menus = os.path.join(HERE, "boot", "menus.txt")
+    # the menus, then Shooting Range from the party menu: one script
+    menus = os.path.join(scratch, "menus_shooting.txt")
+    with open(menus, "w") as out:
+        for name in ("menus.txt", "shooting.txt"):
+            with open(os.path.join(HERE, "boot", name)) as f:
+                out.writelines(l for l in f if not l.startswith("end"))
+        out.write("end 100000\n")
     shots = [(f, os.path.join(scratch, "menu_%s.rgba" % name)) for f, name in MENU_SHOTS]
+    shoot_shots = [(f, os.path.join(scratch, "shoot_%s.rgba" % name)) for f, name in SHOOT_SHOTS]
+    shoot_audio = os.path.join(scratch, "shoot_audio.raw")
     save_args = []
-    for f, path in shots:
+    for f, path in shots + shoot_shots:
         save_args += ["--save", "%d:%s" % (f, path)]
     health_path = os.path.join(scratch, "health.rgba")
     title_path = os.path.join(scratch, "title.rgba")
@@ -277,7 +346,7 @@ def main():
               "--save", "%d:%s" % (FRAMES - 1, title_path), "--audio", audio_path],
         "b": ["--frames", str(FRAMES), "--input", script],
         "c": ["--frames", "300"],
-        "m1": ["--frames", str(MENU_FRAMES), "--input", menus] + save_args,
+        "m1": ["--frames", str(MENU_FRAMES), "--input", menus, "--audio", shoot_audio] + save_args,
         "m2": ["--frames", str(MENU_FRAMES), "--input", menus],
     }
     # Three at a time, each with few lavapipe threads: oversubscribed software
@@ -306,7 +375,7 @@ def main():
         errs.append("frame %d scene %d, last frame scene %d" % (HEALTH_FRAME, fa[HEALTH_FRAME][3], fa[-1][3]))
 
     # frames, time, audio frames
-    for i, (idx, retrace, time, _, audio, _) in enumerate(fa):
+    for i, (idx, retrace, time, _, audio, _, _) in enumerate(fa):
         if idx != i:
             errs.append("frame %d numbered %d" % (i, idx))
             break
@@ -384,7 +453,8 @@ def main():
     dm, fm, sm, endm, errm = results["m1"]
     _, fm2, sm2, _, _ = results["m2"]
     menu_seq = [s for _, s in sm]
-    want_seq = [-1, boot_id, title_id, ids["ESceneID_RPSysPlayerSelectScene"], ids["ESceneID_RPPartyMainScene"]]
+    duc_id, party_id = ids["ESceneID_RPDucScene"], ids["ESceneID_RPPartyMainScene"]
+    want_seq = [-1, boot_id, title_id, ids["ESceneID_RPSysPlayerSelectScene"], party_id, duc_id, party_id]
     if menu_seq != want_seq:
         errs.append("menus: scenes %s, expected %s" % (menu_seq, want_seq))
     if endm is None or len(fm) != MENU_FRAMES:
@@ -410,6 +480,12 @@ def main():
         for (f, name), (_, path) in zip(MENU_SHOTS, shots):
             gxtex.write_png(os.path.join(args.png, "menu_%s.png" % name), W, H, opaque(load_rgba(path)))
 
+    # --- Shooting Range (same runs, from frame 4800) ---------------------------------------
+    shoot = check_shooting(fm, errm, shoot_shots, shoot_audio, ids, errs)
+    if args.png:
+        for (f, name), (_, path) in zip(SHOOT_SHOTS, shoot_shots):
+            gxtex.write_png(os.path.join(args.png, "shoot_%s.png" % name), W, H, opaque(load_rgba(path)))
+
     print("test_boot: %d frames on %s; scenes -1 -> %d (boot) -> %d (title) at retrace %s, A pressed at %d"
           % (len(fa), "lavapipe" if not args.gpu else "the GPU", boot_id, title_id, title_at, PRESS_RETRACE))
     print("  health screen (frame %d) vs the strap layout model at 640/608: max diff %d, mean %.3f, %d over %d"
@@ -425,6 +501,9 @@ def main():
     print("  menus: scenes %s over %d frames; %d screens (%s); save file written; hashes identical over two runs: %s"
           % (" -> ".join(str(x) for x in menu_seq), len(fm), len(shots), ", ".join(n for _, n in MENU_SHOTS),
              menu_same))
+    print("  shooting range: states %s; score %d (%d hits) over %d score changes in play, every round "
+          "scoring: %s; sound in play: rms %.1f; %d distinct screens; log: %d allowed warnings, %d unhandled "
+          "registers, all documented" % shoot)
     if live_result:
         wall, want, lv = live_result
         print("  live (headless, dummy audio, synthetic SDL events): %.3f s wall for %.3f s game time; audio "

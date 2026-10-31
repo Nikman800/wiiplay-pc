@@ -124,7 +124,7 @@ MSL_SRCS := \
     src/MSL_C/wmem.c
 
 HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp src/host_mtx.cpp \
-    src/host_gxtexobj.cpp src/host_wgpipe.cpp
+    src/host_gxtexobj.cpp src/host_wgpipe.cpp src/host_wprintf.cpp
 
 # POINTERS.md step 4 sites (§5.1): compiled (not linked; most of RPKernel and
 # RPParty does not build on the host yet) so the host forms keep building.
@@ -736,7 +736,7 @@ $(OUT)/gx3d_harness: $(HOST)/tests/gx3d_harness.cpp $(HOST)/tests/disc_walk.h $(
 # §26-28 GX on Aurora) plus a host VI (src/host_vi.cpp) that paces game time.
 # The game's units are taken whole and linked with --gc-sections: only what the
 # reached code references stays. src/host_boot.cpp has the stand-ins that remain.
-RP_DIRS := RPKernel RPSystem RPGraphics RPAudio RPUtility RPParty/RPPartyCommon
+RP_DIRS := RPKernel RPSystem RPGraphics RPAudio RPUtility RPParty/RPPartyCommon RPParty/RPDucScene
 BOOT_RP_SRCS := $(patsubst $(REPO)/%,%,$(sort $(foreach d,$(RP_DIRS),$(wildcard $(REPO)/src/Pack/$(d)/*.cpp))))
 BOOT_LIB_SRCS := $(patsubst $(REPO)/%,%,$(sort \
     $(wildcard $(REPO)/src/egg/*/*.cpp) \
@@ -757,15 +757,18 @@ BOOT_SRCS := $(sort $(BOOT_RP_SRCS) $(BOOT_LIB_SRCS) $(BOOT_SDK_SRCS) $(SND_SRCS
 BOOT_HOST_SRCS := src/host_os.cpp src/host_dvd.cpp src/host_nand.cpp src/host_sc.cpp \
     src/host_thread.cpp src/host_os_clock.c src/host_snd.cpp src/host_ax.cpp src/host_wpad.cpp \
     src/host_input.cpp src/host_reslist.cpp src/host_g3d.cpp src/host_gfx_stubs.c \
-    src/host_vi.cpp src/host_boot.cpp src/host_live.cpp src/host_main.cpp
+    src/host_vi.cpp src/host_boot.cpp src/host_live.cpp src/host_probe.cpp src/host_main.cpp
 BOOT_OBJS := $(sort $(patsubst %,$(OUT)/decomp/%.o,$(filter-out $(GX_SDK_SRCS),$(BOOT_SRCS))) \
     $(patsubst %,$(OUT)/host/%.o,$(BOOT_HOST_SRCS))) $(OUT)/decomp/src/main.cpp.o
+# Data the decomp reaches by its CodeWarrior name (RPTextWriter: a private static)
+BOOT_CW_NAMES := -Wl,--defsym=spCurrentScreen__13RPGrpRenderer=_ZN13RPGrpRenderer15spCurrentScreenE
 # The decomp's main is the game's entry point; the host's main (host_main.cpp)
 # sets up the platform and calls it under this name.
 $(OUT)/decomp/src/main.cpp.o: CXXFLAGS += -Dmain=PortGameMain
 $(OUT)/boot: $(HOST)/aurora/wpgx.h $(GX_SDK_OBJS) $(BOOT_OBJS) $(WPGX_LIB) $(LIB)
 	$(CXX) $(CXXFLAGS) $(GX_SDK_OBJS) $(BOOT_OBJS) $(LIB) \
-	    -L$(AURORA_BUILD) -lwiiplay_gx -Wl,-rpath,$(AURORA_BUILD) -Wl,--gc-sections -o $@
+	    -L$(AURORA_BUILD) -lwiiplay_gx -Wl,-rpath,$(AURORA_BUILD) -Wl,--gc-sections \
+	    $(BOOT_CW_NAMES) -o $@
 $(OUT)/host/src/host_main.cpp.o $(OUT)/host/src/host_vi.cpp.o $(OUT)/host/src/host_live.cpp.o: CXXFLAGS += -I$(HOST)/aurora
 
 .PHONY: gx gx-aurora-tests FORCE
