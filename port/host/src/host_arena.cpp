@@ -5,9 +5,13 @@
  * The allocator is a first-fit free list kept in address order, with
  * coalescing on free. Each allocation has a 16-byte header just before the
  * returned pointer that records where the carved block starts and how large
- * it is, so any alignment can be honoured. It is single-threaded, like the
- * rest of the host stand-ins; the Phase 7 OS layer replaces it with the
- * decompiled MEM/EGG heaps carved from the same block.
+ * it is, so any alignment can be honoured. The game's side is single-threaded,
+ * like the rest of the host stand-ins, but the allocator takes a lock: the
+ * executables' operator new / delete come here, and they also serve the C++
+ * code of a dynamically loaded Vulkan driver on its own threads (seen with
+ * Mesa's Intel driver under gx3d_harness, port/docs/HOST_BUILD.md §27). The
+ * Phase 7 OS layer replaces it with the decompiled MEM/EGG heaps carved from
+ * the same block.
  */
 
 #include <port/arena.h>
@@ -16,11 +20,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <sys/mman.h>
 
 u8* port_arena_base = NULL;
 
 namespace {
+
+std::mutex sLock;
 
 const size_t kHeader = 16;
 const size_t kGrain = 16;
@@ -154,6 +161,7 @@ void PortArenaInit(void) {
 }
 
 void* PortArenaAlloc(size_t size, int align) {
+    std::lock_guard<std::mutex> lock(sLock);
     PortArenaInit();
 
     size_t a = static_cast<size_t>(align < 0 ? -align : align);
@@ -179,6 +187,7 @@ void PortArenaFree(void* p) {
     if (!port_in_arena(p)) {
         Fail("free of a pointer outside the arena");
     }
+    std::lock_guard<std::mutex> lock(sLock);
 
     AllocHeader* h =
         reinterpret_cast<AllocHeader*>(static_cast<u8*>(p) - kHeader);
@@ -196,6 +205,7 @@ void PortArenaFree(void* p) {
 }
 
 int PortArenaReserve(void* lo, void* hi) {
+    std::lock_guard<std::mutex> lock(sLock);
     PortArenaInit();
     u8* l = static_cast<u8*>(lo);
     u8* h = static_cast<u8*>(hi);
@@ -273,27 +283,59 @@ void PortArenaBadAddress(u32 v) {
 // Static data the graphics processor reads (port/wgpipe.h, docs/HOST_BUILD.md §26):
 // an M0 copy per address, made once (the data is constant: GXInit's default
 // texture and placeholder array base), so it has an emulated address.
-extern "C" void* PortArenaStatic(const void* p, u32 size) {
-    struct Entry {
-        const void* src;
-        void* copy;
-    };
-    static Entry entries[16];
-    static int count = 0;
-    for (int i = 0; i < count; i++) {
-        if (entries[i].src == p) {
-            return entries[i].copy;
+namespace {
+// One M0 copy per static block; `unit` 2 or 4 stores it big-endian in units of that size.
+struct StaticEntry {
+    const void* src;
+    void* copy;
+    u32 size;
+};
+StaticEntry sStatics[32];
+int sStaticCount = 0;
+
+void* StaticCopy(const void* p, u32 size, u32 unit) {
+    for (int i = 0; i < sStaticCount; i++) {
+        if (sStatics[i].src == p) {
+            return sStatics[i].copy;
         }
     }
-    if (count == 16) {
+    if (sStaticCount == 32) {
         Fail("PortArenaStatic: too many static blocks");
     }
-    void* copy = PortArenaAlloc(size, 32);
+    u8* copy = static_cast<u8*>(PortArenaAlloc(size, 32));
     std::memcpy(copy, p, size);
-    entries[count].src = p;
-    entries[count].copy = copy;
-    count++;
+    if (unit > 1) {
+        for (u32 i = 0; i + unit <= size; i += unit) {
+            for (u32 j = 0; j < unit / 2; j++) {
+                u8 t = copy[i + j];
+                copy[i + j] = copy[i + unit - 1 - j];
+                copy[i + unit - 1 - j] = t;
+            }
+        }
+    }
+    sStatics[sStaticCount].src = p;
+    sStatics[sStaticCount].copy = copy;
+    sStatics[sStaticCount].size = size;
+    sStaticCount++;
     return copy;
+}
+} // namespace
+
+extern "C" u32 PortArenaStaticList(u32* addrs, u32* sizes, u32 max) {
+    u32 n = 0;
+    for (int i = 0; i < sStaticCount && n < max; i++, n++) {
+        addrs[n] = port_vaddr(sStatics[i].copy);
+        sizes[n] = sStatics[i].size;
+    }
+    return n;
+}
+
+extern "C" void* PortArenaStatic(const void* p, u32 size) {
+    return StaticCopy(p, size, 1);
+}
+
+extern "C" void* PortArenaStaticBE(const void* p, u32 size, u32 unit) {
+    return StaticCopy(p, size, unit);
 }
 
 // Hardware register block (revolution/OS/OSAddress.h, OSPhysicalToUncached).

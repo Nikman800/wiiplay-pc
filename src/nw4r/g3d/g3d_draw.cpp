@@ -504,6 +504,13 @@ void DrawResMdlDirectly(const ResMdl mdl, const math::MTX34* pViewPosMtxArray,
 
     G3DState::SetViewPosNrmMtxArray(pViewPosMtxArray, pViewNrmMtxArray,
                                     pViewEnvMtxArray);
+#if defined(PORT_HOST)
+    // The graphics processor reads the view matrices by address (indexed XF
+    // loads). They are in native byte order on the host: it gets big-endian
+    // copies (port/docs/HOST_BUILD.md §27).
+    PortGXSetViewMtxArrays(mdl.GetResMdlInfo().GetNumViewMtx(), pViewPosMtxArray,
+                           pViewNrmMtxArray, pViewEnvMtxArray);
+#endif
 
     if (!(drawMode & RESMDL_DRAWMODE_NOPPCSYNC)) {
         ut::LC::QueueWait(0);

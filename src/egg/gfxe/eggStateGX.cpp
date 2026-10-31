@@ -127,7 +127,7 @@ void StateGX::resetTexture() {
     GXTexObj tobj;
 
     static u8 NullTexData[4 * 4] ALIGN(32) = {};
-    GXInitTexObj(&tobj, NullTexData, 4, 4, GX_TF_IA8, GX_CLAMP, GX_CLAMP,
+    GXInitTexObj(&tobj, PORT_GP_STATIC(NullTexData, sizeof(NullTexData)), 4, 4, GX_TF_IA8, GX_CLAMP, GX_CLAMP,
                  GX_FALSE);
 
     GXLoadTexObj(&tobj, GX_TEXMAP0);

@@ -48,6 +48,10 @@ check, init and bind, no drawing yet).
   `RPSysResourceManager` loads every scene's archives byte-identically to `wiiarc.py`, and
   `RPSysSaveDataMgr` writes `RPParty.dat` and `banner.bin` (big-endian, as on the Wii) on its
   NAND task thread and loads them back.
+- Graphics run on Aurora (GX on WebGPU), headless: the game's own GX SDK is the command
+  encoder; the health screen layout renders pixel-exactly through `nw4r::lyt` (§26), and Laser
+  Hockey's 3D table is built, calculated and drawn by the real `nw4r::g3d` and EGG scene code
+  (§27).
 
 `POINTERS.md` steps 0 to 7 are implemented: M0 (emulated Wii addresses for all host heap memory),
 `RES_PTR(T)` slots, `-fshort-wchar` with the MSL_C wide functions, ResFont (§5 to §7 below), TPL
@@ -540,6 +544,7 @@ check in §2 confirms all of them.
 | `include/revolution/GX/GXInternal.h`, `src/revolution/GX/GXTexture.c` | §26: `GXTexObjImpl`/`GXTlutObjImpl` members `be_*`, `BE_ENUM`, `RES_PTR(void)`; field accesses `BE_GET`/`BE_SET`; `GX_PHY_ADDR` through `PORT_PTR_TO_U32`; `GXGetTexObjAll`'s host form. |
 | `src/revolution/GX/GXTev.c`, `GXGeometry.c`, `GXLight.c`, `GXPixel.c`, `include/nw4r/g3d/platform/g3d_gpu.h` | §26: colours read or stored as one word through `BE_GET`/`BE_SET(*(be_u32*)&...)`; `GXSetTevColorS10`'s host form. |
 | `src/revolution/GX/GXAttr.c`, `GXFrameBuf.c`, `GXInit.c`, `GXGeometry.c` | §26: `PORT_PTR_TO_U32` for `GXSetArray`'s base and `GX_PHY_ADDR`; `GXCopyDisp` ends with `PortGXDisplayCopied` (host only); `PORT_GP_STATIC` for `GXInit`'s static texture and array base and host-only prototypes; `__GXSetGenMode`'s host form. |
+| `include/port/wgpipe.h`, `src/egg/gfxe/eggStateGX.cpp`, `eggDrawGX.cpp`, `eggLightTexture.cpp`, `eggLightManager.cpp`, `src/nw4r/g3d/g3d_draw.cpp` | §27: `PORT_GP_STATIC_BE16` / `PORT_GP_STATIC_BE32` / `PORT_GP_LIGHT_OBJS` (`(p)` on the Wii) for static GP data and the light-object array; `DrawResMdlDirectly` hands the GP big-endian copies of the view matrices under `#if defined(PORT_HOST)`. |
 No other files under `src/` or `include/` were changed. Everything else is new and lives under
 `port/host/`, `port/docs/` and `port/assets/`.
 
@@ -2792,7 +2797,7 @@ unchanged).
 Expected output:
 
 ```
-gx_fifo_tests: [  PASSED  ] 239 tests.
+gx_fifo_tests: [  PASSED  ] 241 tests.
 test_gx: 640x480 after 3 frames on llvmpipe (LLVM 21.1.8, 256 bits); inputs match the disc (banner.tpl 192x64 format 5, a_a_lake_mat_v: 2 TEV stages)
   top: 110592 pixels, max diff 0.00
   bottom: 110592 pixels, max diff 0.47, 0 of 12288 texels alpha-tested out
@@ -3012,3 +3017,158 @@ through the `wpgx_test_*` helpers, which share the FIFO with the new path.
   and vertical filter), `GXPoke*`/`GXPeek*`.
 - `EGG::Screen`/`StateGX` for the projection and state set-up (they build on the host; the
   harness sets the equivalent GX state directly), then one minigame's 3D scene.
+
+## 27. Aurora milestone 3a: a minigame's 3D scene through g3d and EGG
+
+Laser Hockey's table (`RPHkyScene`, 4:3) is loaded, built, lit and drawn by the game's own
+`nw4r::g3d` and EGG code through the GX SDK into Aurora, headless on lavapipe, in the order
+`RPGrpRenderer` uses for a 3D view. Nothing on the draw path is a host stand-in: g3d's
+material, shape and matrix commands (display lists from the BRRES, its direct FIFO writes,
+indexed XF matrix loads) reach Aurora as hardware commands with Wii addresses.
+
+### Why Laser Hockey
+
+The candidates were Shooting Range (`RPDucScene`, ASSETS.md's fallback for the first playable)
+and the other fields. Shooting Range's scene needs more than is there yet: 7 of `sht_field`'s
+materials are lit, with the scene light from a SCN0 (`LoadScnLight`) and `scene_Light.plight`;
+the scene sets up the light-map path (`RPDucScene::LoadLight`: light textures, which EGG draws
+and captures with EFB copies) and draws through bloom (`scene_Bloom.pblm`). Laser Hockey's table is one model (`Hck_Field_2`, 14 materials, 4218
+opaque and 6188 translucent triangles) plus the puck (`Hck_pack`): a fixed top-down orbit
+camera, one light and an ambient colour set in code (`RPHkyGame::Create`), no fog, no light
+maps, no SCN0, and its look does not depend on its two draw paths (bloom and the puck's shadow
+volume, both EFB-copy work). Its materials are all unlit (lighting off in every channel
+control), so the light manager runs but does not change a pixel; its TEV setups go up to three
+stages with konstant colours, CLR0-animated registers, two-texture blends and additive
+translucent glows.
+
+### What runs (`tests/gx3d_harness.cpp`)
+
+- `RPGrpRenderer::Initialize(608, 456)`: `EGG::GfxEngine::initialize` (StateGX, the screen
+  sizes, G3DUtility, DrawGX's display lists recorded with `GXBeginDisplayList`, light textures,
+  texture buffers), RGBA6_Z24, `g3d::G3dInit(false)`, `RPGrpCamera::Initialize`,
+  `RPGrpScreen::Initialize`.
+- `RPGrpModelScene`'s constructor, by hand (the `RPGrpModel*` layer does not build on the host
+  yet, §20): `ScnRoot::Construct(0x400, 0x400, 16, 8)`, 32 identity cameras, an
+  `EGG::LightManager(16, 8, 1)` with every light set selecting ambient 0 and light 0, an
+  `EGG::FogManager`, an `EGG::ScnRenderer` with both. The scene's draw-path flags (0x28: shadow
+  volume, bloom) are not created.
+- `RPHkyGame`: `RPGrpScreen` (fovy 40, CANVAS_CC), `RPGrpCamera` (orbit, target 0, distance
+  -745, rotation (-90, 0, 0)), light 0 at (0, 745, 0), ambient (100, 100, 100).
+- `RPHkyField::Load` / `Reset` and `RPHkyPuck::Load`: `Common/RPHkyScene/common.carc` through
+  `EGG::DvdFile` / `DvdRipper` / `Decomp` and ARC; `ResFile::Init` / `Bind`; `ScnMdl` with
+  buffer option 0x108 (as `RPGrpModelG3D` builds it); the six CLR0 of `Hck_anim.brres` in an
+  `AnmObjMatClrOverride`, each at its last frame with rate 0. The puck's own CLR0 is not
+  applied (it animates when the puck is hit).
+- Per frame: `GfxEngine::beginDraw`'s part (`StateGX::frameInit`, `initGXCache`, the clear
+  colour, `G3DUtility::reset`), the draw list, `UpdateFrame` / `CalcWorld` (light and fog
+  managers' `Calc`), `CalcVtx` / `CalcMaterial`, the camera's `CalcMatrix` /
+  `SaveCameraMatrix`, `SetCurrentCamera` with the screen as a perspective screen, `CalcView`
+  (light manager `CalcView`, fog screen clip, g3d's view matrices),
+  `PreConditionForRenderingGX` (`Screen::SetProjectionGX`, ambient, `LoadObjIndxGX`, fog 0),
+  `GatherDrawScnObj`, `ZSort`, `DrawOpa`, `DrawXlu`, `finishDraw`, `GXDrawDone`, `GXCopyDisp`.
+  The harness adds a `GXDrawDone` before `DrawOpa` and after `DrawXlu` so that it can attribute
+  what the model draw resolved (checked: the frame is identical without them).
+
+Options: `--no-xlu` (skip `DrawXlu`), `--no-puck`, `--puck-first` (enter the puck before the
+table), `--clear 0xRRGGBB` (default magenta), `--dump-stream FILE`, `--log-level N`.
+
+Ordering note: the game runs `CalcWorld` in `PostCalculate` before `CalcDrawList` pushes the
+frame's models into the cleared root (its models calculate themselves through `RPGrpModel`);
+the harness pushes first and lets `ScnRoot::CalcWorld` calculate them. Same matrices.
+
+### Gaps the scene hit, and their fixes
+
+| Gap | Fix |
+|---|---|
+| g3d's view matrix arrays (position, normal, environment) are read by the GP through indexed XF loads (`GXLoadPosMtxIndx` / `GXLoadNrmMtxIndx3x3`, and `LOAD_INDX_A` in skinned shapes' display lists); the CPU writes them in native byte order. Aurora (correctly) reads guest arrays as big-endian | `DrawResMdlDirectly` (`g3d_draw.cpp`, `#if defined(PORT_HOST)`) calls `PortGXSetViewMtxArrays(numViewMtx, pos, nrm, env)` after `SetViewPosNrmMtxArray`: big-endian copies in GP scratch memory replace the three array bases. The CPU keeps using the native arrays (`GetViewPosMtxPtr`, Z sort, environment matrices). |
+| `EGG::LightManager::LoadObjIndxGX` points `GX_LIGHT_ARRAY` at its `GXLightObj` runtime objects (native floats) | `PORT_GP_LIGHT_OBJS(p, 8)` (`eggLightManager.cpp`; `(p)` on the Wii): a copy with the 12 floats big-endian (the colour is bytes already). |
+| Static data the GP reads: `StateGX::resetTexture`'s null texture, DrawGX's Z-clear texture (u32 texels) and vertex arrays (s16), the light texture quad (s16) | `PORT_GP_STATIC` (bytes) and new `PORT_GP_STATIC_BE16` / `PORT_GP_STATIC_BE32` (one M0 copy, stored big-endian; `(p)` on the Wii). Without them `GXInitTexObj` aborted on a non-M0 pointer. |
+| GP scratch memory | `PortGPScratch(size)` (`host_wgpipe.cpp`): a 4 MiB M0 block, emptied at every `GXDrawDone` / `GXCopyDisp` (everything sent so far has run). A frame that fills it before a drain aborts with a message. Copies recorded into a display list and replayed after a drain would be stale; nothing records model draws. |
+| `ut::LC::QueueWait` (`DrawResMdlDirectly`) | `LCQueueWait` is a no-op in `host_gxmisc.cpp`: the game runs g3d with the locked cache off, so nothing is ever queued. |
+| `host_gfx_stubs.c`'s entries were strong, so the real GX SDK and g3d FIFO writes could not be linked next to them | every entry is weak now (the stubs' behaviour is unchanged where nothing real is linked); new weak entries `LCEnable`, `PortGXSetViewMtxArrays`, `PortGPLightObjs`. |
+| GPU driver threads: the executables' `operator new` / `delete` (the M0 arena) are exported, so a Vulkan driver's C++ code allocates there from its own threads. With Mesa's Intel driver the arena's free list was corrupted ("free of a corrupt block", crashes) about one run in three | the arena allocator takes a lock (`host_arena.cpp`). Driver allocations still land in M0, so emulated addresses can differ between runs on a GPU (not the frame). Routing foreign threads to `malloc` is a follow-up. |
+| `GXDraw.c` (`GXDrawSphere`, referenced by EGG's DrawGX) | added to the GX SDK units (`GX_SDK_SRCS`). |
+| Unhandled registers were invisible in Aurora's Release build (`#ifndef NDEBUG`) | Aurora patch 11 (below). |
+
+Nothing else was needed in Aurora: indexed XF loads of matrices and light objects already work
+through resolved arrays, and the scene uses no fog, logic op, Z texture or EFB copy.
+
+### Aurora patches (submodule working tree, not committed; series in the job's scratch)
+
+| # | Commit message | What |
+|---|---|---|
+| 11 | `gx: log each unhandled BP, CP and XF register once, in release builds too` | debug-level messages, once per register (bitset); CP registers without a decoder now report too (CP 0x40, the matrix index mirror, is explicitly ignored); unhandled XF memory writes and unimplemented indexed loads report in every build (the indexed-load message's format string is fixed) |
+| 12 | `tests: cover indexed position and normal matrix loads from resolved arrays` | `LOAD_INDX_A` / `LOAD_INDX_B` from a big-endian guest array into PNMTX1; `gx_fifo_tests` 241 pass |
+
+### The test (`tests/test_gx3d.py`)
+
+No reference renderer exists, so the test checks what an independent reading of the disc can
+check, from four runs (default, again, `--no-xlu`, `--puck-first`) at log level debug:
+
+| Check | How | Verified |
+|---|---|---|
+| Inputs | the printed camera against RPGrpCamera's orbit formula in double precision (1e-4); the projection against EGG::Frustum's perspective (fovy 40, 608/456, near 10, far 100000; 1e-6 relative); the viewport; every world matrix against `test_scene.py`'s CalcWorld model | yes |
+| Resolver | every address Aurora resolved during the model draw is an exact start, from the file, of a material display list (pix, TEV colour, indirect, texcoord-gen, TEV), a shape's pre-primitive (or its array part, +32, which `CallPrePrimitiveDisplayList` uses when the vertex descriptor is cached) or primitive list, a vertex array, or a texture image of the model's own BRRES; or inside the model's own `ScnMdl` buffers (copied materials); or the host's big-endian view-matrix copies; or StateGX's null texture (texture maps the draw does not use, resolved by Aurora at the next draw). Before the draw: only GX/EGG static copies and the light-object copy. Every shape's primitive list was called | yes |
+| Log | no Aurora warning or error except the display-copy stub (§26) and the device-destroyed message at shutdown; no unresolved address, unhandled XF memory write or unimplemented indexed load; every unhandled register is in the documented list (below) | yes |
+| Coverage | the triangles of the opaque byte code (decoded from the shapes' display lists and vertex arrays, transformed with the checked matrices, rasterised on the CPU with a depth buffer): pixels at least 1.5 px from any triangle edge must not show the clear colour where covered, and must where not. The table covers the whole screen, so only the first half is exercised | yes (covered half) |
+| Depth | `--puck-first` (the puck's commands before the table's: the streams differ) gives the identical frame | yes |
+| Materials | at pixels where the CPU depth buffer has `shade_L` / `shade_R` in front, 1.5 px from any edge (222151 pixels): the pixel lies within the 2x2 texel neighbourhood (decoded CMPR, `gxtex.py`) at the perspective-correct texture coordinate (TEV: TEXC x material colour white), within 5 per channel; result: every pixel inside, 0 off. `black` is never in front (the CPU depth buffer puts the shade quads over it everywhere). The corner lines `line1`, `line4`, `line6` (3 TEV stages, konstant colours, CLR0): the mean colour's dominant channel is the CLR0 colour's (R, B, G) | shade: yes; lines: hue only |
+| Determinism | two runs byte-identical; `--gpu-compare` also runs on the Intel GPU (Mesa) and compares: max difference 2, mean 0.05 | yes |
+
+Mutation checks while writing the test: projecting with y flipped fails the shade and hue checks
+(21845 and 20723 pixels off, three hue errors); swapping the two shade textures fails 85000
+pixels each.
+
+Visually reviewed only (no independent model): the line materials' exact colours (three TEV
+stages with an environment texture), the translucent glows (`line2`, `line5`, `line_C/L/R`:
+additive, konst alpha), the puck's material, the overall look against the game. Without bloom
+the neon glow is the baked `shade` textures and the translucent tubes only.
+
+Documented unhandled registers (none affects this scene): BP 0x01-0x04 (copy filter sample
+pattern), 0x49-0x4E and 0x53-0x54 (EFB copy source, destination, stride, scale, vertical
+filter), 0x44 / 0x68 (field mask and mode), 0x45 (draw done; synchronous on the host), 0x46 /
+0x69 (bus clocks), 0x23 / 0x24 / 0x67 (performance counters), 0x55 / 0x56 (bounding box reset),
+0x58 (PE control bits), 0xF4 / 0xF5 (Z texture, disabled); CP 0x20 (performance counter
+select); XF 0x1000 (error register), 0x1006 (performance counter select), 0x1012 (dual texture
+transform enable: always on from `GXInit`; Aurora always applies the post-transform matrices).
+
+Expected output (part of `make test` on 64-bit, after `test_gxlyt`):
+
+```
+test_gx3d: 608x456 after 2 frames on llvmpipe (LLVM 21.1.8, 256 bits); GX stream 17026 bytes
+  inputs: camera, projection (fovy 40, 608x456, near 10, far 100000), viewport, 2 world matrices match the models
+  resolver: draw GX/EGG static data 1, draw host big-endian copies 6, draw model buffers 19, draw model data 107, setup GX/EGG static data 1, setup host big-endian copies 1
+  log: 3 allowed warnings (Device lost: Device was destroyed., STUB: display copy is not implemented); 28 unhandled registers, all documented
+  geometry: 4218 opaque + 6188 translucent triangles; coverage judged on 240936 pixels (0 uncovered); puck-first frame identical: True
+  materials: line1 2237 px; line4 2237 px; line6 2237 px; shade_L 111187 px; shade_R 110964 px; hue: line1 (248, 169, 145), line4 (185, 185, 254), line6 (188, 237, 123)
+  determinism: two runs identical: True
+errors: 0
+OK
+sys_harness: 6 heaps; FST 59 files 67 directories (sys/fst.bin and the tree agree); resources: 24 cached, 27 expanded, 384 archive files; save written, reloaded and reloaded by a second run; SC defaults and config, compared with host32
+```
+
+### Decomp changes (all byte-identical on the Wii, `check_matching`: 974 units identical)
+
+| File | Change |
+|---|---|
+| `include/port/wgpipe.h` | `PORT_GP_STATIC_BE16`, `PORT_GP_STATIC_BE32`, `PORT_GP_LIGHT_OBJS`: `(p)` |
+| `src/egg/gfxe/eggStateGX.cpp`, `eggDrawGX.cpp`, `eggLightTexture.cpp` | the static texture and vertex arrays through those macros (same lines: `eggDrawGX.cpp`'s `DECOMP_FORCEACTIVE` uses `__LINE__`) |
+| `src/egg/gfxe/eggLightManager.cpp` | `LoadObjIndxGX`'s array base through `PORT_GP_LIGHT_OBJS` |
+| `src/nw4r/g3d/g3d_draw.cpp` | `#if defined(PORT_HOST)`: `PortGXSetViewMtxArrays` after `SetViewPosNrmMtxArray` |
+
+`check_matching.py`'s touched list has `eggStateGX.cpp`, `eggDrawGX.cpp` and
+`eggLightTexture.cpp` (the other two were already there).
+
+### Still open (milestone 3b and later)
+
+- EFB copies: `GXCopyTex` into Wii memory (bloom, DOF, shadow textures and volumes, light
+  textures, captures) and the CPU-visible ones (the Kokeshi icon into a `ResTIMG`, RFL faces:
+  written back in the Wii texture format); the copy filter (anti-aliasing, vertical filter); a
+  display copy without clear. Then this scene's bloom and the puck's shadow volume, and Shooting
+  Range's light maps.
+- `GXSetZTexture`, logic ops (DOF), fog range adjustment, lit materials (the light path runs
+  here but no material uses it), `GXPoke*` / `GXPeek*`.
+- `RPGrpModel*` on the host (§20's template-specialisation errors), so the harness can use the
+  game's model layer instead of repeating its g3d calls; the paddles; then the full game frame
+  loop (`RPGrpRenderer` views, layouts, effects) from the scene creator.
+- Foreign-thread allocations (GPU drivers) out of the M0 arena.

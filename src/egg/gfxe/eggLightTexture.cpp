@@ -292,7 +292,7 @@ void LightTexture::initDrawSetting(u16 x, u16 y, u16 width, u16 height) {
     GXClearVtxDesc();
     GXSetVtxDesc(GX_VA_POS, GX_INDEX8);
     GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetArray(GX_VA_POS, scQuadPos, sizeof(s16) * 3);
+    GXSetArray(GX_VA_POS, PORT_GP_STATIC_BE16(scQuadPos, sizeof(scQuadPos)), sizeof(s16) * 3);
     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_S16, 0);
     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
 

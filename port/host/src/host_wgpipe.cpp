@@ -41,6 +41,11 @@ u8* sMemBase = nullptr;
 u8* sMemLimit = nullptr;
 bool sMemWrapped = false;
 
+// PortGPScratch: a bump allocator over one M0 block, emptied at every drain.
+const u32 kScratchSize = 4 * 1024 * 1024;
+u8* sScratch = nullptr;
+u32 sScratchUsed = 0;
+
 void SinkWrite(const u8* data, u32 size) {
     sStreamBytes += size;
     if (sSink != nullptr && sSink->write != nullptr && size != 0) {
@@ -144,6 +149,29 @@ void PortWGPipeSync(u32 kind) {
     if (sSink != nullptr && sSink->sync != nullptr) {
         sSink->sync(kind, sSink->user);
     }
+    if (kind == PORT_GX_SYNC_DRAWDONE || kind == PORT_GX_SYNC_DISPLAY) {
+        // Everything sent so far has run: nothing reads the scratch any more.
+        sScratchUsed = 0;
+    }
+}
+
+void PortGPScratchRange(u32* base, u32* size) {
+    *base = sScratch != nullptr ? port_vaddr(sScratch) : 0;
+    *size = sScratch != nullptr ? kScratchSize : 0;
+}
+
+void* PortGPScratch(u32 size) {
+    if (sScratch == nullptr) {
+        sScratch = static_cast<u8*>(PortArenaAlloc(kScratchSize, 32));
+    }
+    size = (size + 31) & ~31u;
+    if (size > kScratchSize - sScratchUsed) {
+        std::fprintf(stderr, "PortGPScratch: %u bytes in use before a GXDrawDone\n", sScratchUsed);
+        std::abort();
+    }
+    void* p = sScratch + sScratchUsed;
+    sScratchUsed += size;
+    return p;
 }
 
 void PortGXDisplayCopied(void* dest, int clear) {

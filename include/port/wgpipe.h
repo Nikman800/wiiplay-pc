@@ -23,5 +23,12 @@
 
 /* Static data the graphics processor reads (a texture, an array base). */
 #define PORT_GP_STATIC(p, size) (p)
+/* The same for an array of 16- or 32-bit values (vertex arrays, Z texels): the
+   host's copy is big-endian, as the graphics processor reads it. */
+#define PORT_GP_STATIC_BE16(p, size) (p)
+#define PORT_GP_STATIC_BE32(p, size) (p)
+/* An array of n GXLightObj the graphics processor loads by index (the host
+   copies it into the hardware's byte order). */
+#define PORT_GP_LIGHT_OBJS(p, n) (p)
 
 #endif

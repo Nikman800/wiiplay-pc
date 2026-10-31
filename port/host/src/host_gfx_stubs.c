@@ -22,14 +22,16 @@ static void PortStubHit(const char* pName) {
     abort();
 }
 
+/* Weak, so a harness that links the real unit (the GX SDK, g3d's FIFO writes:
+ * gx3d_harness, docs/HOST_BUILD.md §27) gets the real function. */
 #define PORT_STUB(name)                                                            \
-    void name(void);                                                               \
+    void name(void) __attribute__((weak));                                         \
     void name(void) {                                                              \
         PortStubHit(#name);                                                        \
     }
 
 #define PORT_STUB_MANGLED(id, mangled, readable)                                   \
-    void port_stub_##id(void) __asm__(mangled);                                    \
+    void port_stub_##id(void) __asm__(mangled) __attribute__((weak));              \
     void port_stub_##id(void) {                                                    \
         PortStubHit(readable);                                                     \
     }
@@ -80,6 +82,9 @@ PORT_STUB(GXLoadNrmMtxIndx3x3)
 PORT_STUB(GXLoadPosMtxIndx)
 PORT_STUB(GXSetFogRangeAdj)
 PORT_STUB(PPCSync)
+/* g3d draw: the view matrices for the GP (host_gxmisc.cpp has the real one). */
+PORT_STUB(PortGXSetViewMtxArrays)
+PORT_STUB(PortGPLightObjs)
 /* g3d's direct FIFO writes (platform/g3d_gpu.cpp writes the GX FIFO; not built). */
 PORT_STUB_MANGLED(gd_tex33, "_ZN4nw4r3g3d4fifo18GDLoadTexMtxImm3x3ERKNS_4math5MTX33Ej",
                   "g3d::fifo::GDLoadTexMtxImm3x3")
@@ -98,6 +103,7 @@ PORT_STUB_MANGLED(gd_scale2,
  * (RPGrpRenderer calls g3d::G3dInit(false)), so LC::Lock fails and g3d takes its
  * main-memory paths, on the Wii as here. */
 PORT_STUB(LCDisable)
+PORT_STUB(LCEnable)
 PORT_STUB(LCLoadBlocks)
 PORT_STUB(LCStoreBlocks)
 PORT_STUB(LCStoreData)

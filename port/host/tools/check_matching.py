@@ -262,6 +262,12 @@ TOUCHED = [
     "src/revolution/GX/GXTev.c",
     "src/revolution/GX/GXPixel.c",
     "include/nw4r/g3d/platform/g3d_gpu.h",
+    # §27: a minigame's 3D scene (big-endian copies of static GP data; g3d's view
+    # matrices and EGG's light objects for indexed loads; g3d_draw.cpp and
+    # eggLightManager.cpp are already listed above)
+    "src/egg/gfxe/eggStateGX.cpp",
+    "src/egg/gfxe/eggDrawGX.cpp",
+    "src/egg/gfxe/eggLightTexture.cpp",
 ]
 
 

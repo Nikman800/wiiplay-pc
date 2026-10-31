@@ -109,6 +109,27 @@ static inline void port_wgpipe_f32s(const f32* src, u32 n) {
    emulated address (src/host_arena.cpp). */
 void* PortArenaStatic(const void* p, u32 size);
 #define PORT_GP_STATIC(p, size) PortArenaStatic((p), (size))
+/* Static arrays of 16- or 32-bit values: the M0 copy is big-endian. */
+void* PortArenaStaticBE(const void* p, u32 size, u32 unit);
+/* The static copies made so far: emulated addresses and sizes (for tests). */
+u32 PortArenaStaticList(u32* addrs, u32* sizes, u32 max);
+#define PORT_GP_STATIC_BE16(p, size) PortArenaStaticBE((p), (size), 2)
+#define PORT_GP_STATIC_BE32(p, size) PortArenaStaticBE((p), (size), 4)
+
+/* GP-visible scratch memory in M0 for data the CPU keeps in native byte order
+   but the graphics processor reads by address: valid until the next
+   GXDrawDone / GXCopyDisp (when every command sent so far has run). */
+void* PortGPScratch(u32 size);
+/* The scratch block's emulated address range (0 before the first use). */
+void PortGPScratchRange(u32* base, u32* size);
+/* g3d's view position / normal / environment matrix arrays (DrawResMdlDirectly):
+   big-endian copies of `num` matrices each in PortGPScratch, set as the
+   GX_POS_MTX_ARRAY / GX_NRM_MTX_ARRAY / GX_TEX_MTX_ARRAY bases (NULL: unchanged). */
+void PortGXSetViewMtxArrays(u32 num, const void* pos, const void* nrm, const void* env);
+/* n GXLightObj (runtime objects, native byte order) for indexed light loads:
+   a copy in PortGPScratch with the hardware's layout (big-endian words). */
+void* PortGPLightObjs(const void* objs, u32 n);
+#define PORT_GP_LIGHT_OBJS(p, n) PortGPLightObjs((p), (n))
 
 #ifdef __cplusplus
 }

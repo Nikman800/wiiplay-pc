@@ -139,7 +139,7 @@ void DrawGX::Initialize(Heap* pHeap) {
 }
 
 void DrawGX::InitClearTexObj() {
-    GXInitTexObj(&CLEAR_Z_TEX_OBJ, &CLEAR_Z_TX, 4, 4, GX_TF_Z24X8, GX_REPEAT,
+    GXInitTexObj(&CLEAR_Z_TEX_OBJ, PORT_GP_STATIC_BE32(&CLEAR_Z_TX, sizeof(CLEAR_Z_TX)), 4, 4, GX_TF_Z24X8, GX_REPEAT,
                  GX_REPEAT, GX_FALSE);
 
     GXInitTexObjLOD(&CLEAR_Z_TEX_OBJ, GX_NEAR, GX_NEAR, 0.0f, 0.0f, 0.0f,
@@ -697,8 +697,8 @@ void DrawGX::SetVtxState(VtxType vtxType) {
         GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_S16, 14);
         GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_S16, 14);
 
-        GXSetArray(GX_VA_POS, CUBE_VTX, sizeof(s16) * 3);
-        GXSetArray(GX_VA_NRM, CUBE_NRM, sizeof(s16) * 3);
+        GXSetArray(GX_VA_POS, PORT_GP_STATIC_BE16(CUBE_VTX, sizeof(CUBE_VTX)), sizeof(s16) * 3);
+        GXSetArray(GX_VA_NRM, PORT_GP_STATIC_BE16(CUBE_NRM, sizeof(CUBE_NRM)), sizeof(s16) * 3);
 
         GXSetVtxDesc(GX_VA_POS, GX_INDEX8);
         GXSetVtxDesc(GX_VA_NRM, GX_INDEX8);
@@ -763,8 +763,8 @@ void DrawGX::SetVtxState(VtxType vtxType) {
             GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
         }
 
-        GXSetArray(GX_VA_POS, QUAD_VTX, sizeof(s16) * 3);
-        GXSetArray(GX_VA_NRM, QUAD_NRM, sizeof(s16) * 3);
+        GXSetArray(GX_VA_POS, PORT_GP_STATIC_BE16(QUAD_VTX, sizeof(QUAD_VTX)), sizeof(s16) * 3);
+        GXSetArray(GX_VA_NRM, PORT_GP_STATIC_BE16(QUAD_NRM, sizeof(QUAD_NRM)), sizeof(s16) * 3);
         break;
     }
 
@@ -792,8 +792,8 @@ void DrawGX::SetVtxState(VtxType vtxType) {
         GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_NRM_XYZ, GX_S16, 14);
         GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
 
-        GXSetArray(GX_VA_POS, QUAD_VTX, sizeof(s16) * 3);
-        GXSetArray(GX_VA_NRM, QUAD_NRM, sizeof(s16) * 3);
+        GXSetArray(GX_VA_POS, PORT_GP_STATIC_BE16(QUAD_VTX, sizeof(QUAD_VTX)), sizeof(s16) * 3);
+        GXSetArray(GX_VA_NRM, PORT_GP_STATIC_BE16(QUAD_NRM, sizeof(QUAD_NRM)), sizeof(s16) * 3);
         break;
     }
 
@@ -839,9 +839,9 @@ void DrawGX::SetVtxState(VtxType vtxType) {
             GXSetVtxDesc(GX_VA_TEX0, GX_INDEX8);
         }
 
-        GXSetArray(GX_VA_POS, lu ? SCREEN_VTX_LU : SCREEN_VTX, sizeof(s16) * 3);
+        GXSetArray(GX_VA_POS, lu ? PORT_GP_STATIC_BE16(SCREEN_VTX_LU, sizeof(SCREEN_VTX_LU)) : PORT_GP_STATIC_BE16(SCREEN_VTX, sizeof(SCREEN_VTX)), sizeof(s16) * 3);
         if (texture) {
-            GXSetArray(GX_VA_TEX0, SCREEN_UV, sizeof(s16) * 2);
+            GXSetArray(GX_VA_TEX0, PORT_GP_STATIC_BE16(SCREEN_UV, sizeof(SCREEN_UV)), sizeof(s16) * 2);
         }
 
         GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_S16, 0);

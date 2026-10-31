@@ -695,7 +695,7 @@ $(OUT)/gx_harness: $(HOST)/tests/gx_harness.cpp $(HOST)/tests/disc_walk.h $(HOST
 # units, plus host GXFifo/GXMisc (src/host_gxfifo.cpp, host_gxmisc.cpp) in place of
 # the hardware FIFO and PE interrupt code. GNU89 inline: the SDK's plain `inline`
 # helpers (GXTransform.c) also get an out-of-line copy, as with CodeWarrior.
-GX_SDK_SRCS := $(addprefix src/revolution/GX/,GXAttr.c GXBump.c GXDisplayList.c GXGeometry.c \
+GX_SDK_SRCS := $(addprefix src/revolution/GX/,GXAttr.c GXBump.c GXDisplayList.c GXDraw.c GXGeometry.c \
     GXInit.c GXLight.c GXPixel.c GXTev.c GXTexture.c GXTransform.c GXFrameBuf.c GXPerf.c)
 GX_SDK_DECOMP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(GX_SDK_SRCS))
 $(GX_SDK_DECOMP_OBJS): CFLAGS += -fgnu89-inline
@@ -706,18 +706,35 @@ $(OUT)/gxlyt_harness: $(HOST)/tests/gxlyt_harness.cpp $(HOST)/aurora/wpgx.h $(GX
 	$(CXX) $(CXXFLAGS) -I$(HOST)/aurora -MMD $< $(GX_SDK_OBJS) $(LIB) -L$(AURORA_BUILD) -lwiiplay_gx \
 	    -Wl,-rpath,$(AURORA_BUILD) -o $@
 
+# A minigame's 3D scene through g3d, EGG and the GX SDK (§27): the g3d scene,
+# calc and draw units of mdl_harness (§20) with g3d's FIFO writes
+# (platform/g3d_gpu.cpp, g3d_tmem.cpp), EGG's gfx units (ScnRenderer, light and
+# fog managers, Screen, StateGX, DrawGX) and the game's camera and screen. The
+# real GXLight.c replaces host_gxlight.cpp; host_gfx_stubs.c's entries are weak.
+GX3D_SRCS := src/nw4r/g3d/platform/g3d_gpu.cpp src/nw4r/g3d/platform/g3d_tmem.cpp \
+    $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/egg/gfxe/*.cpp) \
+    $(wildcard $(REPO)/src/egg/gfx/*.cpp) $(wildcard $(REPO)/src/egg/math/*.cpp))) \
+    src/Pack/RPGraphics/RPGrpCamera.cpp src/Pack/RPGraphics/RPGrpScreen.cpp
+GX3D_OBJS := $(filter-out $(OUT)/host/src/host_gxlight.cpp.o,$(MDL_OBJS)) \
+    $(sort $(patsubst %,$(OUT)/decomp/%.o,$(GX3D_SRCS))) $(OUT)/host/src/host_sc.cpp.o
+$(OUT)/gx3d_harness: $(HOST)/tests/gx3d_harness.cpp $(HOST)/tests/disc_walk.h $(HOST)/aurora/wpgx.h \
+    $(GX_SDK_OBJS) $(GX3D_OBJS) $(WPGX_LIB) $(LIB)
+	$(CXX) $(CXXFLAGS) -I$(HOST)/aurora -MMD $< $(GX_SDK_OBJS) $(GX3D_OBJS) $(LIB) \
+	    -L$(AURORA_BUILD) -lwiiplay_gx -Wl,-rpath,$(AURORA_BUILD) -Wl,--gc-sections -o $@
+
 .PHONY: gx gx-aurora-tests FORCE
 FORCE:
-all: $(OUT)/gx_harness $(OUT)/gxlyt_harness
+all: $(OUT)/gx_harness $(OUT)/gxlyt_harness $(OUT)/gx3d_harness
 # Aurora's own GX FIFO encoder/decoder tests (googletest), from our build.
 gx-aurora-tests: $(WPGX_LIB)
 	@$(AURORA_BUILD)/aurora/tests/gx_fifo_tests --gtest_brief=1 > $(AURORA_BUILD)/gx_fifo_tests.log 2>&1 \
 	    || { tail -30 $(AURORA_BUILD)/gx_fifo_tests.log; exit 1; }
 	@echo "gx_fifo_tests: $$(grep -E 'PASSED|tests ran' $(AURORA_BUILD)/gx_fifo_tests.log | tr '\n' ' ')"
 # The bring-up render on lavapipe (software Vulkan; --gpu for the real adapter).
-gx: $(OUT)/gx_harness $(OUT)/gxlyt_harness gx-aurora-tests
+gx: $(OUT)/gx_harness $(OUT)/gxlyt_harness $(OUT)/gx3d_harness gx-aurora-tests
 	python3 $(HOST)/tests/test_gx.py --harness $(OUT)/gx_harness --disc $(DISC) --scratch $(GX_SCRATCH)
 	python3 $(HOST)/tests/test_gxlyt.py --harness $(OUT)/gxlyt_harness --disc $(DISC) --scratch $(GX_SCRATCH)
+	python3 $(HOST)/tests/test_gx3d.py --harness $(OUT)/gx3d_harness --disc $(DISC) --scratch $(GX_SCRATCH)/gx3d
 test: gx
 else
 .PHONY: gx gx-aurora-tests

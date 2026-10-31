@@ -9,6 +9,8 @@
  */
 #include <types.h>
 
+#include <cstring>
+
 #include <revolution/GX.h>
 #include <revolution/OS.h>
 #include <revolution/VI.h>
@@ -185,5 +187,51 @@ __attribute__((weak)) u32 PPCMfhid2(void) {
 __attribute__((weak)) void PPCMthid2(u32) {}
 __attribute__((weak)) void PPCMtwpar(u32) {}
 __attribute__((weak)) void PPCSync(void) {}
+
+namespace {
+const void* GPCopyBE32(const void* src, u32 bytes) {
+    u8* dst = static_cast<u8*>(PortGPScratch(bytes));
+    const u8* p = static_cast<const u8*>(src);
+    for (u32 i = 0; i < bytes; i += 4) {
+        u32 v;
+        std::memcpy(&v, p + i, 4);
+        dst[i] = static_cast<u8>(v >> 24);
+        dst[i + 1] = static_cast<u8>(v >> 16);
+        dst[i + 2] = static_cast<u8>(v >> 8);
+        dst[i + 3] = static_cast<u8>(v);
+    }
+    return dst;
+}
+} // namespace
+
+void PortGXSetViewMtxArrays(u32 num, const void* pos, const void* nrm, const void* env) {
+    if (pos != NULL) {
+        GXSetArray(GX_POS_MTX_ARRAY, GPCopyBE32(pos, num * 48), 48);
+    }
+    if (nrm != NULL) {
+        GXSetArray(GX_NRM_MTX_ARRAY, GPCopyBE32(nrm, num * 36), 36);
+    }
+    if (env != NULL) {
+        GXSetArray(GX_TEX_MTX_ARRAY, GPCopyBE32(env, num * 48), 48);
+    }
+}
+
+void* PortGPLightObjs(const void* objs, u32 n) {
+    // XF light memory: 3 unused words, the colour (GXColor bytes: already in order), then
+    // 12 floats (attenuation, position, direction).
+    u8* dst = static_cast<u8*>(PortGPScratch(n * 64));
+    std::memcpy(dst, objs, n * 64);
+    for (u32 i = 0; i < n; i++) {
+        const u8* src = static_cast<const u8*>(objs) + i * 64 + 16;
+        std::memcpy(dst + i * 64 + 16, GPCopyBE32(src, 48), 48);
+    }
+    return dst;
+}
+
+// The locked cache's DMA queue (g3d's DrawResMdlDirectly waits on it before drawing). The
+// game runs g3d with the locked cache off (G3dInit(false)), so nothing is ever queued.
+void LCQueueWait(u32 len) {
+    (void)len;
+}
 
 } // extern "C"

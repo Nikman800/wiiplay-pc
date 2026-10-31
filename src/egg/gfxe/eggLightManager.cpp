@@ -163,7 +163,7 @@ void LightManager::LoadAmbientColorGX() const {
 }
 
 void LightManager::LoadObjIndxGX() const {
-    GXSetArray(GX_LIGHT_ARRAY, GetLightObjSet(m_currentView),
+    GXSetArray(GX_LIGHT_ARRAY, PORT_GP_LIGHT_OBJS(GetLightObjSet(m_currentView), 8),
                sizeof(GXLightObj));
 
     for (int i = 0; i < 8; i++) {
