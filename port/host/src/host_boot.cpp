@@ -13,9 +13,9 @@
  *             (WPADReadFaceData: no controller), power and reset buttons
  *             (callbacks recorded, never called);
  *   placeholders  CodeWarrior-mangled names that some game units call by name
- *             (the "ledger placeholders"): forwarded to the real functions;
- *   not linked    the minigame scenes: each one's vtable is a table of one
- *             function that aborts (the scene creator's switch keeps them).
+ *             (the "ledger placeholders"): forwarded to the real functions.
+ *
+ * Every minigame scene is linked (§32); none of them has a stand-in here.
  */
 
 #include <types.h>
@@ -27,6 +27,21 @@
 #include <Pack/RPParty/RPPartyCommon/RPDoll.h>
 #include <Pack/RPParty/RPPartyCommon/RPPlayerConfirm.h>
 #include <Pack/RPParty/RPPartyCommon/RPSceneInfo.h>
+
+#include <Pack/RPParty/RPBilScene/RPBilTable.h>
+#include <Pack/RPParty/RPBomScene/RPBomBorder.h>
+#include <Pack/RPParty/RPBomScene/RPBomCursor.h>
+#include <Pack/RPParty/RPBomScene/RPBomLyt.h>
+#include <Pack/RPParty/RPBomScene/RPBomPanel.h>
+#include <Pack/RPParty/RPBomScene/RPBomPlayer.h>
+#include <Pack/RPParty/RPBomScene/RPBomQuestionParam.h>
+#include <Pack/RPParty/RPBomScene/RPBomScore.h>
+#include <Pack/RPParty/RPBomScene/RPBomScreenFx.h>
+#include <Pack/RPParty/RPTnkScene/RPTnkLyt.h>
+
+#include <egg/core/eggController.h>
+#include <egg/gfxe/eggShadowTexture.h>
+#include <egg/math/eggMatrix.h>
 
 #include <egg/audio.h>
 #include <egg/math.h>
@@ -76,6 +91,16 @@ nw4r::ut::List RPSndAudioActorBase::sActorList;
 RPDollMgr* RPDollMgr::sInstance = NULL;
 RPPlayerConfirm* RPPlayerConfirm::sInstance = NULL;
 RPSceneInfo* RPSceneInfo::spInstance = NULL;
+// Pose Mii's singletons (.sbss 8043CA88-8043CAE0; no unit defines them yet)
+RPBomCursorManager* RPBomCursorManager::sInstance = NULL;
+RPBomPlayerManager* RPBomPlayerManager::sInstance = NULL;
+RPBomQuestionParam* RPBomQuestionParam::sInstance = NULL;
+RPBomScreenFx* RPBomScreenFx::sInstance = NULL;
+RPBomScore* RPBomScore::sInstance = NULL;
+RPBomPanelCtrl* RPBomPanelCtrl::sInstance = NULL;
+RPBomPanelPool* RPBomPanelPool::sInstance = NULL;
+RPBomBorder* RPBomBorder::sInstance = NULL;
+RPBomLayoutMgr* RPBomLayoutMgr::sInstance = NULL;
 
 namespace nw4r {
 namespace g3d {
@@ -211,6 +236,12 @@ void VFInitEx(void* start, u32 size) {
     NotLinked("VFInitEx");
 }
 
+// No GameCube controller ports (Fishing stops a GameCube pad's rumble)
+void PADControlMotor(s32 chan, u32 command) {
+    (void)chan;
+    (void)command;
+}
+
 s32 WPADReadFaceData(s32 chan, void* dst, u16 size, u32 src, WPADCallback cb) {
     (void)chan;
     (void)dst;
@@ -267,6 +298,43 @@ EGG::Vector3f cross__Q23EGG8Vector3fCFRCQ23EGG8Vector3f(const EGG::Vector3f* pLh
                                                         const EGG::Vector3f& rRhs) {
     return pLhs->cross(rRhs);
 }
+EGG::Vector3f __mi__Q23EGG8Vector3fCFv(const EGG::Vector3f* pVec) {
+    return EGG::Vector3f(-pVec->x, -pVec->y, -pVec->z);
+}
+EGG::Vector3f __dv__Q23EGG8Vector3fCFf(const EGG::Vector3f* pLhs, f32 div) {
+    return EGG::Vector3f(pLhs->x / div, pLhs->y / div, pLhs->z / div);
+}
+EGG::Vector2f EGG_Vector2f_operator_mul(const EGG::Vector2f* pLhs, f32 scale) {
+    return EGG::Vector2f(pLhs->x * scale, pLhs->y * scale);
+}
+EGG::Vector3f calcRPY__Q23EGG9Matrix34fCFv(const EGG::Matrix34f* pMtx) {
+    return pMtx->calcRPY();
+}
+EGG::Vector2f getHorizon__Q23EGG10CoreStatusCFv(const EGG::CoreStatus* pStatus) {
+    return pStatus->getHorizon();
+}
+EGG::Vector2f getDpdPos__Q23EGG10CoreStatusCFv(const EGG::CoreStatus* pStatus) {
+    return pStatus->getDpdPos();
+}
+EGG::Vector3f getAccel__Q23EGG14CoreControllerCFv(const EGG::CoreController* pController) {
+    return pController->getAccel();
+}
+s32 getDpdValidFlag__Q23EGG14CoreControllerCFv(const EGG::CoreController* pController) {
+    return pController->getDpdValidFlag();
+}
+void BeginDrawQuad__Q23EGG13ShadowTextureFQ33EGG13ShadowTexture5Blend(int blend) {
+    EGG::ShadowTexture::BeginDrawQuad(static_cast<EGG::ShadowTexture::Blend>(blend));
+}
+void DrawQuad__Q23EGG13ShadowTextureCFRCQ34nw4r4math5MTX34RC8_GXColor(
+    const EGG::ShadowTexture* pTexture, const nw4r::math::MTX34& rMtx, const GXColor& rColor) {
+    pTexture->DrawQuad(rMtx, rColor);
+}
+// RPTnkGameManager passes its guide (unused: RPTnkHideExMsg takes no parameter)
+class RPTnkExGuide;
+void RPTnkHideExMsg__Fv(RPTnkExGuide* pGuide) {
+    (void)pGuide;
+    RPTnkHideExMsg();
+}
 void SetBrightnessColor__19RPSysKokeshiManagerFP10RPGrpModel8_GXColor(RPSysKokeshiManager* pMgr,
                                                                       RPGrpModel* pModel,
                                                                       const GXColor* pColor) {
@@ -275,42 +343,10 @@ void SetBrightnessColor__19RPSysKokeshiManagerFP10RPGrpModel8_GXColor(RPSysKokes
 
 } // extern "C"
 
-/* ---- Not linked: the minigame scenes' vtables ------------------------------ */
-
-namespace {
-
-void MinigameSceneNotLinked() {
-    NotLinked("a minigame scene");
+// RPBilTable defines GetPocketPos by its explicit ABI entry (RPBilTable.h); the cameras call
+// the member
+EGG::Vector3f RPBilTable::GetPocketPos(s32 pocket) const {
+    nw4r::math::VEC3 pos;
+    GetPocketPos__10RPBilTableCFl(&pos, const_cast<RPBilTable*>(this), pocket);
+    return EGG::Vector3f(pos.x, pos.y, pos.z);
 }
-
-} // namespace
-
-#define PORT_VTABLE_SLOTS 64
-#define PORT_SCENE_VTABLE(id, mangled) \
-    extern "C" void* boot_vtable_##id[PORT_VTABLE_SLOTS] __asm__(mangled); \
-    void* boot_vtable_##id[PORT_VTABLE_SLOTS];
-PORT_SCENE_VTABLE(bil, "_ZTV10RPBilScene")
-PORT_SCENE_VTABLE(bom, "_ZTV10RPBomScene")
-PORT_SCENE_VTABLE(cow, "_ZTV10RPCowScene")
-PORT_SCENE_VTABLE(fsh, "_ZTV10RPFshScene")
-PORT_SCENE_VTABLE(hky, "_ZTV10RPHkyScene")
-PORT_SCENE_VTABLE(pnp, "_ZTV10RPPnpScene")
-PORT_SCENE_VTABLE(tnk, "_ZTV10RPTnkScene")
-PORT_SCENE_VTABLE(wly, "_ZTV10RPWlyScene")
-#undef PORT_SCENE_VTABLE
-
-namespace {
-
-// Offset to top and type info are 0 (no RTTI); every virtual slot aborts.
-__attribute__((constructor)) void FillSceneVtables() {
-    void** tables[] = {boot_vtable_bil, boot_vtable_bom, boot_vtable_cow,
-                       boot_vtable_fsh, boot_vtable_hky,
-                       boot_vtable_pnp, boot_vtable_tnk, boot_vtable_wly};
-    for (void** t : tables) {
-        for (int i = 2; i < PORT_VTABLE_SLOTS; i++) {
-            t[i] = reinterpret_cast<void*>(&MinigameSceneNotLinked);
-        }
-    }
-}
-
-} // namespace

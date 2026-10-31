@@ -1,0 +1,23 @@
+# Shooting Range, short (port/docs/HOST_BUILD.md §32): test_boot.py appends this to
+# tests/boot/menus.txt (which ends on the party menu), without its `end`. Enter the
+# game, play into round 1 until hits score, then pause (+) and Quit to the party menu.
+# The Shooting Range icon on the party menu -> the explanation screen
+4800 mouse 177 300
+4830 press A
+4836 release A
+# "A: Start"
+5200 mouse 320 228
+5230 press A
+5236 release A
+# Round 1: the pointer follows a live target (host_probe.cpp), B fires every 6 retraces
+5300 aim 1
+5600 fire 6
+6100 fire 0
+6100 aim 0
+# + pauses; "Quit" -> the party menu
+6150 press PLUS
+6156 release PLUS
+6250 mouse 320 348
+6280 press A
+6286 release A
+end 100000

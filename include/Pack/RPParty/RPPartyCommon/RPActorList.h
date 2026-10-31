@@ -109,6 +109,8 @@ protected:
     /**
      * @brief Links an actor after pPos (NULL: after the tail, or as the head); the list head
      * doubles as the sentinel link. Inlined into the Cow game's actor creation [M]
+     * @note The head is the RPActorListHead base (at offset 0 with CodeWarrior; after the
+     * vtable pointer with other compilers)
      */
     void LinkActor(RPActorLink* pPos, RPActor* pActor) {
         if (pActor != NULL) {
@@ -116,7 +118,7 @@ protected:
                 if (mpTail != NULL) {
                     pPos = mpTail;
                 } else {
-                    pPos = reinterpret_cast<RPActorLink*>(this);
+                    pPos = reinterpret_cast<RPActorLink*>(static_cast<RPActorListHead*>(this));
                 }
             }
             if (pPos->mpNext != NULL) {
@@ -129,7 +131,7 @@ protected:
                 mpTail = pActor;
             }
             pPos->mpNext = pActor;
-            if (pPos != reinterpret_cast<RPActorLink*>(this)) {
+            if (pPos != reinterpret_cast<RPActorLink*>(static_cast<RPActorListHead*>(this))) {
                 pActor->mpPrev = static_cast<RPActor*>(pPos);
             } else {
                 pActor->mpPrev = NULL;

@@ -11,16 +11,22 @@
 
 using nw4r::math::VEC3;
 
+// The remainder with PowerPC's result for a zero divisor (a zero timer range in the
+// parameter file; the host form is in port/host/include/decomp/compat.h)
+#if !defined(PORT_PPC_MOD)
+#define PORT_PPC_MOD(x, d) ((x) % (d))
+#endif
+
 struct MoveGameParams {
-    s32 p00; f32 p04; s32 p08; s32 p0C; s32 p10;
-    f32 p14; f32 p18; f32 p1C; s32 p20; s32 p24;
-    f32 p28; f32 p2C; f32 p30; s32 p34; s32 p38;
-    f32 p3C; f32 p40; f32 p44; f32 p48; s32 p4C;
-    f32 p50; s32 p54; f32 p58; f32 p5C; f32 p60;
-    f32 p64; f32 p68; s32 p6C; f32 p70; s32 p74;
-    f32 p78; f32 p7C; f32 p80; s32 p84; s32 p88;
-    s32 p8C; s32 p90; f32 p94; f32 p98; s32 p9C;
-    f32 pA0; s32 pA4;
+    be_s32 p00; be_f32 p04; be_s32 p08; be_s32 p0C; be_s32 p10;
+    be_f32 p14; be_f32 p18; be_f32 p1C; be_s32 p20; be_s32 p24;
+    be_f32 p28; be_f32 p2C; be_f32 p30; be_s32 p34; be_s32 p38;
+    be_f32 p3C; be_f32 p40; be_f32 p44; be_f32 p48; be_s32 p4C;
+    be_f32 p50; be_s32 p54; be_f32 p58; be_f32 p5C; be_f32 p60;
+    be_f32 p64; be_f32 p68; be_s32 p6C; be_f32 p70; be_s32 p74;
+    be_f32 p78; be_f32 p7C; be_f32 p80; be_s32 p84; be_s32 p88;
+    be_s32 p8C; be_s32 p90; be_f32 p94; be_f32 p98; be_s32 p9C;
+    be_f32 pA0; be_s32 pA4;
 
     static MoveGameParams Get(s32 type);
 };
@@ -381,7 +387,7 @@ void RPTnkAiMove::Update(RPAxes* pRot, nw4r::math::VEC3* pVel,
         s32 range = mParams.mTimerMax - mParams.mTimerMin;
         AdvanceRandom();
         s32 random = ((RP_randSeedX ^ RP_randSeedY) >> 4) & 0xFFFF;
-        mTimer = mParams.mTimerMin + random % range;
+        mTimer = mParams.mTimerMin + PORT_PPC_MOD(random, range);
     }
     CalcVelocity(pRot, pVel);
 }

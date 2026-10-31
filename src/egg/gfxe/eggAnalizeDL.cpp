@@ -82,7 +82,7 @@ AnalizeDL::CmdType AnalizeDL::advance() {
             if (m_vtxAttrSize == sizeof(u8)) {
                 p_result->m_vtxIdx = *p_DL;
             } else {
-                p_result->m_vtxIdx = *reinterpret_cast<const u16*>(p_DL);
+                p_result->m_vtxIdx = *reinterpret_cast<const be_u16*>(p_DL);
             }
 
             u8 posShift = s_vtxAttr[GX_VA_POS - GX_VA_POS].shift;
@@ -126,34 +126,34 @@ AnalizeDL::CmdType AnalizeDL::advance() {
 
             case GX_U16: {
                 p_result->m_vtxPos.x =
-                    *reinterpret_cast<const u16*>(p_vtxCmd + 0) /
+                    *reinterpret_cast<const be_u16*>(p_vtxCmd + 0) /
                     static_cast<f32>(1 << posShift);
 
                 // @bug Load from wrong offset
                 p_result->m_vtxPos.y =
-                    *reinterpret_cast<const u16*>(p_vtxCmd + 1) /
+                    *reinterpret_cast<const be_u16*>(p_vtxCmd + 1) /
                     static_cast<f32>(1 << posShift);
 
                 // @bug Load from wrong offset
                 p_result->m_vtxPos.z =
-                    *reinterpret_cast<const u16*>(p_vtxCmd + 2) /
+                    *reinterpret_cast<const be_u16*>(p_vtxCmd + 2) /
                     static_cast<f32>(1 << posShift);
                 break;
             }
 
             case GX_S16: {
                 p_result->m_vtxPos.x =
-                    *reinterpret_cast<const s16*>(p_vtxCmd + 0) /
+                    *reinterpret_cast<const be_s16*>(p_vtxCmd + 0) /
                     static_cast<f32>(1 << posShift);
 
                 // @bug Load from wrong offset
                 p_result->m_vtxPos.y =
-                    *reinterpret_cast<const s16*>(p_vtxCmd + 1) /
+                    *reinterpret_cast<const be_s16*>(p_vtxCmd + 1) /
                     static_cast<f32>(1 << posShift);
 
                 // @bug Load from wrong offset
                 p_result->m_vtxPos.z =
-                    *reinterpret_cast<const s16*>(p_vtxCmd + 2) /
+                    *reinterpret_cast<const be_s16*>(p_vtxCmd + 2) /
                     static_cast<f32>(1 << posShift);
 
                 break;
@@ -161,13 +161,13 @@ AnalizeDL::CmdType AnalizeDL::advance() {
 
             case GX_F32: {
                 p_result->m_vtxPos.x =
-                    *reinterpret_cast<const f32*>(p_vtxCmd + 0);
+                    *reinterpret_cast<const be_f32*>(p_vtxCmd + 0);
 
                 p_result->m_vtxPos.y =
-                    *reinterpret_cast<const f32*>(p_vtxCmd + 4);
+                    *reinterpret_cast<const be_f32*>(p_vtxCmd + 4);
 
                 p_result->m_vtxPos.z =
-                    *reinterpret_cast<const f32*>(p_vtxCmd + 8);
+                    *reinterpret_cast<const be_f32*>(p_vtxCmd + 8);
 
                 break;
             }
@@ -215,7 +215,7 @@ AnalizeDL::CmdType AnalizeDL::advance() {
         case GX_FIFO_CMD_DRAW_QUADS: {
             s_result.m_type = TYPE_PRIMITIVE;
             s_result.m_primitive = m_DLPtr[0];
-            s_result.m_vtxNum = *reinterpret_cast<const u16*>(m_DLPtr + 1);
+            s_result.m_vtxNum = *reinterpret_cast<const be_u16*>(m_DLPtr + 1);
             s_result.m_vtxRemain = s_result.m_vtxNum;
             m_DLPtr += GX_FIFO_CMD_DRAW_SIZE;
             break;

@@ -1,3 +1,11 @@
+#if defined(PORT_HOST)
+// C++ wants the explicit specialization below declared before RPBilPlayer.h's inline
+// ChangeState uses it (CodeWarrior does not, and the declaration shifts its label numbers)
+#include <Pack/RPParty/RPPartyCommon/RPStateMachine.h>
+class RPBilPlayer;
+template <> void RPStateMachine<RPBilPlayer>::ChangeState(s32 state);
+#endif
+
 #include <Pack/RPParty/RPBilScene/RPBilPlayer.h>
 
 #include <Pack/RPParty/RPBilScene/RPBilBall.h>
@@ -24,6 +32,12 @@
 #include <egg/gfxe.h>
 
 #include <revolution/PAD/Pad.h>
+
+// The address of a temporary (CodeWarrior accepts `&T(...)`; the host form is in
+// port/host/include/decomp/compat.h)
+#if !defined(PORT_TEMP_PTR)
+#define PORT_TEMP_PTR(x) (&(x))
+#endif
 
 extern void _savegpr_22();
 extern void _restgpr_27();
@@ -1011,11 +1025,11 @@ void RPBilPlayer::AfterShotCalc() {
     if (mpStateMachine->GetTimer() < 20) {
         mCuePos +=
             __ml__Q23EGG8Vector3fCFf(
-                &__dv__Q23EGG8Vector3fCFf(
-                    &__ml__Q23EGG8Vector3fCFf(
-                        &__ml__Q23EGG8Vector3fCFf(
-                            &mCueDir, unk88.length()),
-                        sCueDist), sStrokeMaxPower),
+                PORT_TEMP_PTR(__dv__Q23EGG8Vector3fCFf(
+                    PORT_TEMP_PTR(__ml__Q23EGG8Vector3fCFf(
+                        PORT_TEMP_PTR(__ml__Q23EGG8Vector3fCFf(
+                            &mCueDir, unk88.length())),
+                        sCueDist)), sStrokeMaxPower)),
                 static_cast<f32>(20 - mpStateMachine->GetTimer()) / 20.0f);
         mCursorAlpha = (20 - mpStateMachine->GetTimer()) * 255 / 20;
         UpdateCueModel();

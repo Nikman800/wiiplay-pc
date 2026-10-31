@@ -57,7 +57,15 @@ extern "C" void Tnk_initLightPosConst() {
     Tnk_lightPos.position.z = 0.0f;
 }
 
+#if defined(PORT_HOST)
+// GCC has no __declspec(section); a constructor function runs at static initialisation as the
+// .ctors entry does
+__attribute__((constructor)) static void Tnk_initLightPosHost() {
+    Tnk_initLightPosConst();
+}
+#else
 __declspec(section ".ctors") static void (*const sTnkInitLightPos)() = Tnk_initLightPosConst;
+#endif
 
 // NONMATCHING-DEBT: compiler-made vtables come out as __vt__10RPTnkScene before
 // __vt__15RPTnkSceneSound (whatever the dtor/include order) and the @36@ thunks land after

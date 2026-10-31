@@ -511,8 +511,8 @@ inline nw4r::snd::SoundHandle* GetIndexedFishSoundHandle(nw4r::snd::SoundHandle*
 // keeps the file-local helper, whose literals are dropped with its dead weak copies (the
 // member form zero-fills a 0x40-byte duplicate in RPDucGame's .data).
 #ifdef RP_SND_OBJECT_INDEXED_HANDLE_MEMBERS
-#define RP_SND_INDEXED_HANDLE(index) getIndexedHandle(index)
-#define RP_SND_INDEXED_HANDLE_STOP(index) getIndexedHandleStop(index)
+#define RP_SND_INDEXED_HANDLE(index) this->getIndexedHandle(index)
+#define RP_SND_INDEXED_HANDLE_STOP(index) this->getIndexedHandleStop(index)
 #else
 #define RP_SND_INDEXED_HANDLE(index) \
     GetIndexedFishSoundHandle<false>(this->mSoundHandles, this->mHandleCount, index)

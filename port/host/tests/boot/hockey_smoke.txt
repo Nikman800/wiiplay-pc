@@ -1,0 +1,21 @@
+# Laser Hockey, short (port/docs/HOST_BUILD.md §32): test_boot.py appends this to
+# tests/boot/menus_saved.txt (which ends on the party menu), without its `end`.
+# Enter the game, play until the paddle has hit the puck, then pause (+) and Quit.
+# The Laser Hockey icon on the party menu -> the explanation screen
+3400 mouse 318 75
+3430 press A
+3436 release A
+# "A: Start"
+3800 mouse 320 228
+3830 press A
+3836 release A
+# Play: the pointer puts player 0's paddle on the puck (host_probe.cpp)
+4000 aim 1
+4300 aim 0
+# + pauses; "Quit" -> the party menu
+4310 press PLUS
+4316 release PLUS
+4400 mouse 320 348
+4430 press A
+4436 release A
+end 100000

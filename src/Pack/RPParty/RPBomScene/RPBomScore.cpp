@@ -26,8 +26,8 @@ void RPBomScore::AddScore(s32 player, s32 points) {
     s32* pScore = &mScores[player];
     *pScore = *pScore + points;
     s32 score = *pScore;
-    score = nw4r::ut::Max(score, 0L);
-    score = nw4r::ut::Min(score, 9999L);
+    score = nw4r::ut::Max<s32>(score, 0);
+    score = nw4r::ut::Min<s32>(score, 9999);
     *pScore = score;
 }
 
@@ -35,10 +35,18 @@ void RPBomScore::AddTotal(s32 player, s32 points) {
     s32* pTotal = &mTotals[player];
     s32 total = *pTotal + points;
     *pTotal = total;
-    total = nw4r::ut::Max(total, 0L);
-    total = nw4r::ut::Min(total, 99999L);
+    total = nw4r::ut::Max<s32>(total, 0);
+    total = nw4r::ut::Min<s32>(total, 99999);
     *pTotal = total;
 }
+
+// The word offsets below count from the start of the 32-bit layout (a 4-byte vtable pointer);
+// on a 64-bit host every member is 4 bytes further on.
+#if defined(PORT_HOST)
+#define BOM_SCORE_WORDS(p) (reinterpret_cast<s32*>(p) + (sizeof(void*) - 4) / sizeof(s32))
+#else
+#define BOM_SCORE_WORDS(p) reinterpret_cast<s32*>(p)
+#endif
 
 // NONMATCHING-DEBT: ResetAll, ResetCombos and Reset's second loop walk an s32 pointer advanced
 // from `this` (word offsets of mScores/mTotals/mHits/mCombos, unk4C/unkCC/unk14C/unk1CC). Indexed
@@ -47,7 +55,7 @@ void RPBomScore::AddTotal(s32 player, s32 points) {
 // pointers declared first or after, and accessor inlines were tried.
 void RPBomScore::ResetAll() {
     s32 count = 0;
-    s32* pScores = reinterpret_cast<s32*>(this);
+    s32* pScores = BOM_SCORE_WORDS(this);
     do {
         pScores[1] = 0;
         count++;
@@ -55,7 +63,7 @@ void RPBomScore::ResetAll() {
     } while (count < mPlayerNum);
 
     count = 0;
-    s32* pTotals = reinterpret_cast<s32*>(this);
+    s32* pTotals = BOM_SCORE_WORDS(this);
     do {
         pTotals[5] = 0;
         count++;
@@ -63,7 +71,7 @@ void RPBomScore::ResetAll() {
     } while (count < mPlayerNum);
 
     count = 0;
-    s32* pHits = reinterpret_cast<s32*>(this);
+    s32* pHits = BOM_SCORE_WORDS(this);
     do {
         pHits[9] = 0;
         count++;
@@ -71,7 +79,7 @@ void RPBomScore::ResetAll() {
     } while (count < mPlayerNum);
 
     count = 0;
-    s32* pCombos = reinterpret_cast<s32*>(this);
+    s32* pCombos = BOM_SCORE_WORDS(this);
     do {
         pCombos[13] = 0;
         count++;
@@ -81,7 +89,7 @@ void RPBomScore::ResetAll() {
 
 void RPBomScore::ResetCombos() {
     s32 count = 0;
-    s32* pValue = reinterpret_cast<s32*>(this);
+    s32* pValue = BOM_SCORE_WORDS(this);
     do {
         pValue[13] = 0;
         count++;
@@ -114,7 +122,7 @@ void RPBomScore::AddBubblePoints(s32 player, const nw4r::math::VEC2* pScreenPos,
 
     s32 combo = *pCombo + 1;
     *pCombo = combo;
-    combo = nw4r::ut::Max(combo, 0L);
+    combo = nw4r::ut::Max<s32>(combo, 0);
     s32 maxCombo = GetComboNum() - 1;
     if (maxCombo < combo) {
         combo = maxCombo;
@@ -130,8 +138,8 @@ void RPBomScore::ApplyMissPenalty(s32 player) {
     }
     s32 newScore = mScores[player] - -penalty;
     mScores[player] = newScore;
-    newScore = nw4r::ut::Max(newScore, 0L);
-    newScore = nw4r::ut::Min(newScore, 9999L);
+    newScore = nw4r::ut::Max<s32>(newScore, 0);
+    newScore = nw4r::ut::Min<s32>(newScore, 9999);
     mScores[player] = newScore;
     RPBomLayoutMgr::sInstance->ShowScoreMove(player, -penalty);
 }
@@ -168,8 +176,8 @@ void RPBomScore::Reset(s32 playerNum) {
     } while (count < mPlayerNum);
 
     count = 0;
-    s32* pScores = reinterpret_cast<s32*>(this);
-    s32* pVecs = reinterpret_cast<s32*>(this);
+    s32* pScores = BOM_SCORE_WORDS(this);
+    s32* pVecs = BOM_SCORE_WORDS(this);
     do {
         pScores[19] = 0;
         pScores[83] = 0;

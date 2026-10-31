@@ -2,11 +2,12 @@
 
 The port runs the decompiled game's own `main` on a PC (Linux, 64-bit) with Aurora
 (WebGPU through Dawn) for graphics and SDL3 for the window, input and sound. It plays
-the boot, the title, the save check, player and Mii selection, the party menu and the first
-minigame, Shooting Range (aim with the mouse, a gamepad's right stick or gyro; fire with B: the
-right mouse button, a gamepad's right shoulder or trigger). The other eight minigames are not
-linked yet (choosing one stops the game with "a minigame scene is not linked"). Technical
-notes: [HOST_BUILD.md](HOST_BUILD.md) §29-§31.
+the boot, the title, the save check, player and Mii selection, the party menu and the
+minigames. All nine are linked; Shooting Range (aim with the mouse, a gamepad's right stick or
+gyro; fire with B: the right mouse button, a gamepad's right shoulder or trigger) and Laser
+Hockey (the paddle follows the pointer) are tested from start to finish, the other seven start
+and draw their first frames in the tests so far. As on the Wii, the games open one at a time:
+finishing one opens the next. Technical notes: [HOST_BUILD.md](HOST_BUILD.md) §29-§32.
 
 ## What you need
 
@@ -100,9 +101,21 @@ Buttons: `A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C none`.
 
 ## Known limits
 
-- Minigames: not linked yet.
+- Minigames: Find Mii, Table Tennis, Pose Mii, Billiards, Fishing, Charge! and Tanks! start
+  and draw, but have not been played through yet (HOST_BUILD.md §32). Charge! needs tilt (a
+  gamepad's accelerometer), Tanks! the Nunchuk stick or the D-pad.
 - Miis: see HOST_BUILD.md §30 for the state of Mii drawing.
 - The Wii's ROM font is not on the disc; the game uses it only for debug text and for a
   font-size query in Table Tennis and Laser Hockey (HOST_BUILD.md §30).
 - WiiConnect24, the HOME Menu and the remote speaker are not available; the remote speaker's
   sounds are muted.
+
+## Tests
+
+- `make -C port/host test`: every harness, then the boot headless on lavapipe: the title, the
+  menus, a short Shooting Range and a short Laser Hockey (about 8 minutes).
+- `make -C port/host playtest`: whole games, twice each for determinism: Shooting Range and
+  Laser Hockey from the party menu to the results and back (about 35 minutes). Run it
+  before committing a game milestone.
+
+Both need the extracted disc (`DISC=/path/to/files`, default `~/wii-play/extracted/files`).

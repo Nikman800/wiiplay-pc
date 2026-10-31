@@ -458,11 +458,12 @@ void RPPnpBall::OnEvent(s32 event, s32 side) {
                 mState = 10;
             }
             break;
-        case 7:
+        case 7: {
             s32 opponent = RPPnpGame::GetInstance()->GetOpponentSide(side);
             RPPnpGame::GetInstance()->GetPointPhase()->AddPoint(opponent);
             mState = 11;
             break;
+        }
         default:
             RPPnpGame::GetInstance()->GetPointPhase()->AddPoint(mTargetSide);
             mState = 10;

@@ -281,4 +281,9 @@ static inline const T* PortTempPtr(const T& t) {
 #define PORT_TEMP_PTR(x) PortTempPtr(x)
 #endif
 
+// `x % d` with the PowerPC's result for d == 0: divw does not trap, and the remainder the
+// compiler forms (x - (x / d) * d) is x. x86's idiv traps (SIGFPE). Units that can meet a zero
+// divisor define the plain form for the Wii when this is not defined.
+#define PORT_PPC_MOD(x, d) ((d) != 0 ? (x) % (d) : (x))
+
 #endif

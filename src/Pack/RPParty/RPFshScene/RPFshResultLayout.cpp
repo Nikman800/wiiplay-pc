@@ -585,9 +585,14 @@ void RPFshResultLayout::UserDraw() {
 // still copies as floats (lfs/stfs, objcmp 0.9981): VEC2's implicit copy is member-wise; only a
 // _VEC2/POD-typed copy gives lwz/stw.
 static void ResultFishGetScreenPos(nw4r::math::VEC2* pos, const RPFshResultFish* fish) {
+#if defined(PORT_HOST)
+    // 0x70 is mScreenPos's offset in the 32-bit layout
+    *pos = fish->GetScreenPos();
+#else
     struct Words { u32 x, y; };
     *reinterpret_cast<Words*>(pos) =
         *reinterpret_cast<const Words*>(reinterpret_cast<const u8*>(fish) + 0x70);
+#endif
 }
 
 void RPFshResultLayout::DrawFishLabels() {

@@ -167,6 +167,11 @@ TOUCHED = [
     # using-declarations; Duc / Tnk parameters and the Wly / Pnp level tables.
     "include/Pack/types_pack.h",
     "include/Pack/RPAudio/RPSndObject.h",
+    "include/Pack/RPParty/RPPartyCommon/RPActorList.h",
+    "src/egg/gfxe/eggAnalizeDL.cpp",
+    "src/Pack/RPParty/RPPartyCommon/RPPathFollower_2.cpp",
+    "src/Pack/RPParty/RPBilScene/RPBilResult.cpp",
+    "src/Pack/RPParty/RPFshScene/RPFshResultLayout.cpp",
     "include/Pack/RPAudio/RPSndObject2D.h",
     "include/Pack/RPAudio/RPSndAudioMgr.h",
     "src/Pack/RPAudio/RPSndAudioMgr.cpp",
@@ -289,6 +294,27 @@ TOUCHED = [
     # Milestone 6 (HOST_BUILD.md §31): Shooting Range
     "src/Pack/RPParty/RPDucScene/RPDucField_2.cpp",
     "src/Pack/RPParty/RPDucScene/RPDucHud_5.cpp",
+    # Milestone 7 (HOST_BUILD.md §32): the other minigames
+    "include/Pack/RPAudio/RPSndObject.h",
+    "include/Pack/RPParty/RPPartyCommon/RPActorList.h",
+    "src/egg/gfxe/eggAnalizeDL.cpp",
+    "src/Pack/RPParty/RPPartyCommon/RPPathFollower_2.cpp",
+    "src/Pack/RPParty/RPBilScene/RPBilResult.cpp",
+    "src/Pack/RPParty/RPFshScene/RPFshResultLayout.cpp",
+    "src/Pack/RPParty/RPBilScene/RPBilBall.cpp",
+    "src/Pack/RPParty/RPBilScene/RPBilPlayer.cpp",
+    "src/Pack/RPParty/RPBilScene/RPBilSound.cpp",
+    "src/Pack/RPParty/RPBomScene/RPBomScore.cpp",
+    "src/Pack/RPParty/RPFshScene/RPFshFish.cpp",
+    "src/Pack/RPParty/RPHkyScene/RPHkyPaddle.cpp",
+    "src/Pack/RPParty/RPPnpScene/RPPnpBall.cpp",
+    "src/Pack/RPParty/RPTnkScene/RPTnkBlock.cpp",
+    "src/Pack/RPParty/RPTnkScene/RPTnkScene.cpp",
+    "src/Pack/RPParty/RPTnkScene/RPTnkAi_2.cpp",
+    "src/Pack/RPParty/RPTnkScene/RPTnkAi_4.cpp",
+    "src/Pack/RPParty/RPTnkScene/RPTnkTank.cpp",
+    "src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp",
+    "src/Pack/RPParty/RPWlyScene/RPWlySound.cpp",
 ]
 
 

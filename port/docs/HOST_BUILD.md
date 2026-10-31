@@ -3843,3 +3843,198 @@ the feel of the B trigger on a gamepad, the sounds and music on a device.
 - The test's runtime: M1 / M2 replay the menus before Shooting Range; a NAND save state
   would not help (the game state is in RAM). Running fewer lavapipe threads per run and
   more runs at once may.
+
+## 32. Milestone 7: every minigame linked; Laser Hockey plays; a fast `make test`
+
+All nine minigame scenes now link into the boot with the game's own code; the aborting
+vtable stand-ins are gone. Laser Hockey (`RPHkyScene`, scene 17) is the second game played
+headless from the party menu to the results and back. The other seven enter, start and draw
+their first gameplay frames (smoke runs, below). `make test` is fast again (the full games
+moved to `make playtest`).
+
+### Tests: `make test` and `make playtest`
+
+| Target | Runs | Wall time (lavapipe, 12 cores) |
+|---|---|---|
+| `make test` | `test_boot.py`: A / B (the title, twice: determinism), C (no input), D (real time, SDL events), **M** (fresh NAND: menus, then a short Shooting Range: round 1 until hits score, + and "Quit" back to the party menu), **H** (a save with every game open: menus, then a short Laser Hockey: play until the paddle meets the puck, + and "Quit") | about 7 minutes for `test_boot` alone; 8 minutes for the whole `make -j8 test` (measured with one other boot run on the machine) |
+| `make playtest` | `test_play.py`: **P1 / P2** (fresh NAND: menus and the whole Shooting Range, §31), **Q1 / Q2** (a save with every game open: menus and a whole Laser Hockey game, the results, "Play a different game"); every frame hash and the scene trace identical over each pair | 35 minutes (measured with another boot run on the machine; P1 / P2 are 16200 frames, Q1 / Q2 14600, four at once with `LP_NUM_THREADS=3`) |
+
+The coordinator runs `make playtest` before committing a game milestone. `M32=1` and `NO_GX=1`
+print "playtest: skipped". Scripts: `tests/boot/menus.txt` + `shooting_smoke.txt` (M),
+`menus_saved.txt` + `hockey_smoke.txt` (H), `menus.txt` + `shooting.txt` (P),
+`menus_saved.txt` + `hockey.txt` (Q).
+
+**A save with every game open.** Wii Play opens the games one by one (each finished game
+opens the next), so Laser Hockey is the fifth. `test_boot.party_save` writes `RPParty.dat` in
+the game's format (`RPSysSaveData::write`: "RPPT" "0000", `RPPartySystemData` with its game
+flags at 0x20, the player lists, then the 16-bit sum / inverted-sum checksum of the written
+part at 0x50A0) and an all-zero `banner.bin` (the game only checks that it exists; it writes
+a real one whenever it saves). Run M checks the format: the save the game itself writes on a
+fresh NAND is byte-identical to `party_save` with only the first game open. With the save the
+title goes straight to Select Players, and the party menu opens with "The final stage is now
+open!" for the last game.
+
+### The other minigames: build sweep (identical on the Wii; `check_matching`: 974 units identical)
+
+§29's GCC errors (18 units) and the link:
+
+| File | Change | Why |
+|---|---|---|
+| `RPSndObject.h` | `this->getIndexedHandle(index)` in the `RP_SND_INDEXED_HANDLE*` macros | a member of a dependent base (C++ two-phase lookup) |
+| `RPBilSound.cpp`, `RPFshFish.cpp`, `RPWlySound.cpp` | the explicit instantiations name `ui32` instead of `unsigned int` | `ui32` is `unsigned int` on the Wii (its overloads' other type); on the host u32 is `unsigned int`, so the old spelling instantiated the u32 overload twice |
+| `RPBilBall.cpp` | its dead-stripped stand-in (`extern "C" static`, kept for .sdata2 order) is Wii-only | GCC rejects `extern "C" static`; `extern "C" { static ... }` changes CodeWarrior's label numbering |
+| `RPBilPlayer.cpp` | `PORT_TEMP_PTR` for three `&` of temporaries; under `PORT_HOST` the `ChangeState` specialization is declared before `RPBilPlayer.h` uses it | C++ rules; the declaration shifts CodeWarrior's label numbers, hence host-only |
+| `RPBomScore.cpp` | `nw4r::ut::Max<s32>(score, 0)` instead of `Max(score, 0L)` | `0L` is s32 only where s32 is `long` |
+| `RPHkyPaddle.cpp` | `PORT_TEMP_PTR(puckPos - sPrevPuckPos)` | the address of a temporary |
+| `RPPnpBall.cpp` | braces around `case 7` | a jump past an initialisation |
+| `RPTnkBlock.cpp` | under `PORT_HOST` the local union gets a name and an empty constructor | a union member with a constructor (MTX34's) |
+| `RPTnkScene.cpp` | under `PORT_HOST` a constructor function in place of `__declspec(section ".ctors")` | GCC has no such declspec |
+
+Link (`host_boot.cpp`, `Makefile`): Pose Mii's nine singletons (`.sbss`, no defining unit
+yet); `PADControlMotor` (no GameCube ports); CodeWarrior-named calls forwarded to the real
+code: `EGG::Vector3f` unary minus and division, `EGG_Vector2f_operator_mul`,
+`EGG::Matrix34f::calcRPY`, `EGG::CoreStatus::getHorizon` / `getDpdPos`,
+`EGG::CoreController::getAccel` / `getDpdValidFlag`, `EGG::ShadowTexture::BeginDrawQuad` /
+`DrawQuad`, `RPTnkHideExMsg__Fv`; `RPBilTable::GetPocketPos(s32)` over its explicit ABI entry;
+data by CodeWarrior name through `--defsym` (`EGG::Screen::sTVModeWidths`,
+`EGG::DrawGX::s_cameraMtx`).
+
+### 32-bit and big-endian assumptions found (identical on the Wii)
+
+The sweep (`reinterpret_cast` and byte offsets, `u32` casts, strides, `sizeof`) over the eight
+games' units, then the runs:
+
+| File | Change | Found by |
+|---|---|---|
+| `RPBilResult.cpp` | `PORT_HOST`: `pMgr->GetPlayer(player)` for the read at `pMgr + 0x10 + player * 4` | sweep (32-bit offset and pointer stride) |
+| `RPFshResultLayout.cpp` | `PORT_HOST`: `fish->GetScreenPos()` for the read at offset 0x70 | sweep (32-bit offset) |
+| `RPPathFollower_2.cpp` | `PORT_HOST`: `rot = matrix.calcRPY()` for the call that passes the result vector as a hidden first argument | sweep of `extern "C"` declarations with two signatures (the PowerPC ABI's struct return; x86-64 returns 12 bytes in registers) |
+| `RPActorList.h` | the list head as `static_cast<RPActorListHead*>(this)` before the cast to `RPActorLink*` | Charge! crashed creating its actors: with GCC the vtable pointer comes before the non-polymorphic base, CodeWarrior puts the base first |
+| `eggAnalizeDL.cpp` | display-list and vertex reads through `be_u16` / `be_s16` / `be_f32` | Table Tennis hung computing a model's bounds (`ModelEx::getShapeMinMax`: a byte-swapped primitive count) |
+| `RPTnkAi_2.cpp`, `RPTnkAi_4.cpp`, `RPTnkTank.cpp`, `RPTnkPlayerController.cpp` | the per-tank records of `param/TnkGameParam.bin` as `be_s32` / `be_f32` | Tanks! (Phase 6's pass converted only the stage records) |
+| `RPTnkAi_2.cpp`, `RPTnkAi_4.cpp` | `PORT_PPC_MOD(x, d)` (compat.h) for the random interval `x % range` | Tanks!: a tank type that lays no mines has a zero range; PowerPC's `divw` does not trap and the remainder comes out as x, x86's `idiv` raises SIGFPE |
+
+Also: `-fno-aggressive-loop-optimizations` for the host build (`RPWlyStartCountLyt::Reset`
+runs over four animation pointers through a three-entry array and the member after it, as the
+original does; GCC warned it would assume the fourth iteration unreachable).
+
+The hand-made vtables in `RPTnkScene.cpp` (and their `- 0x24` thunks) are CodeWarrior-named
+data that GCC's own `_ZTV10RPTnkScene` replaces; nothing references them on the host.
+
+### Aurora: a copy writeback the CPU has overwritten is dropped
+
+Laser Hockey crashed in `RPHkyField::Reset`: its model object had been overwritten by an
+EFB-copy writeback. A texture copy reaches memory when its frame ends (§28's policy); the party
+menu's last frame copied its light textures into memory that the scene change freed and the
+new scene's loading thread reused for the rink model, all before that frame ended. On the
+hardware the copy reaches memory when the GPU executes it, so the CPU's later writes win.
+Aurora now hashes a copy's destination when it records the copy and, at the frame's end,
+drops the writeback of every destination whose bytes have changed since (checked for all of
+the frame's copies before any is written: two copies to one address still give the newest).
+Patch: `gx: drop a copy writeback whose destination the CPU wrote after the copy`
+(command_processor.cpp, +21 lines); `gx_fifo_tests` and `gfx_readback_tests` pass.
+
+### Laser Hockey in the test (`host_probe.cpp`)
+
+The probe reports `game=hky:STATE,TIMER,SCORE0,SCORE1,PUCKX,PUCKZ,DIST` while the scene is
+running (states: 0 intro, 1 play, 2 goal, 3 time up, 4 wait, 5 result; the timer counts down
+from 7200; DIST is the puck's distance from player 0's paddle). The probes now check the
+current scene (`RPSysSceneMgr`), so a game's singleton is never read after its scene ends.
+
+`aim 1` in Laser Hockey: `RPHkyPaddle::UpdateControl` maps the pointer to the rink through
+`RPGrpCamera::GetScreenToPlane` (then halves x, moves it to player 0's side, scales z). The
+probe evaluates the same mapping and solves it for a target with a few Newton steps (finite
+differences, from the last solution): the target is the puck's centre plus one puck radius in
+the direction from the paddle, so the paddle strikes through the puck. The game does its own
+collision, scoring and sounds.
+
+| Check (Q1 / Q2; H for the short run) | How | Verified |
+|---|---|---|
+| Scenes | -1, 0, 25, 1, 27, 17 (`ESceneID_RPHkyScene`), 27 | yes |
+| Game states | Q: intro, play, goals, time up, wait, result (H: intro, play) | yes |
+| Clock | starts at 7200 in play and counts down one a frame (or stands while paused) | yes |
+| Contacts | the paddle reaches the puck (DIST <= 40) and the puck travels away from the centre line | yes (the game's own positions) |
+| Goals | a score changes only by one, as a goal starts (state 2); player 0 scores (Q) | yes |
+| Screens | start, rally, goal, Game Over, My Record, the results menu, back on the party menu: in the right scene, all distinct | scene / distinctness; the look is visual |
+| Log, determinism | as §31 | yes |
+
+Expected output (`make playtest`):
+
+```
+test_play: 4 runs on lavapipe in 2103 s wall
+    shooting range: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 18 -> 27 over 16200 frames; states 1/1 ->
+      2/1 -> 3/1 -> 4/1 -> 2/2 -> 3/2 -> 4/2 -> 2/3 -> 3/3 -> 4/3 -> 2/4 -> 3/4 -> 4/4 -> 2/5 ->
+      3/5 -> 4/5 -> 5/5 -> 6/5 -> 7/5; score 534 (179 hits) over 204 score changes in play, every
+      round scoring: True; sound in play: rms 4248.6; 8 distinct screens; log: 1 allowed warnings,
+      21 unhandled registers, all documented
+        hashes and scenes identical over two runs: True
+    laser hockey: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 17 -> 27 over 14600 frames; states 0 -> 1 ->
+      2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2
+      -> 1 -> 2 -> 1 -> 2 -> 1 -> 3 -> 4 -> 5; 7202 frames in play, the clock counting down from
+      7200; 105 paddle-puck contacts, the puck up to 510 from the centre line; goals 12-0 (final
+      12-0); 7 distinct screens; log: 1 allowed warnings, 21 unhandled registers, all documented
+        hashes and scenes identical over two runs: True
+errors: 0
+OK
+```
+
+Expected output of `make test`'s `test_boot` (the new lines):
+
+```
+    menus: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 18 -> 27 over 6450 frames; 8 screens (save_check,
+      save_created, select_players, select_mii, guest_warning, play_with_mii, welcome,
+      party_menu); save file written (the format party_save writes)
+    shooting range (short): states 1/1 -> 2/1 -> 3/1; score 13 (10 hits) over 11 score changes in
+      play, round 1 scoring: True; sound in play: rms 3288.1; 5 distinct screens; log: 1 allowed
+      warnings, 21 unhandled registers, all documented
+    laser hockey (short, a save with every game open): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 17 ->
+      27; states 0 -> 1; 318 frames in play, the clock counting down from 7200; 3 paddle-puck
+      contacts, the puck up to 56 from the centre line; goals 0-0 (final 0-0); 5 distinct screens;
+      log: 1 allowed warnings, 21 unhandled registers, all documented
+```
+
+### The other minigames (smoke runs, not in the test)
+
+With the all-games save, each game from its party-menu icon ("A: Start", then about 700
+frames, pointer at the screen centre, no other input):
+
+| Game (scene) | Result |
+|---|---|
+| Shooting Range (18) | plays (§31; `make playtest`) |
+| Laser Hockey (17) | plays (above; `make playtest`) |
+| Find Mii (22) | "Level 1: Find 2 look-alikes!", the crowd and the timer; + and Quit back to the party menu |
+| Table Tennis (19) | "Rally 100 times!", the table, paddles and HUD; back to the party menu. Visual: the net is drawn in the first frames of play and missing in later ones (not examined) |
+| Pose Mii (24) | "Match that pose!", the Mii and the bubbles; back to the party menu (after the `RPBomScore` fix below). Visual: thin white horizontal lines at the bottom of one frame of the intro |
+| Billiards (20) | the cue ball with the Mii face, the racked balls, the aiming help; back to the party menu |
+| Fishing (16) | the pond, fish, the rod, Bonus fish; back to the party menu |
+| Charge! (21) | the cow and rider, "Tilt the Wii Remote on its side"; back to the party menu |
+| Tanks! (23) | "Mission 1", the arena, the player and enemy tanks moving; back to the party menu |
+
+None crashes now; the crashes found on the way are the fixes listed above (Charge!: the actor
+list head; Table Tennis: the display-list analyser; Tanks!: the parameter records and the zero
+divisor; Laser Hockey: the copy writeback). Pose Mii crashed when quitting: `RPBomScore`'s
+reset loops write word offsets counted from `this` (the 32-bit layout, kept for the original's
+register allocation), and on the host the first one overwrote the vtable pointer;
+`BOM_SCORE_WORDS(this)` (`PORT_HOST`: past the host's longer vtable pointer) fixes it,
+identical on the Wii.
+
+### Verified headless vs. to try by hand
+
+Verified: every minigame unit builds and links (64-bit); Laser Hockey's flow from the party
+menu and back, its clock, contacts and goals from the game's own state, the log, determinism;
+the short Shooting Range and Laser Hockey runs in `make test`; the save format. Visual only:
+the look of Laser Hockey (the rink's neon and bloom, the puck, the HUD, Game Over, My Record)
+and of the seven other games' first frames. By hand with `--window`: Laser Hockey with the
+mouse (the paddle follows the pointer; twisting needs a gamepad's gyro or the D-pad bindings
+of §30), and the other games (some need tilt or a Nunchuk: Charge! asks to hold the remote on
+its side; Tanks! uses the Nunchuk or the D-pad).
+
+### Next steps
+
+- Each remaining game played through headless (Find Mii, Table Tennis, Pose Mii, Billiards,
+  Fishing, Charge!, Tanks!) with a probe and an input strategy like these, then into
+  `make playtest`.
+- The smoke-run visual oddities (Table Tennis's net, Pose Mii's lines) against a capture.
+- Laser Hockey's twist (the paddle angle from the remote's roll) is not driven by the test.
+- `-fno-aggressive-loop-optimizations` hides one class of out-of-bounds indexing; a sweep for
+  the others (arrays indexed into the next member) would let it go.

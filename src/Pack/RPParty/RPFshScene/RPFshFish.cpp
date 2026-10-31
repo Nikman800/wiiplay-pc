@@ -386,7 +386,7 @@ void RPFshFish::EscapeEnter() {
 
 // Weak copies the original emits right after EscapeCalc.
 template void TRPSndObject<0>::detailHoldSound(nw4r::snd::SoundHandle*, u32, u32);
-template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSound(unsigned int, u32);
+template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSound(ui32, u32);
 
 void RPFshFish::EscapeCalc() {
     const RPFshFishTypeParam* pParam = GetTypeParam(mType);
@@ -589,7 +589,7 @@ void RPFshFish::HookedExit() {
 
 // Weak copies the original emits right after JumpEnter (its first user in output order).
 template void TRPSndObject<0>::detailStartSound(nw4r::snd::SoundHandle*, u32, u32);
-template nw4r::snd::SoundHandle* TRPSndObject<0>::startSound(unsigned int, u32);
+template nw4r::snd::SoundHandle* TRPSndObject<0>::startSound(ui32, u32);
 
 #pragma fp_contract off
 void RPFshFish::JumpEnter() {
@@ -1117,30 +1117,30 @@ template f32 TRPSndObject<0>::getOuterVolume();
 template void TRPSndObject<0>::setActorVolume(f32, int);
 template void TRPSndObject<0>::stopAllSound(int);
 template void TRPSndObject<0>::stopSound(const char*, int);
-template void TRPSndObject<0>::stopSound(unsigned int, int);
+template void TRPSndObject<0>::stopSound(ui32, int);
 template void TRPSndObject<0>::stopSound(u32, int);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::prepareSound(u32, int, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::prepareSound(const char*, int, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::prepareSound(const char*, u32);
-template nw4r::snd::SoundHandle* TRPSndObject<0>::prepareSound(unsigned int, u32);
+template nw4r::snd::SoundHandle* TRPSndObject<0>::prepareSound(ui32, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::prepareSound(u32, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSound(const char*, int, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSound(u32, int, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSound(const char*, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSound(u32, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSoundWithRemotePlayer(const char*, u32, s32);
-template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSoundWithRemotePlayer(unsigned int, u32, s32);
+template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSoundWithRemotePlayer(ui32, u32, s32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::holdSoundWithRemotePlayer(u32, u32, s32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::startSound(const char*, int, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::startSound(u32, int, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::startSound(const char*, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::startSound(u32, u32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::startSoundWithRemotePlayer(const char*, u32, s32);
-template nw4r::snd::SoundHandle* TRPSndObject<0>::startSoundWithRemotePlayer(unsigned int, u32, s32);
+template nw4r::snd::SoundHandle* TRPSndObject<0>::startSoundWithRemotePlayer(ui32, u32, s32);
 template nw4r::snd::SoundHandle* TRPSndObject<0>::startSoundWithRemotePlayer(u32, u32, s32);
 template void TRPSndObject<0>::update();
 template const nw4r::math::VEC3* TRPSndObject<0>::get3DPosition(int);
-template u32 TRPSndObject<0>::getSoundId(unsigned int, int);
+template u32 TRPSndObject<0>::getSoundId(ui32, int);
 template const char* TRPSndObject<0>::getSoundLabel(const char*, int);
 template u32 TRPSndObject<0>::getSoundId(u32, int);
 template bool RPStateMachine<RPFshTimer>::IsStateOrNext(s32) const;

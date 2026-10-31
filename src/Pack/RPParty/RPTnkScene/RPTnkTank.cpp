@@ -23,12 +23,12 @@ extern "C" RPAxes sFloorQuadBasis;
 
 // The on-disk enemy record is copied by value by the original parameter getter.
 struct TnkEnemyParamsData {
-    s32 stealth; f32 f04; s32 i08, i0C, i10; f32 f14, f18, f1C;
-    s32 i20, i24; f32 f28, f2C, f30; s32 i34, i38;
-    f32 f3C, f40, f44, f48; s32 i4C; f32 f50; s32 i54;
-    f32 f58, f5C, f60, f64, f68; s32 i6C; f32 f70; s32 i74;
-    f32 f78, f7C, f80; s32 i84, i88, i8C, i90;
-    f32 f94, f98; s32 i9C; f32 fA0; s32 iA4;
+    be_s32 stealth; be_f32 f04; be_s32 i08, i0C, i10; be_f32 f14, f18, f1C;
+    be_s32 i20, i24; be_f32 f28, f2C, f30; be_s32 i34, i38;
+    be_f32 f3C, f40, f44, f48; be_s32 i4C; be_f32 f50; be_s32 i54;
+    be_f32 f58, f5C, f60, f64, f68; be_s32 i6C; be_f32 f70; be_s32 i74;
+    be_f32 f78, f7C, f80; be_s32 i84, i88, i8C, i90;
+    be_f32 f94, f98; be_s32 i9C; be_f32 fA0; be_s32 iA4;
 };
 
 struct TnkEnemyParams : TnkEnemyParamsData {

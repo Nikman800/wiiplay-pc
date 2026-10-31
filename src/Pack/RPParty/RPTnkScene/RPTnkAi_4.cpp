@@ -9,6 +9,12 @@
 #include <Pack/RPParty/RPTnkScene/RPTnkMine.h>
 #include <Pack/RPParty/RPTnkScene/RPTnkBlock.h>
 
+// The remainder with PowerPC's result for a zero divisor (an enemy type that lays no mines has
+// a zero interval range; the host form is in port/host/include/decomp/compat.h)
+#if !defined(PORT_PPC_MOD)
+#define PORT_PPC_MOD(x, d) ((x) % (d))
+#endif
+
 extern "C" f32 Tnk_getShellRadius();
 extern "C" f32 Tnk_getMineProximityRadius();
 extern "C" f32 RP_calcPerpendicularDistance(const nw4r::math::VEC3*,
@@ -60,13 +66,13 @@ static inline void AttackCopyActionVector(void* destination, const void* source)
 }
 
 struct AttackEnemyParamsData {
-    s32 i00; f32 f04; s32 i08; s32 i0C; s32 i10; f32 f14;
-    f32 f18; f32 f1C; s32 i20; s32 i24; f32 f28; f32 f2C;
-    f32 f30; s32 i34; s32 i38; f32 f3C; f32 f40; f32 f44;
-    f32 f48; s32 i4C; f32 f50; s32 i54; f32 f58; f32 f5C;
-    f32 f60; f32 f64; f32 f68; s32 i6C; f32 f70; s32 i74;
-    f32 f78; f32 f7C; f32 f80; s32 i84; s32 i88; s32 i8C;
-    s32 i90; f32 f94; f32 f98; s32 i9C; f32 fA0; s32 iA4;
+    be_s32 i00; be_f32 f04; be_s32 i08; be_s32 i0C; be_s32 i10; be_f32 f14;
+    be_f32 f18; be_f32 f1C; be_s32 i20; be_s32 i24; be_f32 f28; be_f32 f2C;
+    be_f32 f30; be_s32 i34; be_s32 i38; be_f32 f3C; be_f32 f40; be_f32 f44;
+    be_f32 f48; be_s32 i4C; be_f32 f50; be_s32 i54; be_f32 f58; be_f32 f5C;
+    be_f32 f60; be_f32 f64; be_f32 f68; be_s32 i6C; be_f32 f70; be_s32 i74;
+    be_f32 f78; be_f32 f7C; be_f32 f80; be_s32 i84; be_s32 i88; be_s32 i8C;
+    be_s32 i90; be_f32 f94; be_f32 f98; be_s32 i9C; be_f32 fA0; be_s32 iA4;
 };
 
 struct AttackEnemyParams : AttackEnemyParamsData {
@@ -450,7 +456,7 @@ void RPTnkAiAttack::ExecuteActions(f32 muzzleDist, RPAxes* pTurret) {
         unk78 = mParams.mFireUnk78;
         mFire = false;
         s32 range = mParams.mFireIntervalMax - mParams.mFireIntervalMin;
-        mFireInterval = mParams.mFireIntervalMin + (s32)((AttackRandom() >> 4) & 0xFFFF) % range;
+        mFireInterval = mParams.mFireIntervalMin + PORT_PPC_MOD((s32)((AttackRandom() >> 4) & 0xFFFF), range);
         RPTnkAiController* controller = mpTank->GetAiController();
         RPTnkAiMove* move = controller->GetMove();
         move->SetUnk1F9(true);
@@ -557,9 +563,9 @@ void RPTnkAiAttack::ResetAttack() {
     unk78 = 0;
     mAimTimer = 0;
     s32 fireRange = mParams.mFireIntervalMax - mParams.mFireIntervalMin;
-    mFireInterval = mParams.mFireIntervalMin + (s32)((AttackRandom() >> 4) & 0xFFFF) % fireRange;
+    mFireInterval = mParams.mFireIntervalMin + PORT_PPC_MOD((s32)((AttackRandom() >> 4) & 0xFFFF), fireRange);
     s32 mineRange = mParams.mMineIntervalMax - mParams.mMineIntervalMin;
-    mMineInterval = mParams.mMineIntervalMin + (s32)((AttackRandom() >> 4) & 0xFFFF) % mineRange;
+    mMineInterval = mParams.mMineIntervalMin + PORT_PPC_MOD((s32)((AttackRandom() >> 4) & 0xFFFF), mineRange);
     mpProbe->Reset();
 }
 
@@ -607,12 +613,12 @@ void RPTnkAiAttack::Update(f32 muzzleDist, RPAxes* pTurret,
         if ((s32)--mFireInterval <= 0) {
             if (unk70 == 0) DecideFire(muzzleDist);
             s32 range = mParams.mFireIntervalMax - mParams.mFireIntervalMin;
-            mFireInterval = mParams.mFireIntervalMin + (s32)((AttackRandom() >> 4) & 0xFFFF) % range;
+            mFireInterval = mParams.mFireIntervalMin + PORT_PPC_MOD((s32)((AttackRandom() >> 4) & 0xFFFF), range);
         }
         if ((s32)--mMineInterval <= 0) {
             if (unk74 == 0) DecideLayMine();
             s32 range = mParams.mMineIntervalMax - mParams.mMineIntervalMin;
-            mMineInterval = mParams.mMineIntervalMin + (s32)((AttackRandom() >> 4) & 0xFFFF) % range;
+            mMineInterval = mParams.mMineIntervalMin + PORT_PPC_MOD((s32)((AttackRandom() >> 4) & 0xFFFF), range);
         }
     }
     ExecuteActions(muzzleDist, pTurret);

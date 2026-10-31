@@ -1,0 +1,32 @@
+# From the boot to the party menu with a save file that has every game open
+# (port/docs/HOST_BUILD.md §32; test_boot.py writes the save into the NAND first).
+# The title goes straight to Select Players; otherwise as tests/boot/menus.txt.
+0 connect
+0 mouse 320 228
+# health and safety screen
+200 press A
+206 release A
+# title: A and B together -> Select Players (the save exists)
+600 press A
+600 press B
+606 release A
+606 release B
+# "1" player -> Select Mii (Guest tab)
+900 mouse 240 195
+930 press A
+936 release A
+# Guest A -> "You can't save My Record data with this Mii. Continue?" -> Yes
+1500 mouse 218 245
+1530 press A
+1536 release A
+1750 mouse 195 348
+1780 press A
+1786 release A
+# "Play with this Mii." -> OK -> the party menu and its message for the last game opened
+# ("The final stage is now open!")
+2200 mouse 460 360
+2230 press A
+2236 release A
+2850 press A
+2856 release A
+end 100000

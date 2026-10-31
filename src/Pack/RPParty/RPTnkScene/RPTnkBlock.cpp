@@ -363,7 +363,13 @@ void RPTnkBlock::Calculate() {
 }
 
 void RPTnkBlock::CalcModelMtx() {
+#if defined(PORT_HOST)
+    // C++11: a union with a member that has a constructor (MTX34's) needs its own
+    union Transform {
+        Transform() {}
+#else
     union {
+#endif
         struct {
             Vec right;
             Vec up;

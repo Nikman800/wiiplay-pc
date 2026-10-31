@@ -1,10 +1,17 @@
 #include <Pack/RPParty/RPPartyCommon/RPPathFollower_2.h>
 
+#if defined(PORT_HOST)
+// The host's ABI returns the vector in registers, not through a hidden first argument
+static inline void RPPathFollower2_MakeRot(EGG::Vector3f& rot, const EGG::Matrix34f& matrix) {
+    rot = matrix.calcRPY();
+}
+#else
 extern "C" void calcRPY__Q23EGG9Matrix34fCFv(EGG::Vector3f*, const EGG::Matrix34f*);
 
 static inline void RPPathFollower2_MakeRot(EGG::Vector3f& rot, const EGG::Matrix34f& matrix) {
     calcRPY__Q23EGG9Matrix34fCFv(&rot, &matrix);
 }
+#endif
 
 RPPathObject::RPPathObject(f32 speedPercent, f32 scalePercent, const void* pObjRes) {
     mpRes = NULL;

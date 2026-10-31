@@ -53,7 +53,11 @@ WARN += -Werror=int-to-pointer-cast
 # string calls to the decomp's MSL_C versions (port/docs/POINTERS.md §6).
 WIDE := -fshort-wchar -include $(HOST)/include/port/wide.h
 
-COMMON := $(ARCH) -O2 -g -fno-strict-aliasing -ffunction-sections -fdata-sections $(WIDE) $(INCLUDES) $(DEFINES) $(WARN)
+# -fno-aggressive-loop-optimizations: some units index one past an array into the member after
+# it, as the original does (RPWlyStartCountLyt::Reset's four animations in a three-entry array);
+# GCC would otherwise treat that iteration as unreachable.
+COMMON := $(ARCH) -O2 -g -fno-strict-aliasing -fno-aggressive-loop-optimizations -ffunction-sections \
+          -fdata-sections $(WIDE) $(INCLUDES) $(DEFINES) $(WARN)
 CFLAGS := -std=gnu11 $(COMMON) -Werror=pointer-to-int-cast
 # Decompiled class layouts: offsetof on classes with vtables (nw4r lists),
 # member init order and anonymous-namespace bases are as in the original.
@@ -736,7 +740,9 @@ $(OUT)/gx3d_harness: $(HOST)/tests/gx3d_harness.cpp $(HOST)/tests/disc_walk.h $(
 # §26-28 GX on Aurora) plus a host VI (src/host_vi.cpp) that paces game time.
 # The game's units are taken whole and linked with --gc-sections: only what the
 # reached code references stays. src/host_boot.cpp has the stand-ins that remain.
-RP_DIRS := RPKernel RPSystem RPGraphics RPAudio RPUtility RPParty/RPPartyCommon RPParty/RPDucScene
+RP_DIRS := RPKernel RPSystem RPGraphics RPAudio RPUtility RPParty/RPPartyCommon \
+    $(addprefix RPParty/,RPBilScene RPBomScene RPCowScene RPDucScene RPFshScene RPHkyScene RPPnpScene \
+    RPTnkScene RPWlyScene)
 BOOT_RP_SRCS := $(patsubst $(REPO)/%,%,$(sort $(foreach d,$(RP_DIRS),$(wildcard $(REPO)/src/Pack/$(d)/*.cpp))))
 BOOT_LIB_SRCS := $(patsubst $(REPO)/%,%,$(sort \
     $(wildcard $(REPO)/src/egg/*/*.cpp) \
@@ -760,8 +766,11 @@ BOOT_HOST_SRCS := src/host_os.cpp src/host_dvd.cpp src/host_nand.cpp src/host_sc
     src/host_vi.cpp src/host_boot.cpp src/host_live.cpp src/host_probe.cpp src/host_main.cpp
 BOOT_OBJS := $(sort $(patsubst %,$(OUT)/decomp/%.o,$(filter-out $(GX_SDK_SRCS),$(BOOT_SRCS))) \
     $(patsubst %,$(OUT)/host/%.o,$(BOOT_HOST_SRCS))) $(OUT)/decomp/src/main.cpp.o
-# Data the decomp reaches by its CodeWarrior name (RPTextWriter: a private static)
-BOOT_CW_NAMES := -Wl,--defsym=spCurrentScreen__13RPGrpRenderer=_ZN13RPGrpRenderer15spCurrentScreenE
+# Data the decomp reaches by its CodeWarrior name (RPTextWriter: a private static; Laser
+# Hockey and Charge!: EGG::Screen::sTVModeWidths, EGG::DrawGX::s_cameraMtx)
+BOOT_CW_NAMES := -Wl,--defsym=spCurrentScreen__13RPGrpRenderer=_ZN13RPGrpRenderer15spCurrentScreenE \
+    -Wl,--defsym=s_cameraMtx__Q23EGG6DrawGX=_ZN3EGG6DrawGX11s_cameraMtxE \
+    -Wl,--defsym=sTVModeWidths__Q23EGG6Screen=_ZN3EGG6Screen13sTVModeWidthsE
 # The decomp's main is the game's entry point; the host's main (host_main.cpp)
 # sets up the platform and calls it under this name.
 $(OUT)/decomp/src/main.cpp.o: CXXFLAGS += -Dmain=PortGameMain
@@ -790,7 +799,8 @@ gx: $(OUT)/gx_harness $(OUT)/gxlyt_harness $(OUT)/gx3d_harness gx-aurora-tests
 	python3 $(HOST)/tests/test_gxlyt.py --harness $(OUT)/gxlyt_harness --disc $(DISC) --scratch $(GX_SCRATCH)
 	python3 $(HOST)/tests/test_gx3d.py --harness $(OUT)/gx3d_harness --disc $(DISC) --scratch $(GX_SCRATCH)/gx3d
 test: gx
-# The game's boot to the title screen, headless on lavapipe (§29)
+# The game's boot to the title screen, the menus, short Shooting Range and Laser Hockey runs,
+# headless on lavapipe (§29-§32)
 .PHONY: boot
 all: $(OUT)/boot
 # Its own scratch directory (NAND saves, Aurora data): test_gx wipes GX_SCRATCH, and
@@ -799,15 +809,21 @@ BOOT_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-boot
 boot: $(OUT)/boot
 	python3 $(HOST)/tests/test_boot.py --boot $(OUT)/boot --disc $(DISC) --scratch $(BOOT_SCRATCH)
 test: boot
+# Whole minigames, twice each (§32): not part of `make test` (about 15 minutes); run before
+# committing a game milestone.
+.PHONY: playtest
+PLAY_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-play
+playtest: $(OUT)/boot
+	python3 $(HOST)/tests/test_play.py --boot $(OUT)/boot --disc $(DISC) --scratch $(PLAY_SCRATCH)
 else
-.PHONY: gx gx-aurora-tests boot
-gx gx-aurora-tests boot:
+.PHONY: gx gx-aurora-tests boot playtest
+gx gx-aurora-tests boot playtest:
 	@echo "$@: skipped (NO_GX=1)"
 test: gx boot
 endif
 else
-.PHONY: gx gx-aurora-tests boot
-gx gx-aurora-tests boot:
+.PHONY: gx gx-aurora-tests boot playtest
+gx gx-aurora-tests boot playtest:
 	@echo "$@: skipped (the GX layer is 64-bit only)"
 test: gx boot
 endif

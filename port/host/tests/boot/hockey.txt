@@ -1,0 +1,23 @@
+# Laser Hockey, a whole game (port/docs/HOST_BUILD.md §32): test_play.py appends this to
+# tests/boot/menus_saved.txt (which ends on the party menu), without its `end`.
+# The Laser Hockey icon on the party menu -> the explanation screen
+3400 mouse 318 75
+3430 press A
+3436 release A
+# "A: Start"
+3800 mouse 320 228
+3830 press A
+3836 release A
+# Two minutes against the CPU: the pointer puts player 0's paddle on the puck, a little
+# past its centre (host_probe.cpp); the game ends at about frame 13400
+4000 aim 1
+13600 aim 0
+# "Game Over", My Record, then the results menu: "Play a different game"
+13650 mouse 320 348
+13900 press A
+13906 release A
+14100 press A
+14106 release A
+14300 press A
+14306 release A
+end 100000

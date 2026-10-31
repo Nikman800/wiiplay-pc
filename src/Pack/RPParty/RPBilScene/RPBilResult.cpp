@@ -229,8 +229,13 @@ void RPBilResult::ComputeScores() {
         // r6/r7/r8 rotation (this/pMgr copies vs playerNum+pPlayer, which share one register in
         // the original). Walker rule: the copies are optimizer temps numbered between the named
         // locals and the codegen temps, and the getter load stays a codegen temp.
+#if defined(PORT_HOST)
+        // 0x10 and the 4-byte stride are the 32-bit layout of mpPlayers
+        pPlayer = pMgr->GetPlayer(player);
+#else
         pPlayer = reinterpret_cast<const RPBilPlayer* volatile*>(
             reinterpret_cast<char*>(pMgr) + player * 4 + 0x10)[0];
+#endif
         if (playerNum == 1) {
             mResults[player].mScore = 0;
         } else {

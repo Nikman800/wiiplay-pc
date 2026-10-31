@@ -14,6 +14,12 @@
 
 #include <cmath>
 
+// The address of a temporary (CodeWarrior accepts `&T(...)`; the host form is in
+// port/host/include/decomp/compat.h)
+#if !defined(PORT_TEMP_PTR)
+#define PORT_TEMP_PTR(x) (&(x))
+#endif
+
 #ifndef ASM_PS
 // Host builds give this block a C form (port/host/include/decomp/compat.h).
 #define ASM_PS(name) ASM
@@ -335,7 +341,7 @@ void RPHkyPaddle::UpdateCpuStallTimer() {
 
     nw4r::math::VEC3 puckPos = RPHkyGame::GetInstance()->GetPuck()->GetPos();
     if (sPrevPuckPos != puckPos) {
-        if (nw4r::math::VEC3Len(&(puckPos - sPrevPuckPos)) < 0.002f && puckPos.x > sRectWidth &&
+        if (nw4r::math::VEC3Len(PORT_TEMP_PTR(puckPos - sPrevPuckPos)) < 0.002f && puckPos.x > sRectWidth &&
             mCpuStallTimer == 0) {
             if (++sStallCount > 40) {
                 mCpuStallTimer = 20;

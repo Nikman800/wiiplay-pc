@@ -390,9 +390,12 @@ void RPBilBall::PlayRollSound(f32 speed) {
 // STAND-IN: dead-stripped; compiled first (defined last), it puts the u32->f32 magic double
 // (lbl_804412C8) right after 0.0f and ahead of 0.01f (804412D0), as in the original .sdata2.
 // Without it the double lands after 0.05f (804412F4), before PlaceInRack's -0.5f.
+// (Wii only: GCC rejects `extern "C" static`, and the host has no .sdata2 order to keep.)
+#if !defined(PORT_HOST)
 extern "C" static f32 Bil_ballPoolOrderU32(u32 x) {
     return (f32)x;
 }
+#endif
 
 
 #pragma defer_codegen off
