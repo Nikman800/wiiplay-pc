@@ -34,6 +34,7 @@ Nothing from the disc goes into the repository: frames, NAND and caches go to --
 """
 
 import argparse
+import concurrent.futures
 import os
 import re
 import shutil
@@ -63,6 +64,19 @@ ALLOWED_LOG["Buffer mapping Aborted: Buffer was destroyed before mapping was res
 ALLOWED_UNHANDLED = dict(test_gx3d.ALLOWED_UNHANDLED)
 ALLOWED_UNHANDLED[("BP", 0x47)] = "draw sync token (GXSetDrawSync is synchronous on the host)"
 ALLOWED_UNHANDLED[("BP", 0x48)] = "draw sync token interrupt (synchronous on the host)"
+
+
+# The menu run (tests/boot/menus.txt): frames saved, and the scene each shows
+MENU_FRAMES = 4900
+MENU_SHOTS = [(650, "save_check"), (1990, "save_created"), (2390, "select_players"),
+              (2890, "select_mii"), (3100, "guest_warning"), (3500, "play_with_mii"),
+              (4200, "welcome"), (4890, "party_menu")]
+MENU_SCENES = [("save_check", "ESceneID_RPPartyPackTitleScene"), ("save_created", "ESceneID_RPPartyPackTitleScene"),
+               ("select_players", "ESceneID_RPSysPlayerSelectScene"),
+               ("select_mii", "ESceneID_RPSysPlayerSelectScene"),
+               ("guest_warning", "ESceneID_RPSysPlayerSelectScene"),
+               ("play_with_mii", "ESceneID_RPSysPlayerSelectScene"),
+               ("welcome", "ESceneID_RPPartyMainScene"), ("party_menu", "ESceneID_RPPartyMainScene")]
 
 
 def scene_ids(repo):
@@ -117,6 +131,93 @@ def run(boot, disc, scratch, name, env, extra):
     return d, frames, scenes, end, p.stderr
 
 
+def run_live(boot, disc, scratch, env):
+    """Run D: real time, the dummy audio driver, synthetic SDL events (§30)."""
+    d = os.path.join(scratch, "d")
+    for sub in ("nand", "data"):
+        os.makedirs(os.path.join(d, sub), exist_ok=True)
+    env = dict(env)
+    for var in ("DISPLAY", "WAYLAND_DISPLAY"):  # never a window on the user's desktop
+        env.pop(var, None)
+    env["SDL_AUDIO_DRIVER"] = "dummy"
+    env["SDL_VIDEO_DRIVER"] = "dummy"
+    cmd = [boot, "--disc", disc, "--nand", os.path.join(d, "nand"), "--data-dir", os.path.join(d, "data"),
+           "--headless", "--realtime", "--audio-out", "--events", os.path.join(HERE, "boot", "live.txt"),
+           "--frames", "2000", "--trace", "--log-level", "2"]
+    p = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)
+    if p.returncode != 0:
+        sys.stderr.write(p.stderr[-4000:])
+        raise SystemExit("FAIL: boot (live) exited %d" % p.returncode)
+    inputs, scenes, end, live = [], [], None, None
+    for line in p.stdout.splitlines():
+        f = line.split("\t")
+        kv = dict(x.split("=", 1) for x in f[1:] if "=" in x)
+        if f[0] == "INPUT":
+            px, py = (float(v) for v in kv["pointer"].split(","))
+            inputs.append((int(kv["retrace"]), int(kv["buttons"], 16), px, py, float(kv["roll"])))
+        elif f[0] == "SCENE":
+            scenes.append((int(kv["retrace"]), int(kv["scene"])))
+        elif f[0] == "END":
+            end = kv
+        elif f[0] == "LIVE":
+            live = kv
+    return inputs, scenes, end, live, p.stderr
+
+
+def check_live(inputs, scenes, end, live, stderr, title_id, errs):
+    if end is None or live is None:
+        errs.append("live: no END / LIVE line")
+        return None
+    retraces = int(end["retrace"])
+    # the quit event at retrace 715 ends the run there
+    if not 715 <= retraces <= 717:
+        errs.append("live: ended at retrace %d, expected the quit at 715" % retraces)
+    want = retraces * RETRACE_UNITS / 60000.0
+    wall = float(live["wall"])
+    # Never faster than real time. Slower only when the machine cannot keep up
+    # (a loaded host: the pacer then re-anchors, counted in "late").
+    if wall < 0.97 * want or (int(live["late"]) == 0 and wall > 1.08 * want):
+        errs.append("live: %.3f s of wall time for %.3f s of game time" % (wall, want))
+    if live["audiodriver"] != "dummy" or int(live["overruns"]) != 0 or int(live["underruns"]) > 2:
+        errs.append("live: audio %s" % live)
+
+    def state_at(r):
+        cur = None
+        for x in inputs:
+            if x[0] <= r:
+                cur = x
+        return cur
+    key = state_at(182)
+    if key is None or key[1] != 0x0800:
+        errs.append("live: the Space key did not press A (%s)" % (key,))
+    click = state_at(202)
+    if click is None or click[1] != 0x0800 or state_at(208)[1] != 0:
+        errs.append("live: the left mouse button did not press A")
+    p = state_at(100)
+    if p is None or abs(p[2]) > 1e-3 or abs(p[3]) > 1e-3:
+        errs.append("live: mouse at the window centre gave pointer %s" % (p,))
+    tilt = state_at(250)
+    if tilt is None or abs(tilt[4] - 30.0) > 0.2 or abs(state_at(265)[4]) > 0.2:
+        errs.append("live: accelerometer roll %s, expected 30" % (tilt,))
+    moved = state_at(285)
+    # 1.5 screens per second at full deflection: about 10 frames of it
+    if moved is None or not 0.35 < moved[2] < 0.65:
+        errs.append("live: right stick moved the pointer to %s" % (moved,))
+    ab = state_at(522)
+    if ab is None or ab[1] != 0x0C00:
+        errs.append("live: the gamepad's south + east buttons gave %s, expected A+B" % (ab,))
+    yes = state_at(650)
+    if yes is None or abs(yes[2] - (195 / 320.0 - 1)) > 1e-3 or abs(yes[3] - (348 / 228.0 - 1)) > 1e-3:
+        errs.append("live: mouse at (195, 348) gave pointer %s" % (yes,))
+    if int(live["testrumble"]) == 0 or int(live["rumble"]) == 0:
+        errs.append("live: no rumble reached the virtual gamepad (%s)" % live)
+    if title_id not in [s for _, s in scenes]:
+        errs.append("live: scenes %s, the title never came" % scenes)
+    if "gamepad 0: wiiplay test gamepad (gyro yes, accelerometer yes)" not in stderr:
+        errs.append("live: the virtual gamepad was not reported")
+    return wall, want, live
+
+
 def load_rgba(path):
     with open(path, "rb") as f:
         data = f.read()
@@ -158,15 +259,39 @@ def main():
     script = os.path.join(HERE, "boot", "title.txt")
     errs = []
 
-    # --- run A: to the title ------------------------------------------------------------
+    # --- run D first, alone (real time: the other runs would load the machine) -----------
+    inputs, sd, endd, lived, errd = run_live(args.boot, args.disc, scratch, env)
+    live_result = check_live(inputs, sd, endd, lived, errd, title_id, errs)
+
+    # --- the deterministic runs, concurrently ---------------------------------------------
+    menus = os.path.join(HERE, "boot", "menus.txt")
+    shots = [(f, os.path.join(scratch, "menu_%s.rgba" % name)) for f, name in MENU_SHOTS]
+    save_args = []
+    for f, path in shots:
+        save_args += ["--save", "%d:%s" % (f, path)]
     health_path = os.path.join(scratch, "health.rgba")
     title_path = os.path.join(scratch, "title.rgba")
     audio_path = os.path.join(scratch, "audio.raw")
-    _, fa, sa, enda, erra = run(args.boot, args.disc, scratch, "a", env,
-                                ["--frames", str(FRAMES), "--input", script,
-                                 "--save", "%d:%s" % (HEALTH_FRAME, health_path),
-                                 "--save", "%d:%s" % (FRAMES - 1, title_path),
-                                 "--audio", audio_path])
+    jobs = {
+        "a": ["--frames", str(FRAMES), "--input", script, "--save", "%d:%s" % (HEALTH_FRAME, health_path),
+              "--save", "%d:%s" % (FRAMES - 1, title_path), "--audio", audio_path],
+        "b": ["--frames", str(FRAMES), "--input", script],
+        "c": ["--frames", "300"],
+        "m1": ["--frames", str(MENU_FRAMES), "--input", menus] + save_args,
+        "m2": ["--frames", str(MENU_FRAMES), "--input", menus],
+    }
+    # Three at a time, each with few lavapipe threads: oversubscribed software
+    # rendering slows every run down far more than it gains.
+    penv = dict(env)
+    penv.setdefault("LP_NUM_THREADS", "4")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        # the long menu runs first
+        order = ["m1", "m2", "a", "b", "c"]
+        futures = {k: pool.submit(run, args.boot, args.disc, scratch, k, penv, jobs[k]) for k in order}
+        results = {k: f.result() for k, f in futures.items()}
+
+    # --- run A: to the title ------------------------------------------------------------
+    _, fa, sa, enda, erra = results["a"]
     if enda is None or len(fa) != FRAMES:
         errs.append("run A: %d frames, END line %s" % (len(fa), "present" if enda else "missing"))
 
@@ -244,17 +369,46 @@ def main():
         gxtex.write_png(os.path.join(args.png, "title.png"), W, H, opaque(title))
 
     # --- run B: determinism ---------------------------------------------------------------
-    _, fb, sb, _, _ = run(args.boot, args.disc, scratch, "b", env,
-                          ["--frames", str(FRAMES), "--input", script])
+    _, fb, sb, _, _ = results["b"]
     same = [x[5] for x in fa] == [x[5] for x in fb] and sa == sb
     if not same:
         n = next((i for i, (x, y) in enumerate(zip(fa, fb)) if x[5] != y[5]), None)
         errs.append("run B differs from run A (first frame %s)" % n)
 
     # --- run C: no input --------------------------------------------------------------------
-    _, fc, sc, _, _ = run(args.boot, args.disc, scratch, "c", env, ["--frames", "300"])
+    _, fc, sc, _, _ = results["c"]
     if [s for _, s in sc] != [-1, boot_id] or fc[-1][3] != boot_id:
         errs.append("without input: scenes %s" % [s for _, s in sc])
+
+    # --- runs M1, M2: the menus (save check, Select Players, Select Mii, party menu) ----
+    dm, fm, sm, endm, errm = results["m1"]
+    _, fm2, sm2, _, _ = results["m2"]
+    menu_seq = [s for _, s in sm]
+    want_seq = [-1, boot_id, title_id, ids["ESceneID_RPSysPlayerSelectScene"], ids["ESceneID_RPPartyMainScene"]]
+    if menu_seq != want_seq:
+        errs.append("menus: scenes %s, expected %s" % (menu_seq, want_seq))
+    if endm is None or len(fm) != MENU_FRAMES:
+        errs.append("menus: %d frames, END %s" % (len(fm), "present" if endm else "missing"))
+    for f, name in MENU_SHOTS:
+        want_scene = dict(MENU_SCENES)[name]
+        if f < len(fm) and fm[f][3] != ids[want_scene]:
+            errs.append("menus: frame %d (%s) in scene %d, expected %s" % (f, name, fm[f][3], want_scene))
+    menu_same = [x[5] for x in fm] == [x[5] for x in fm2] and sm == sm2
+    if not menu_same:
+        n = next((i for i, (x, y) in enumerate(zip(fm, fm2)) if x[5] != y[5]), None)
+        errs.append("menus: run M2 differs from run M1 (first frame %s)" % n)
+    save = os.path.join(dm, "nand", "title", "00010000", "52484145", "data", "RPParty.dat")
+    if not os.path.isfile(save):
+        errs.append("menus: no save file %s" % save)
+    for line in errm.splitlines():
+        if line.startswith("boot:") or "host_thread:" in line or "port arena:" in line:
+            errs.append("menus: " + line)
+    distinct = len(set(load_rgba(p) for _, p in shots))
+    if distinct != len(shots):
+        errs.append("menus: %d distinct screens of %d" % (distinct, len(shots)))
+    if args.png:
+        for (f, name), (_, path) in zip(MENU_SHOTS, shots):
+            gxtex.write_png(os.path.join(args.png, "menu_%s.png" % name), W, H, opaque(load_rgba(path)))
 
     print("test_boot: %d frames on %s; scenes -1 -> %d (boot) -> %d (title) at retrace %s, A pressed at %d"
           % (len(fa), "lavapipe" if not args.gpu else "the GPU", boot_id, title_id, title_at, PRESS_RETRACE))
@@ -268,6 +422,15 @@ def main():
           % (sum(allowed.values()), ", ".join(sorted(allowed)), len(unhandled)))
     print("  determinism: %d frame hashes identical over two runs: %s; without input the boot scene stays: %s"
           % (len(fa), same, [s for _, s in sc] == [-1, boot_id]))
+    print("  menus: scenes %s over %d frames; %d screens (%s); save file written; hashes identical over two runs: %s"
+          % (" -> ".join(str(x) for x in menu_seq), len(fm), len(shots), ", ".join(n for _, n in MENU_SHOTS),
+             menu_same))
+    if live_result:
+        wall, want, lv = live_result
+        print("  live (headless, dummy audio, synthetic SDL events): %.3f s wall for %.3f s game time; audio "
+              "underruns %s, overruns %s, %s frames queued, %s re-anchors; %s events; rumble %s on the virtual gamepad"
+              % (wall, want, lv["underruns"], lv["overruns"], lv["queued"], lv["late"], lv["events"],
+                 lv["testrumble"]))
     for e in errs:
         print("  ERROR: " + e)
     print("errors: %d" % len(errs))

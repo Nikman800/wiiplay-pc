@@ -149,26 +149,57 @@ NWC24Err NWC24CommitMsg(NWC24MsgObj* pMsg) {
     return NWC24_ERR_FATAL;
 }
 
-// The IPL ROM font is not on the disc
+// The IPL ROM font is not on the disc (HOST_BUILD.md §30). The game draws with it
+// only debug text (the title's build time stamp, Table Tennis' debug values) and
+// the disc-error screen, and asks it for metrics when Table Tennis and Laser
+// Hockey call SetFontSize. The stand-in is a font with the ANSI ROM font's cell
+// size (24 x 24, ascent 20, descent 4: approximate) and a blank glyph sheet in
+// the buffer the game gives OSInitFont: metrics work, the text is invisible.
+namespace {
+const u16 FONT_CELL = 24;
+const u16 FONT_SHEET = 256; // I4, 10 x 10 cells
+OSFontHeader* sFont = NULL;
+}
 u16 OSGetFontEncode(void) {
     return OS_FONT_ENCODE_ANSI;
 }
 BOOL OSInitFont(OSFontHeader* font) {
-    (void)font;
-    return FALSE;
+    const u32 sheetBytes = FONT_SHEET * FONT_SHEET / 2;
+    std::memset(font, 0, 0x40 + sheetBytes);
+    font->type = 0;
+    font->firstChar = 0x20;
+    font->lastChar = 0xFF;
+    font->invalidChar = 0x20;
+    font->ascent = 20;
+    font->descent = 4;
+    font->width = FONT_CELL;
+    font->leading = 26;
+    font->cellWidth = FONT_CELL;
+    font->cellHeight = FONT_CELL;
+    font->sheetSize = sheetBytes;
+    font->sheetFormat = GX_TF_I4;
+    font->sheetNumCol = FONT_SHEET / FONT_CELL;
+    font->sheetNumRow = FONT_SHEET / FONT_CELL;
+    font->sheetWidth = FONT_SHEET;
+    font->sheetHeight = FONT_SHEET;
+    font->sheetImageOfs = 0x40; // 32-byte aligned after the header
+    font->sheetFullSize = sheetBytes;
+    sFont = font;
+    return TRUE;
+}
+static const char* FontNextChar(const char* str) {
+    return *str != '\0' ? str + 1 : str;
 }
 const char* OSGetFontTexture(const char* str, void** texOut, u32* xOut, u32* yOut, u32* widthOut) {
-    (void)str;
-    (void)texOut;
-    (void)xOut;
-    (void)yOut;
-    (void)widthOut;
-    NotLinked("the ROM font (OSGetFontTexture)");
+    *texOut = sFont != NULL ? reinterpret_cast<u8*>(sFont) + sFont->sheetImageOfs : NULL;
+    *xOut = 0;
+    *yOut = 0;
+    *widthOut = FONT_CELL / 2;
+    return FontNextChar(str);
 }
 const char* OSGetFontWidth(const char* str, u32* widthOut) {
-    (void)str;
-    (void)widthOut;
-    NotLinked("the ROM font (OSGetFontWidth)");
+    *widthOut = FONT_CELL / 2;
+    return FontNextChar(str);
 }
 
 s32 VFIsAvailable() {

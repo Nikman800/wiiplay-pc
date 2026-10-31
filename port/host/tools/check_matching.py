@@ -284,6 +284,8 @@ TOUCHED = [
     "src/nw4r/ef/drawstrategy/ef_drawfreestrategy.cpp",
     "src/nw4r/ef/drawstrategy/ef_drawbillboardstrategy.cpp",
     "src/nw4r/ef/drawstrategy/ef_drawdirectionalstrategy.cpp",
+    # Milestone 5 (HOST_BUILD.md §30): the menus
+    "src/Pack/RPKernel/RPSysLayout.cpp",
 ]
 
 

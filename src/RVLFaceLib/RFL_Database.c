@@ -259,7 +259,46 @@ RFLiCharData* RFLiGetCharData(u16 index) {
     return data;
 }
 
+#if defined(PORT_HOST)
+// Stored Mii data (RFLiCharData, RFLiHiddenCharData: the NAND databases, the
+// remotes, the default table) stays big-endian in memory. The converters read and
+// write a copy with every 16-bit word in host order (bit-fields and names) except
+// the bytes at 0x16-0x1F (height, build, create ID); RFLi_Types.h declares the
+// host's bit-fields for that order. Names in RFLiCharInfo are host-order wchar_t.
+#define PORT_RFL_CORE_SIZE 0x36 // the part RFLiCharData and RFLiHiddenCharData share
+
+static void PortSwapCharWords(void* dst, const void* src, u32 size) {
+    const u8* s = (const u8*)src;
+    u8* d = (u8*)dst;
+    u32 i;
+    for (i = 0; i + 1 < size; i += 2) {
+        u8 a = s[i];
+        u8 b = s[i + 1];
+        if (i >= 0x16 && i < 0x20) {
+            d[i] = a;
+            d[i + 1] = b;
+        } else {
+            d[i] = b;
+            d[i + 1] = a;
+        }
+    }
+}
+
+static void PortSwapWide(wchar_t* dst, const wchar_t* src, u32 count) {
+    u32 i;
+    for (i = 0; i < count; i++) {
+        u16 c = (u16)src[i];
+        dst[i] = (wchar_t)(u16)((c >> 8) | (c << 8));
+    }
+}
+#endif
+
 static void convertRaw2InfoCore_(const RFLiCharData* data, RFLiCharInfo* info) {
+#if defined(PORT_HOST)
+    RFLiCharData host;
+    PortSwapCharWords(&host, data, PORT_RFL_CORE_SIZE);
+    data = &host;
+#endif
     info->faceline.type = data->faceType;
     info->faceline.color = data->faceColor;
     info->faceline.texture = data->faceTex;
@@ -326,8 +365,12 @@ static void convertRaw2InfoCore_(const RFLiCharData* data, RFLiCharInfo* info) {
 void RFLiConvertRaw2Info(const RFLiCharData* data, RFLiCharInfo* out) {
     convertRaw2InfoCore_(data, out);
 
+#if defined(PORT_HOST)
+    PortSwapWide(out->personal.creator, data->creatorName, RFL_CREATOR_LEN);
+#else
     memcpy(out->personal.creator, data->creatorName,
            RFL_CREATOR_LEN * sizeof(wchar_t));
+#endif
     out->personal.creator[RFL_CREATOR_LEN] = '\0';
 }
 
@@ -342,6 +385,12 @@ void RFLiConvertHRaw2Info(const RFLiHiddenCharData* data, RFLiCharInfo* out) {
 }
 
 static void convertInfo2RawCore_(const RFLiCharInfo* info, RFLiCharData* data) {
+#if defined(PORT_HOST)
+    RFLiCharData host;
+    RFLiCharData* stored = data;
+    PortSwapCharWords(&host, stored, PORT_RFL_CORE_SIZE); // keeps the padding bits
+    data = &host;
+#endif
     data->faceType = info->faceline.type;
     data->faceColor = info->faceline.color;
     data->faceTex = info->faceline.texture;
@@ -401,24 +450,49 @@ static void convertInfo2RawCore_(const RFLiCharInfo* info, RFLiCharData* data) {
     data->favoriteColor = info->personal.color;
     data->favorite = info->personal.favorite;
     data->localonly = info->personal.localOnly;
+#if defined(PORT_HOST)
+    PortSwapCharWords(stored, &host, PORT_RFL_CORE_SIZE);
+#endif
 }
+
+#if defined(PORT_HOST)
+// birthPadding = 0 on stored hidden data (in its first 16-bit word)
+static void PortClearBirthPadding(RFLiHiddenCharData* out) {
+    RFLiHiddenCharData host;
+    PortSwapCharWords(&host, out, 2);
+    host.birthPadding = 0;
+    PortSwapCharWords(out, &host, 2);
+}
+#endif
 
 void RFLiConvertInfo2Raw(const RFLiCharInfo* info, RFLiCharData* out) {
     convertInfo2RawCore_(info, out);
+#if defined(PORT_HOST)
+    PortSwapWide(out->creatorName, info->personal.creator, RFL_CREATOR_LEN);
+#else
     memcpy(out->creatorName, info->personal.creator,
            RFL_CREATOR_LEN * sizeof(wchar_t));
+#endif
 }
 
 void RFLiConvertInfo2HRaw(const RFLiCharInfo* info, RFLiHiddenCharData* out) {
     convertInfo2RawCore_(info, (RFLiCharData*)out);
+#if defined(PORT_HOST)
+    PortClearBirthPadding(out);
+#else
     out->birthPadding = 0;
+#endif
 }
 
 void RFLiConvertRaw2HRaw(const RFLiCharData* data, RFLiHiddenCharData* out) {
     memset(out, 0, sizeof(RFLiHiddenCharData));
     // Copy everything that also exists in hidden (just no creator name)
     memcpy(out, data, sizeof(RFLiCharData) - RFL_CREATOR_LEN * sizeof(wchar_t));
+#if defined(PORT_HOST)
+    PortClearBirthPadding(out);
+#else
     out->birthPadding = 0;
+#endif
 }
 
 RFLErrcode RFLiGetCharRawData(RFLiCharData* out, u16 index) {

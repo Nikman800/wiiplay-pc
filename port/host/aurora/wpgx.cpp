@@ -8,6 +8,7 @@
 #include <dolphin/mtx.h>
 #include <dolphin/vi.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -18,11 +19,18 @@
 
 #define WPGX_API extern "C" __attribute__((visibility("default")))
 
+// wpgx_platform.cpp: window, input and audio (milestone 5)
+void wpgx_platform_init(bool headless, uint32_t width, uint32_t height);
+void wpgx_platform_take_events(const AuroraEvent* events);
+void wpgx_platform_shutdown();
+
 namespace {
 
 // Bumped whenever our Aurora patches change what a cached pipeline means, so
 // a stale pipeline_cache.db is discarded instead of loaded.
-constexpr uint32_t kPipelineCacheKey = 3;
+constexpr uint32_t kPipelineCacheKey = 4;
+// Lines of the hardware EFB (528 on the Wii).
+constexpr uint32_t kEfbMaxHeight = 528;
 
 int gLogLevel = LOG_INFO;
 bool gInitialized = false;
@@ -72,23 +80,41 @@ WPGX_API int wpgx_init(const wpgx_config* config) {
     cfg.logLevel = static_cast<AuroraLogLevel>(config->log_level);
     cfg.disableShaderCache = config->disk_cache == 0;
     cfg.pipelineCacheKey = config->cache_key ? config->cache_key : kPipelineCacheKey;
+    cfg.vsync = config->vsync != 0;
     if (config->headless) {
         cfg.surface.type = AURORA_SURFACE_HEADLESS;
         cfg.surface.width = width;
         cfg.surface.height = height;
         cfg.surface.scale = 1.0f;
+    } else {
+        cfg.appName = config->title != nullptr ? config->title : "wiiplay";
+        cfg.windowWidth = config->window_width ? config->window_width : width;
+        cfg.windowHeight = config->window_height ? config->window_height : height;
+        cfg.startFullscreen = config->fullscreen != 0;
     }
     aurora_initialize(0, nullptr, &cfg);
+    if (!config->headless) {
+        aurora_enable_vsync(config->vsync != 0);
+    }
+    wpgx_platform_init(config->headless != 0, width, height);
     gAdapterName = std::string(aurora::webgpu::g_adapterInfo.device.data, aurora::webgpu::g_adapterInfo.device.length);
 
     GXInit(gFifo, sizeof gFifo);
-    // The game's EFB is the configured size: viewports and scissors map 1:1
-    // (Aurora scales GX coordinates from the VI's frame buffer size).
+    // The EFB is the hardware's: the configured width and 528 lines (or the
+    // configured height if larger). Viewports and scissors map 1:1 (Aurora
+    // scales GX coordinates from the VI's frame buffer size). The picture is
+    // the configured size (the XFB height), which Aurora presents and reads
+    // back; the lines below it are scratch space games render into and copy
+    // out (EGG's light textures draw at y >= 456 under a 456-line picture).
     GXRenderModeObj mode = GXNtsc480IntDf;
     mode.fbWidth = static_cast<u16>(width);
-    mode.efbHeight = static_cast<u16>(height);
+    mode.efbHeight = static_cast<u16>(std::max<uint32_t>(height, kEfbMaxHeight));
     mode.xfbHeight = static_cast<u16>(height);
     VIConfigure(&mode);
+    // The EFB stays that size (no resolution scaling, no widening to the
+    // window's or the headless surface's aspect); the window scales the picture.
+    VISetFrameBufferScale(1.0f);
+    AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
     AuroraSetDrawsBlocking(config->blocking_pipelines != 0);
     gInitialized = true;
     return 0;
@@ -96,16 +122,14 @@ WPGX_API int wpgx_init(const wpgx_config* config) {
 
 WPGX_API void wpgx_shutdown(void) {
     if (gInitialized) {
+        wpgx_platform_shutdown();
         aurora_shutdown();
         gInitialized = false;
     }
 }
 
 WPGX_API int wpgx_begin_frame(void) {
-    const AuroraEvent* event = aurora_update();
-    while (event != nullptr && event->type != AURORA_NONE) {
-        ++event;
-    }
+    wpgx_platform_take_events(aurora_update());
     gInFrame = aurora_begin_frame();
     return gInFrame ? 1 : 0;
 }

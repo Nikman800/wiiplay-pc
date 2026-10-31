@@ -116,6 +116,14 @@ void GXDrawDone(void) {
 void GXPixModeSync(void) {
     GX_BP_LOAD_REG(gxdt->zControl);
     gxdt->lastWriteWasXF = FALSE;
+    // The GP pipeline flush (used after EFB copies): the host also runs
+    // everything before it now. On the Wii the GP keeps pace with the CPU, so
+    // memory that earlier commands read (textures, vertex arrays) is read long
+    // before the CPU reuses it; the host's GP runs only at sync points.
+    // RVLFaceLib depends on it: RFLiMakeTexture draws each Mii's face parts
+    // from buffers it frees and refills for the next Mii, with only a
+    // GXCopyTex and this call in between.
+    PortWGPipeSync(PORT_GX_SYNC_DRAWDONE);
 }
 
 // CPU access to the EFB (peek/poke) is not emulated: the poke modes only

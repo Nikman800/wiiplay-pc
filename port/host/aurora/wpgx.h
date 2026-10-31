@@ -32,6 +32,14 @@ typedef struct {
     int blocking_pipelines; /* 1: draws wait for their pipeline (none skipped) */
     int allow_cpu_adapter;  /* 1: accept a software adapter (lavapipe) */
     int log_level;          /* 0 debug, 1 info, 2 warning, 3 error */
+    /* Windowed mode only (headless 0), milestone 5 (HOST_BUILD.md §30). The
+       EFB stays width x height (frame buffer scale 1, aspect-fit viewport
+       policy); the window only scales the presented picture. */
+    uint32_t window_width;  /* initial window size in points; 0 = width x height */
+    uint32_t window_height;
+    int fullscreen;         /* 1: start fullscreen */
+    int vsync;              /* 1: present with vsync (FIFO / FIFO relaxed) */
+    const char* title;      /* window title; NULL = "wiiplay" */
 } wpgx_config;
 
 /* Returns 0 on success. */
@@ -92,6 +100,93 @@ typedef void (*wpgx_copy_observer)(const wpgx_copy_info* copy, void* user);
 void wpgx_set_copy_writeback(int writeback, int capture_sources, wpgx_copy_observer observer, void* user);
 /* Copies written back so far. */
 uint32_t wpgx_copies_written(void);
+
+/* --- Window, input and audio (milestone 5, HOST_BUILD.md §30) ------------ */
+/* SDL lives inside this library (its symbols are hidden), so the port's live
+   platform layer reaches the window, the input devices and the audio device
+   through these functions only. All of them run on the thread that called
+   wpgx_init. */
+
+/* Display aspect the EFB is presented at (4:3 or 16:9 from SC: the Wii's
+   640x456 frame shown on a 4:3 or a widescreen TV); 0 = square pixels. The
+   picture is letterboxed or pillarboxed into the window at this aspect. */
+void wpgx_set_display_aspect(float aspect);
+float wpgx_display_aspect(void);
+/* Window size in points (headless: the EFB size). */
+void wpgx_window_size(float* width, float* height);
+/* A window position (points, origin top left) -> position on the presented
+   picture, 0..1 across it (outside that range in the bars). */
+void wpgx_window_to_picture(float x, float y, float* u, float* v);
+void wpgx_set_fullscreen(int fullscreen);
+int wpgx_is_fullscreen(void);
+/* Hides the system cursor over the window (the game draws its own). */
+void wpgx_show_cursor(int show);
+
+/* Input devices (keyboard and mouse come with the window). Opens the SDL
+   gamepad, joystick, sensor and haptic subsystems. Returns 0 on success. */
+int wpgx_input_init(void);
+
+enum {
+    WPGX_EV_QUIT = 1,         /* window closed / quit requested */
+    WPGX_EV_KEY,              /* name: SDL key name; down */
+    WPGX_EV_MOUSE_MOTION,     /* x, y: window position in points */
+    WPGX_EV_MOUSE_BUTTON,     /* code: SDL button (1 left, 2 middle, 3 right, ...); down; x, y */
+    WPGX_EV_GAMEPAD_ADDED,    /* pad: slot 0-3; name: the gamepad's name */
+    WPGX_EV_GAMEPAD_REMOVED,  /* pad */
+    WPGX_EV_GAMEPAD_BUTTON,   /* pad; code: SDL_GamepadButton; down */
+    WPGX_EV_GAMEPAD_AXIS,     /* pad; code: SDL_GamepadAxis; x: -1..1 (triggers 0..1) */
+    WPGX_EV_FOCUS,            /* down: 1 gained, 0 lost */
+    WPGX_EV_RESIZED,          /* x, y: new window size in points */
+};
+typedef struct {
+    uint32_t type;
+    int32_t down;
+    int32_t code;
+    int32_t pad;
+    float x, y;
+    char name[48];
+} wpgx_event;
+/* Polls the window system (also done by wpgx_begin_frame) and queues the
+   events. */
+void wpgx_pump_events(void);
+/* The next queued event: 1, or 0 when there is none. */
+int wpgx_next_event(wpgx_event* event);
+
+/* Gamepad slots 0-3 (in connection order). Sensors: gyro in rad/s, accel in
+   m/s^2 (SDL's axes); returns a bit mask of what the pad has (1 gyro,
+   2 accel). */
+int wpgx_gamepad_sensors(int pad, float gyro[3], float accel[3]);
+/* Rumble: strengths 0..1 for duration_ms (0 stops). */
+void wpgx_gamepad_rumble(int pad, float low, float high, uint32_t duration_ms);
+
+/* Audio output: an SDL audio stream on the default playback device, fed
+   interleaved s16 at `rate` (SDL resamples to the device). Returns 0 on
+   success. */
+int wpgx_audio_open(int rate, int channels);
+void wpgx_audio_close(void);
+/* Appends frames to the stream. */
+void wpgx_audio_queue(const int16_t* samples, uint32_t frames);
+/* Frames queued and not yet taken by the device. */
+uint32_t wpgx_audio_queued_frames(void);
+/* Drops everything queued. */
+void wpgx_audio_clear(void);
+void wpgx_audio_set_gain(float gain);
+/* The SDL audio driver in use ("pipewire", "pulseaudio", "dummy", ...). */
+const char* wpgx_audio_driver(void);
+
+/* Tests: synthetic SDL events, delivered through the same path as real ones. */
+void wpgx_test_push_key(const char* name, int down);
+void wpgx_test_push_mouse_motion(float x, float y);
+void wpgx_test_push_mouse_button(int button, int down);
+void wpgx_test_push_quit(void);
+/* A virtual SDL gamepad with gyro and accelerometer (SDL's virtual joystick
+   driver). Returns 0 on success; it arrives as WPGX_EV_GAMEPAD_ADDED. */
+int wpgx_test_gamepad_attach(void);
+void wpgx_test_gamepad_button(int button, int down);
+void wpgx_test_gamepad_axis(int axis, float value);
+void wpgx_test_gamepad_sensor(int accel, float x, float y, float z);
+/* Rumble requests the virtual gamepad received (count; the last strengths). */
+uint32_t wpgx_test_gamepad_rumbles(float* low, float* high);
 
 /* --- Test helpers on Aurora's GX API (milestone 1) ------------------------ */
 

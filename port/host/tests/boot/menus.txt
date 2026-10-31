@@ -1,0 +1,37 @@
+# From the boot to the party menu (port/docs/HOST_BUILD.md §30): remote 0
+# points with the window's coordinates (640x456) and presses A and B.
+0 connect
+0 mouse 320 228
+# health and safety screen
+200 press A
+206 release A
+# title: A and B together -> "Create a save file for Wii Play?"
+600 press A
+600 press B
+606 release A
+606 release B
+# "Yes"
+800 mouse 195 348
+830 press A
+836 release A
+# "A save file has been created." -> Select Players
+1950 press A
+1956 release A
+# "1" player -> Select Mii (Guest tab)
+2300 mouse 240 195
+2330 press A
+2336 release A
+# Guest A -> "You can't save My Record data with this Mii. Continue?" -> Yes
+2900 mouse 218 245
+2930 press A
+2936 release A
+3150 mouse 195 348
+3180 press A
+3186 release A
+# "Play with this Mii." -> OK -> the party menu (RPAvatarScene) and its welcome message
+3600 mouse 460 360
+3630 press A
+3636 release A
+4250 press A
+4256 release A
+end 100000

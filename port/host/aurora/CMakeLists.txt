@@ -90,7 +90,7 @@ set(CMAKE_DISABLE_FIND_PACKAGE_nlohmann_json ON)
 add_subdirectory("${AURORA_DIR}" aurora EXCLUDE_FROM_ALL)
 
 # --- Glue library ----------------------------------------------------------------
-add_library(wiiplay_gx SHARED wpgx.cpp wpgx.h)
+add_library(wiiplay_gx SHARED wpgx.cpp wpgx_platform.cpp wpgx.h)
 target_include_directories(wiiplay_gx PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
   PRIVATE "${AURORA_DIR}/lib")
 target_compile_features(wiiplay_gx PRIVATE cxx_std_20)

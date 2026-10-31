@@ -440,7 +440,7 @@ void RPSysLayout::forceBindAnmObjToPane(RPSysLytAnmObj* pAnmObj,
     const nw4r::lyt::res::AnimationBlock* pRes =
         pAnmObj->mpAnimTrans->GetAnimResource();
 
-    const u32* pContentOffsetTbl = nw4r::lyt::detail::ConvertOffsToPtr<u32>(
+    const be_u32* pContentOffsetTbl = nw4r::lyt::detail::ConvertOffsToPtr<be_u32>(
         pRes, pRes->animContOffsetsOffset);
 
     const char* pSrcName = pPane->GetName() + FindID(pPane->GetName());

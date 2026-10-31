@@ -8,9 +8,10 @@
  * which never returns. The host ends the run from the GX stream: after the frame
  * given with --frames it writes what was asked for and exits.
  *
- *   boot --disc FILES --nand DIR --data-dir DIR [--sc FILE] [--frames N]
- *        [--input SCRIPT] [--save FRAME:PATH.rgba]... [--hash] [--audio PATH.raw]
- *        [--window] [--log-level N] [--trace]
+ * Two modes (§30): headless (the default; tests) runs on the deterministic
+ * virtual clock with scripted input and no devices; --window plays: a window,
+ * real-time pacing, the audio device and live keyboard / mouse / gamepad input
+ * (src/host_live.cpp). Usage() lists the options.
  *
  * Output on stdout, one line per displayed frame (FRAME index, retrace count,
  * game time, scene ID, audio frames, and with --hash an FNV-1a hash of the
@@ -34,12 +35,18 @@
 #include <port/gxsink.h>
 #include <port/host.h>
 #include <port/input.h>
+#include <port/live.h>
 
 #include "wpgx.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+
+#include <cerrno>
+#include <sys/stat.h>
+#include <unistd.h>
 
 extern int PortGameMain(int argc, char** argv);
 extern "C" u8 Health_strapArchive[];
@@ -65,10 +72,19 @@ struct Options {
     const char* dataDir = nullptr;
     const char* input = nullptr;
     const char* audio = nullptr;
-    int frames = 600;
+    const char* config = nullptr;
+    const char* events = nullptr;
+    int frames = -1; // -1: 600 headless, unlimited with a window
     int logLevel = 2;
+    int scale = 2;
+    float speed = 1.0f;
     bool hash = false;
     bool window = false;
+    bool fullscreen = false;
+    bool vsync = true;
+    int realtime = -1;  // -1: with --window
+    int audioOut = -1;  // -1: with --window
+    int liveInput = -1; // -1: with --window
     bool trace = false;
     Save saves[MAX_SAVES];
     int saveCount = 0;
@@ -80,6 +96,7 @@ PortInputState gInputStates[WPAD_MAX_CONTROLLERS];
 FILE* gAudio = nullptr;
 int gFrame = 0; // displayed frames (GXCopyDisp)
 s32 gLastScene = -2;
+bool gLive = false; // any live device: print the LIVE line at the end
 
 [[noreturn]] void Die(const char* what, const char* detail = "") {
     std::fflush(stdout);
@@ -137,6 +154,43 @@ s32 CurrentScene() {
     return mgr != NULL ? mgr->getCurrentSceneID() : -1;
 }
 
+[[noreturn]] void Finish() {
+    std::printf("END\tframes=%d\tretrace=%d\tscene=%d\taudio=%llu\tgx=%llu\n", gFrame,
+                static_cast<int>(VIGetRetraceCount()), static_cast<int>(CurrentScene()), PortVIAudioFrames(),
+                static_cast<unsigned long long>(PortGXStreamBytes()));
+    if (gLive) {
+        PortLiveStats st;
+        PortLiveGetStats(&st);
+        std::printf("LIVE\twall=%.3f\tlate=%u\tunderruns=%u\toverruns=%u\tqueued=%u\tevents=%u\trumble=%u"
+                    "\ttestrumble=%u\taudiodriver=%s\n",
+                    st.wallSeconds, st.lateResets, st.underruns, st.overruns, st.queuedFrames, st.events,
+                    st.rumbleOn, st.testRumbles, gOpt.audioOut == 1 ? wpgx_audio_driver() : "none");
+        PortLiveShutdown();
+    }
+    std::fflush(stdout);
+    if (gAudio != nullptr) {
+        std::fclose(gAudio);
+    }
+    PortGXSetSink(nullptr);
+    wpgx_shutdown();
+    std::fflush(stdout);
+    std::_Exit(0);
+}
+
+// The next Aurora frame. A window may refuse one for a while (minimised, a
+// surface being re-created): keep the window system running and retry.
+void BeginFrame() {
+    for (int tries = 0; !wpgx_begin_frame(); tries++) {
+        if (!gOpt.window || tries > 3000) {
+            Die("Aurora skipped a frame");
+        }
+        if (gOpt.liveInput == 1 && PortLivePoll(gInputStates)) {
+            Finish();
+        }
+        usleep(10000);
+    }
+}
+
 void FrameDone() {
     bool wantSave = false;
     for (int i = 0; i < gOpt.saveCount; i++) {
@@ -171,22 +225,10 @@ void FrameDone() {
     }
     std::printf("\n");
     gFrame++;
-    if (gFrame >= gOpt.frames) {
-        std::printf("END\tframes=%d\tretrace=%d\tscene=%d\taudio=%llu\tgx=%llu\n", gFrame,
-                    static_cast<int>(VIGetRetraceCount()), static_cast<int>(scene), PortVIAudioFrames(),
-                    static_cast<unsigned long long>(PortGXStreamBytes()));
-        std::fflush(stdout);
-        if (gAudio != nullptr) {
-            std::fclose(gAudio);
-        }
-        PortGXSetSink(nullptr);
-        wpgx_shutdown();
-        std::fflush(stdout);
-        std::_Exit(0);
+    if (gOpt.frames > 0 && gFrame >= gOpt.frames) {
+        Finish();
     }
-    if (!wpgx_begin_frame()) {
-        Die("Aurora skipped a frame");
-    }
+    BeginFrame();
 }
 
 void SinkWrite(const void* data, u32 size, void*) {
@@ -231,6 +273,24 @@ void OnRetrace(u32 retraceCount, void*) {
     if (gScript != nullptr) {
         PortInputScriptApply(gScript, static_cast<int>(retraceCount), gInputStates);
     }
+    if (gOpt.liveInput == 1) {
+        if (gOpt.events != nullptr) {
+            PortLivePushEvents(retraceCount);
+        }
+        if (PortLivePoll(gInputStates)) {
+            Finish();
+        }
+        if (gOpt.trace) {
+            static PortInputState sLast;
+            const PortInputState& st = gInputStates[0];
+            if (std::memcmp(&st, &sLast, sizeof st) != 0) {
+                std::printf("INPUT\tretrace=%u\tbuttons=%04x\tpointer=%.3f,%.3f\tvalid=%d\troll=%.1f\tpitch=%.1f\n",
+                            retraceCount, st.buttons, st.pointerX, st.pointerY, st.pointerValid, st.roll,
+                            st.pitch);
+                sLast = st;
+            }
+        }
+    }
     for (s32 chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
         PortWPADRemote remote;
         PortInputToRemote(&gInputConfig, &gInputStates[chan], &remote);
@@ -250,15 +310,111 @@ void OnAudio(const short* samples, u32 frames, void*) {
     if (gAudio != nullptr) {
         std::fwrite(samples, sizeof(short) * 2, frames, gAudio);
     }
+    PortLiveAudioFrame(samples, frames);
 }
 
 void Usage(const char* argv0) {
     std::fprintf(stderr,
-                 "usage: %s --disc FILES --nand DIR --data-dir DIR [--sc FILE] [--frames N]\n"
-                 "          [--input SCRIPT] [--save FRAME:PATH.rgba]... [--hash] [--audio PATH.raw]\n"
-                 "          [--window] [--log-level N] [--trace]\n",
+                 "usage: %s --disc DIR [options]\n"
+                 "  --disc DIR          the extracted disc (its root with files/ and sys/, or files/)\n"
+                 "  --nand DIR          saves (default: $XDG_DATA_HOME/wiiplay/nand)\n"
+                 "  --data-dir DIR      Aurora's data and caches (default: $XDG_DATA_HOME/wiiplay/aurora)\n"
+                 "  --sc FILE           console settings (language, aspect 4:3/16:9, sensor bar, ...)\n"
+                 "  --config FILE       input bindings and settings (default: $XDG_CONFIG_HOME/wiiplay/input.cfg)\n"
+                 "  --window            play: a window, real time, sound, keyboard / mouse / gamepads\n"
+                 "  --headless          no window, virtual time, scripted input (the default; tests)\n"
+                 "  --fullscreen        start fullscreen (F11 or Alt+Enter toggles)\n"
+                 "  --scale N           window size N x the game's 640x456 (default 2)\n"
+                 "  --no-vsync          present without waiting for the display\n"
+                 "  --realtime | --no-realtime, --audio-out | --no-audio, --live-input\n"
+                 "                      the live parts on their own (default: on with --window)\n"
+                 "  --speed F           game speed with --realtime (1 = real time)\n"
+                 "  --frames N          stop after N frames (default: 600 headless, none with a window)\n"
+                 "  --input SCRIPT      scripted remotes (tests)   --events SCRIPT  synthetic SDL events (tests)\n"
+                 "  --save FRAME:PATH.rgba, --hash, --audio PATH.raw, --trace, --log-level N\n",
                  argv0);
     std::exit(2);
+}
+
+bool IsDir(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+void MakeDirs(const std::string& path) {
+    for (size_t i = 1; i <= path.size(); i++) {
+        if (i == path.size() || path[i] == '/') {
+            std::string sub = path.substr(0, i);
+            if (mkdir(sub.c_str(), 0755) != 0 && errno != EEXIST) {
+                Die("cannot create ", sub.c_str());
+            }
+        }
+    }
+}
+
+std::string RealPath(const std::string& path) {
+    char buf[4096]; // PATH_MAX (the decomp's limits.h shadows the system one)
+    if (realpath(path.c_str(), buf) == nullptr) {
+        return path;
+    }
+    return buf;
+}
+
+std::string UserDir(const char* xdgVar, const char* fallback) {
+    const char* xdg = std::getenv(xdgVar);
+    if (xdg != nullptr && xdg[0] == '/') {
+        return std::string(xdg) + "/wiiplay";
+    }
+    const char* home = std::getenv("HOME");
+    if (home == nullptr) {
+        Die("HOME is not set: give --nand and --data-dir");
+    }
+    return std::string(home) + fallback + "/wiiplay";
+}
+
+// The source tree this executable was built in (it lives in
+// port/host/build/host64/), so that saves never land inside the repository.
+std::string RepoRoot() {
+    std::string dir = RealPath("/proc/self/exe");
+    for (int up = 0; up < 6; up++) {
+        size_t slash = dir.rfind('/');
+        if (slash == std::string::npos || slash == 0) {
+            break;
+        }
+        dir.resize(slash);
+        struct stat st;
+        if (stat((dir + "/port/host/Makefile").c_str(), &st) == 0) {
+            return dir;
+        }
+    }
+    return "";
+}
+
+bool Inside(const std::string& path, const std::string& dir) {
+    return !dir.empty() && (path == dir || path.compare(0, dir.size() + 1, dir + "/") == 0);
+}
+
+// Writable locations must be outside the repository and the disc (read-only
+// user data). The directory is created first so that realpath resolves it.
+void CheckWritable(const char* what, const std::string& path, bool isDir, const std::string& disc) {
+    std::string dir = path;
+    if (!isDir) {
+        size_t slash = dir.rfind('/');
+        dir = slash == std::string::npos ? "." : (slash == 0 ? "/" : dir.substr(0, slash));
+    } else {
+        MakeDirs(path);
+    }
+    std::string real = RealPath(dir);
+    static const std::string root = RepoRoot();
+    if (Inside(real, root)) {
+        std::fprintf(stderr, "boot: %s %s is inside the source tree; use a directory outside it\n", what,
+                     path.c_str());
+        std::exit(2);
+    }
+    if (Inside(real, disc)) {
+        std::fprintf(stderr, "boot: %s %s is inside the disc directory (read only)\n", what, path.c_str());
+        std::exit(2);
+    }
 }
 
 } // namespace
@@ -293,6 +449,33 @@ int main(int argc, char** argv) {
             gOpt.hash = true;
         } else if (is("--window")) {
             gOpt.window = true;
+        } else if (is("--headless")) {
+            gOpt.window = false;
+        } else if (is("--fullscreen")) {
+            gOpt.fullscreen = true;
+        } else if (is("--no-vsync")) {
+            gOpt.vsync = false;
+        } else if (is("--scale") && more) {
+            gOpt.scale = std::atoi(argv[++i]);
+            if (gOpt.scale < 1 || gOpt.scale > 8) {
+                Usage(argv[0]);
+            }
+        } else if (is("--config") && more) {
+            gOpt.config = argv[++i];
+        } else if (is("--events") && more) {
+            gOpt.events = argv[++i];
+        } else if (is("--speed") && more) {
+            gOpt.speed = static_cast<float>(std::atof(argv[++i]));
+        } else if (is("--realtime")) {
+            gOpt.realtime = 1;
+        } else if (is("--no-realtime")) {
+            gOpt.realtime = 0;
+        } else if (is("--audio-out")) {
+            gOpt.audioOut = 1;
+        } else if (is("--no-audio")) {
+            gOpt.audioOut = 0;
+        } else if (is("--live-input")) {
+            gOpt.liveInput = 1;
         } else if (is("--trace")) {
             gOpt.trace = true;
         } else if (is("--log-level") && more) {
@@ -301,8 +484,55 @@ int main(int argc, char** argv) {
             Usage(argv[0]);
         }
     }
-    if (gOpt.disc == nullptr || gOpt.nand == nullptr || gOpt.dataDir == nullptr) {
+    if (gOpt.disc == nullptr) {
         Usage(argv[0]);
+    }
+    auto byMode = [](int v) { return v < 0 ? (gOpt.window ? 1 : 0) : v; };
+    gOpt.realtime = byMode(gOpt.realtime);
+    gOpt.audioOut = byMode(gOpt.audioOut);
+    gOpt.liveInput = byMode(gOpt.liveInput);
+    if (gOpt.events != nullptr) {
+        gOpt.liveInput = 1;
+    }
+    if (gOpt.frames < 0) {
+        gOpt.frames = gOpt.window ? 0 : 600;
+    }
+    gLive = gOpt.realtime || gOpt.audioOut || gOpt.liveInput;
+
+    // The disc: the extracted root (files/, sys/) or its files/ directory
+    static std::string discFiles, discRoot, nandDir, dataDir;
+    discFiles = gOpt.disc;
+    if (IsDir(discFiles + "/files")) {
+        discFiles += "/files";
+    }
+    discRoot = RealPath(discFiles + "/..");
+    gOpt.disc = discFiles.c_str();
+    // Saves and caches: outside the source tree and the disc
+    nandDir = gOpt.nand != nullptr ? gOpt.nand : UserDir("XDG_DATA_HOME", "/.local/share") + "/nand";
+    dataDir = gOpt.dataDir != nullptr ? gOpt.dataDir : UserDir("XDG_DATA_HOME", "/.local/share") + "/aurora";
+    CheckWritable("the NAND directory", nandDir, true, discRoot);
+    CheckWritable("the data directory", dataDir, true, discRoot);
+    gOpt.nand = nandDir.c_str();
+    gOpt.dataDir = dataDir.c_str();
+    for (int i = 0; i < gOpt.saveCount; i++) {
+        CheckWritable("the frame file", gOpt.saves[i].path, false, discRoot);
+    }
+    if (gOpt.audio != nullptr) {
+        CheckWritable("the audio file", gOpt.audio, false, discRoot);
+    }
+    static std::string configPath;
+    if (gOpt.config == nullptr) {
+        configPath = UserDir("XDG_CONFIG_HOME", "/.config") + "/input.cfg";
+        struct stat st;
+        if (stat(configPath.c_str(), &st) == 0) {
+            gOpt.config = configPath.c_str();
+        }
+    }
+    {
+        char err[256];
+        if (PortLiveLoadConfig(gOpt.config, err, sizeof err) != 0) {
+            Die("config: ", err);
+        }
     }
 
     // What the IPL / apploader / OSInit leave behind, then the platform (§22)
@@ -342,16 +572,35 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (gOpt.events != nullptr) {
+        char err[256];
+        if (PortLiveLoadEvents(gOpt.events, err, sizeof err) != 0) {
+            Die("events: ", err);
+        }
+    }
+
     // The VI clock: retraces, AX frames, alarms
     PortVIInitClock();
     PortVISetRetraceHook(OnRetrace, nullptr);
     PortVISetAudioSink(OnAudio, nullptr);
+    if (gOpt.realtime) {
+        PortLiveStartPacing(gOpt.speed);
+    }
 
     // GX on Aurora (§25-28): before GXInit, which EGG::GraphicsFifo calls
     wpgx_config cfg{};
     cfg.width = EFB_WIDTH;
     cfg.height = EFB_HEIGHT;
     cfg.headless = gOpt.window ? 0 : 1;
+    // The TV's aspect (SC): 4:3 shows the 640x456 frame with square pixels,
+    // 16:9 stretches it by 4/3 (anamorphic); the window starts at that shape.
+    const bool wide = SCGetAspectRatio() == SC_ASPECT_WIDE;
+    const float aspect = wide ? EFB_WIDTH * 4.0f / (EFB_HEIGHT * 3.0f) : 0.0f;
+    cfg.window_width = static_cast<u32>((wide ? EFB_HEIGHT * aspect : EFB_WIDTH) * gOpt.scale + 0.5f);
+    cfg.window_height = EFB_HEIGHT * gOpt.scale;
+    cfg.fullscreen = gOpt.fullscreen ? 1 : 0;
+    cfg.vsync = gOpt.vsync ? 1 : 0;
+    cfg.title = "Wii Play";
     cfg.data_dir = gOpt.dataDir;
     cfg.disk_cache = 0;
     cfg.blocking_pipelines = 1;
@@ -360,12 +609,18 @@ int main(int argc, char** argv) {
     if (wpgx_init(&cfg) != 0) {
         Die("wpgx_init failed");
     }
+    wpgx_set_display_aspect(aspect);
+    if (gOpt.audioOut && PortLiveStartAudio() != 0) {
+        std::fprintf(stderr, "boot: no audio device; continuing without sound\n");
+        gOpt.audioOut = 0;
+    }
+    if (gOpt.liveInput && PortLiveStartInput() != 0) {
+        Die("cannot open the input devices");
+    }
     wpgx_set_address_resolver(Resolve, nullptr);
     wpgx_set_copy_writeback(1, 0, nullptr, nullptr);
     PortGXSetSink(&kSink);
-    if (!wpgx_begin_frame()) {
-        Die("Aurora skipped the first frame");
-    }
+    BeginFrame();
     std::printf("BOOT\tadapter=%s\tefb=%ux%u\n", wpgx_adapter_name(), EFB_WIDTH, EFB_HEIGHT);
     std::fflush(stdout);
 

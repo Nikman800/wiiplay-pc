@@ -3517,3 +3517,191 @@ No Aurora change was needed for this milestone.
   next retrace and keep AX frames on the audio device's clock.
 - The ROM font (a substitute font for `RomFont`), `AsyncDisplay::clearEFB`'s Z texture, the
   HOME Menu, NWC24 left unavailable.
+
+## 30. Milestone 5: playable in a window; the menus after the title
+
+`build/host64/boot --disc DIR --window` plays: an Aurora window, real-time pacing at the
+NTSC 59.94 Hz, the AX mixer on the audio device, keyboard / mouse / gamepad input into the
+§23 mapping layer. The deterministic headless mode stays the default and the test mode. The
+game now runs past the title: the save check (creating the save file), Select Players, Select
+Mii, and the party menu (`RPAvatarScene`) with its welcome message. How to build and run it
+for a user: [RUNNING.md](RUNNING.md).
+
+### Files
+
+| File | What |
+|---|---|
+| `port/host/aurora/wpgx_platform.cpp` | **New**, in the Aurora glue library. SDL3 is linked statically into `libwiiplay_gx.so` and hidden, so the window, input devices and audio device are reached through new `wpgx_*` functions (`wpgx.h`): display aspect and window -> picture mapping, fullscreen, cursor; SDL events translated into a small `wpgx_event` queue (keys by SDL name, mouse, gamepads by slot 0-3, focus, resize, quit); gamepad gyro / accelerometer and rumble; an SDL audio stream (`SDL_OpenAudioDeviceStream`, s16 stereo 32 kHz, SDL resamples); test helpers that push synthetic SDL events and attach an SDL virtual gamepad (gyro, accelerometer, a rumble callback). |
+| `port/host/aurora/wpgx.cpp`, `wpgx.h`, `CMakeLists.txt` | `wpgx_config` gains the window size, fullscreen, vsync and title. The EFB keeps the game's size in every mode (640x528 with a 640x456 picture, see the Mii drawing below): `VISetFrameBufferScale(1)` and `AURORA_VIEWPORT_FIT` (Aurora would otherwise size the EFB to the window); the window only scales the presented picture. `wpgx_begin_frame` queues the window events instead of dropping them. |
+| `port/host/src/host_gxmisc.cpp` | `GXPixModeSync` runs the GX stream up to it (Mii drawing below). |
+| `port/host/src/host_live.cpp`, `include/port/live.h` | **New.** The live layer: the pacer, audio output, input bindings and the config file, the synthetic-event script reader (tests). Uses wpgx only. |
+| `port/host/src/host_vi.cpp`, `include/port/host.h` | `PortVISetPacer`: called before the virtual clock jumps to its next event (retrace, AX frame, alarm). Without a pacer the clock jumps at once, as before. |
+| `port/host/src/host_main.cpp` | Modes and options (below); `Finish` (END and `LIVE` lines, shutdown) shared by `--frames`, the window's close button and quit; a window that refuses a frame (minimised) is retried while events keep being read. |
+| `port/host/src/host_boot.cpp` | The ROM font stand-in (below) replaces the aborting `OSGetFontTexture` / `OSGetFontWidth`. |
+| `port/extern/aurora` | One generic patch (below). |
+
+### Modes and options
+
+`--headless` (default): the virtual clock of §29, scripted remotes (`--input`), no devices;
+every run is identical. `--window`: an SDL window and with it `--realtime`, `--audio-out` and
+`--live-input`, which can also be given on their own (`--no-realtime`, `--no-audio` turn
+them off). The test runs the live parts headless. Other options: `--fullscreen` (F11 /
+Alt+Enter toggle), `--scale N` (initial window N x 640x456, 16:9: N x 853x456), `--no-vsync`,
+`--config FILE`, `--speed F`, `--events FILE` (synthetic SDL events, tests). `--disc` takes the
+extracted disc's root or its `files/`. `--nand` and `--data-dir` default to
+`$XDG_DATA_HOME/wiiplay/{nand,aurora}`, the config to `$XDG_CONFIG_HOME/wiiplay/input.cfg`.
+Writable paths (NAND, data, `--save`, `--audio`) inside the source tree (found from
+`/proc/self/exe`: the directory above `port/host/build/host64` with `port/host/Makefile`) or
+inside the disc are refused.
+
+### Real time
+
+The pacer anchors wall time to game time at its first call and sleeps (`sleep_until`) until
+the wall clock reaches each event's game time / speed. Retraces therefore come every
+1001/60000 s and the AX frames every 3 ms of wall time, and game time (`OSGetTime`) advances
+in real time; the order of events is that of the headless mode. If the host falls more than
+150 ms behind (a load, a stall), the pacer re-anchors instead of rushing (`late` in the
+`LIVE` line). With audio, the device's clock paces the game: every AX frame moves the anchor
+by 1 % of the audio queue's distance from its 50 ms target (a proportional controller with a
+time constant of about 0.3 s), so over time the game produces exactly what the device
+consumes. Presentation: each `GXCopyDisp` ends an Aurora frame, which presents to the window
+with vsync (FIFO relaxed / FIFO) unless `--no-vsync`.
+
+### Audio
+
+The AX frame's 96 stereo samples go to the SDL stream as they are made. The stream starts
+with 50 ms of silence. An empty queue when a frame arrives counts as an underrun (SDL plays
+silence meanwhile); a queue over 300 ms (the device stalled) is dropped (overrun). `volume`
+and `mute_unfocused` in the config set the stream gain. The remote speaker stays muted: its
+ADPCM packets (§23's speaker callback) are not decoded yet; routing them to the same stream
+at a low volume is the plan.
+
+### Input
+
+Each retrace, `PortLivePoll` pumps the window system and applies the events: remote 0 is the
+keyboard and mouse (always connected) and gamepad 0; gamepads 1-3 connect remotes 1-3. The
+mouse position goes through `wpgx_window_to_picture` (the letterbox Aurora presents with) and
+`PortInputPointerFromWindow`. Keys and mouse buttons are matched by SDL name against the
+bindings (§23's defaults plus Return = A, Backspace = B, H = HOME); held keys are tracked by
+name and cleared when the window loses focus. Gamepads (SDL's gamepad API): south A, east B,
+west 1, north 2, Start +, Back -, Guide HOME, D-pad and (without a Nunchuk) the left stick
+the D-pad, right shoulder and right trigger B, left trigger Z, left shoulder C; the right
+stick moves the pointer (1.5 screens per second) and the gyro too (yaw and pitch rates, 2
+screens per radian); the accelerometer gives the remote's roll and pitch from gravity
+(the pad lying flat = the remote pointing at the screen; shakes on top of gravity are not
+mapped yet). Rumble: §23's motor callback starts / stops gamepad rumble (renewed every
+retrace while on). The config file format is in RUNNING.md.
+
+### Aspect
+
+The picture is 640x456. 4:3 (SC) presents it with square pixels (640:456, as the 456 visible
+lines of a 4:3 TV); 16:9 presents it 4/3 wider (853:456), as a widescreen TV stretches the
+anamorphic picture. Aurora letterboxes / pillarboxes into any window size. The Aurora patch
+`aurora_set_present_aspect` (in `include/aurora/gfx.h`, `lib/webgpu/gpu.cpp`): an optional
+display aspect for `calculate_present_viewport`; 0 keeps Aurora's behaviour.
+
+### The menus
+
+| Screen | Scene | What it needed |
+|---|---|---|
+| Save check: "Create a save file for Wii Play?", "A save file has been created." | 25 (title, `RPCommonMessage`) | nothing new: the save file is written to the NAND directory |
+| Select Players | 1 (`RPSysPlayerSelectScene`) | `RPSysLayout::forceBindAnmObjToPane` read the BRLAN's animation-content offset table as native `u32`: now `be_u32`, as `lyt_animation.cpp` does (a no-op on the Wii) |
+| Select Mii (guest Miis), "You can't save My Record data...", "Play with this Mii." | 1 | stored Mii data (below) |
+| Welcome message, party menu with the nine games | 27 (`RPPartyMainScene`: `RPAvatarScene`) | nothing new once the Miis load (`RPFaceCtrl::InitBlink` indexed its table with an uninitialised expression when `RFLInitCharModel` had failed) |
+
+**Stored Mii data.** `RFLiCharData` / `RFLiHiddenCharData` (the NAND databases, the
+remotes, the default table of guest Miis) are big-endian with bit-fields allocated from the
+most significant bit (CodeWarrior). On the host `RFLi_Types.h` declares each 16-bit word's
+fields in reverse order (GCC allocates from the least significant bit), and
+`RFL_Database.c`'s converters (`convertRaw2InfoCore_`, `convertInfo2RawCore_`, the creator
+name, `birthPadding`) work on a copy with every 16-bit word in host order except the bytes
+0x16-0x1F (height, build, create ID). The stored data stays big-endian in memory, so NAND files
+and remote data need no conversion; names in `RFLiCharInfo` are host-order `wchar_t`. Before
+this every guest Mii failed `RFLiCheckValidInfo` (`RFLErrcode_Broken`).
+
+**Mii drawing.** Three host problems, none in the decomp:
+
+- *The EFB had 456 lines; the Wii's has 528.* EGG's light-texture pass
+  (`LightTextureManager::drawAndCaptureTexture`) draws the Mii lightmaps below the picture
+  (y from `efbHeight` to 528) and copies them from there; on the host those draws fell outside
+  the EFB and the lightmaps came back white, saturating every head. `wpgx_init` now makes the
+  EFB `max(height, 528)` lines with the picture (`xfbHeight`) the configured height, frame
+  buffer scale 1 and the fit viewport policy in every mode; Aurora patch 0003 presents and
+  reads back only the picture (the top fbWidth x min(xfbHeight, efbHeight)), copying it out at
+  the frame's end when it is smaller than the EFB. Render modes whose EFB is the picture are
+  unchanged. `wpgx_read_frame` still returns 640x456.
+- *TEV register colour / alpha tracking* (Aurora patch 0002, `lib/gx/shader_info.cpp`): a
+  stage writing a register's colour marked the whole register written, so a later stage reading
+  its alpha (set with `GXSetTevColor`) got 0. The Mii body material writes C2 in stage 0 and
+  reads A2 in stage 4: the bodies were black. Colour and alpha are now tracked apart, and a
+  register is loaded when a part is read before any stage writes it. The pipeline cache key
+  goes 3 -> 4.
+- *The GP fell behind the CPU.* `RFLiMakeTexture` draws one Mii's face parts from temporary
+  buffers, then frees and refills them for the next Mii with only `GXCopyTex` and
+  `GXPixModeSync` in between; on the host the draws waited in the gather pipe until a later
+  sync and read the next Mii's parts. The host `GXPixModeSync` (the SDK's pixel-pipeline
+  flush, `host_gxmisc.cpp`) now runs the stream up to it (`PortWGPipeSync(PORT_GX_SYNC_DRAWDONE)`).
+
+Aurora patches (generic, applied uncommitted in the submodule on top of `wiiplay` 047cddb):
+0001 present aspect, 0002 TEV register components, 0003 picture of a taller EFB.
+
+### The test (`tests/test_boot.py`)
+
+New runs: **D** (first, alone: real time) runs `tests/boot/live.txt` headless with
+`--realtime --audio-out --events`, SDL's dummy audio driver and no display variables: Space
+key, mouse click, a virtual SDL gamepad (buttons, right stick, accelerometer), A+B on the title
+from the pad, the pointer onto "Yes" (the game rumbles), then a quit event. Checks: the INPUT
+trace (A from Space and the left button, pointer from the window centre and from (195, 348),
+roll 30 from the accelerometer, the stick's pointer motion, A+B from south + east), the run
+ends at the quit, wall time never shorter than game time (and within 8 % unless the machine
+fell behind and the pacer re-anchored), audio from the dummy device without overruns, rumble
+received by the virtual gamepad, the title reached. **M1 / M2** run `tests/boot/menus.txt`
+(4900 frames) deterministically: scenes -1, 0, 25, 1, 27; the scene of eight saved screens;
+the save file; eight distinct screens; identical frame hashes over both runs; no `boot:`
+message (no aborting stand-in). A, B, C, M1, M2 run three at a time with `LP_NUM_THREADS=4`.
+With `--png DIR` the menu screens are written as `menu_*.png` (a visual check: the Miis).
+
+```
+  menus: scenes -1 -> 0 -> 25 -> 1 -> 27 over 4900 frames; 8 screens (save_check, save_created,
+    select_players, select_mii, guest_warning, play_with_mii, welcome, party_menu); save file
+    written; hashes identical over two runs: True
+  live (headless, dummy audio, synthetic SDL events): 12.361 s wall for 11.929 s game time; audio
+    underruns 0, overruns 0, 2002 frames queued, 0 re-anchors; 26 events; rumble 2 on the virtual gamepad
+```
+
+The dummy audio device consumes about 3 % slower than its nominal rate, and the audio
+controller follows it (the device paces the game); under `make -j` load the pacer re-anchors.
+
+### The ROM font
+
+The console's IPL ROM font is not on the disc. The game has one `RomFont`
+(`RPSysFontManager`), used only by `RPSysTextWriter`: the title's build time stamp (after a
+secret button sequence), "Now Loading" (unreachable: every scene loads with
+`ELoadType_Blank`), the disc-error screen (unreachable: the host disc does not fail), the boot
+scene's placeholder (unreachable in Party Pack) and Table Tennis' debug values. In normal play
+only its metrics are read: Table Tennis and Laser Hockey call `SetFontSize(24)`. The stand-in
+(`host_boot.cpp`): `OSInitFont` succeeds with a header of the ANSI ROM font's cell size (24 x 24,
+ascent 20, descent 4; approximate) and a blank I4 glyph sheet in the game's buffer;
+`OSGetFontTexture` / `OSGetFontWidth` step one character with half a cell's width. Metrics
+work and nothing aborts; the debug text is invisible. If visible text is ever wanted, the
+disc's `pac_nRodDb_32_I4.brfnt` (`Font/font.carc`) covers ASCII and Latin-1, but it is UTF-16
+while `RPSysTextWriter` writes `char` strings: a CP1252 wrapper font would be needed.
+
+### Verified headless vs. to try by hand
+
+Verified: pacing arithmetic and real-time sleeping, audio stream feeding and the device
+controller (dummy driver), the SDL event path for keyboard, mouse and a gamepad with sensors
+and rumble, the bindings, quit, the menus' determinism and look (PNGs). Not verifiable here
+(no display may be opened by tests): the window itself, vsync presentation, resizing and the
+letterbox, fullscreen toggling, the cursor hiding, sound on a real device, gamepad feel (gyro
+sensitivity and signs, tilt axes on real pads), mouse mapping in a scaled window.
+
+### Next steps
+
+- Each minigame: link its scene in place of the aborting vtable (§29's 18 GCC errors), then
+  its own GX / data issues; Shooting Range first (the party menu's first game).
+- The remote speaker: decode its ADPCM into the mixer's output.
+- Gamepad shakes as remote acceleration (per-game tilt / swing bindings, §23).
+- Mii names in host order everywhere they are drawn (the NAND Mii database, remote Miis); the
+  eye whites on some guest Miis to compare against a Wii.
+- The HOME Menu, `AsyncDisplay::clearEFB`'s Z texture, NWC24 (unavailable).

@@ -99,6 +99,11 @@ void PortVIInitClock(void);
 void PortVISetRetraceHook(PortVIRetraceHook hook, void* user);
 /* Every AX frame's stereo samples (PORT_AX_FRAME_SAMPLES frames). */
 void PortVISetAudioSink(PortVIAudioSink sink, void* user);
+/* Real-time pacing (HOST_BUILD.md §30): called before the clock advances to
+ * `units` (1/60000 s); a live host sleeps there until the wall clock reaches
+ * it. Without a pacer the clock jumps at once (deterministic runs). */
+typedef void (*PortVIPacer)(long long units, void* user);
+void PortVISetPacer(PortVIPacer pacer, void* user);
 unsigned long long PortVIAudioFrames(void);
 long long PortVIGameTimeUnits(void); /* 1/60000 s */
 int PortVIIsBlack(void);

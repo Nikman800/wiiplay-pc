@@ -14,6 +14,9 @@
  *              the host's audio sink.
  *   alarms     OSSetAlarm / OSSetPeriodicAlarm handlers at their time.
  *
+ * A live run (--realtime, §30) sets a pacer that sleeps before each jump until
+ * the wall clock reaches the event; the sequence of events is the same.
+ *
  * Events due at the same time run in that order. Time is kept in units of
  * 1/60000 s (a retrace is 1001 units, an AX frame 180); OSGetTime converts to bus
  * ticks (60.75 MHz) and adds one tick per call made since the last event, so
@@ -65,6 +68,8 @@ PortVIRetraceHook sRetraceHook = NULL;
 void* sRetraceHookUser = NULL;
 PortVIAudioSink sAudioSink = NULL;
 void* sAudioSinkUser = NULL;
+PortVIPacer sPacer = NULL;
+void* sPacerUser = NULL;
 
 // Pending alarms, sorted by fire time, then by the order they were set
 struct AlarmEntry {
@@ -178,6 +183,9 @@ int Clock(void) {
     if (sAlarmCount > 0 && sAlarms[0].fireUnits < next) {
         next = sAlarms[0].fireUnits;
     }
+    if (sPacer != NULL) {
+        sPacer(next, sPacerUser);
+    }
     sUnits = next;
     sCallTicks = 0;
     if (sNextRetrace == sUnits) {
@@ -209,6 +217,11 @@ void PortVISetRetraceHook(PortVIRetraceHook hook, void* user) {
 void PortVISetAudioSink(PortVIAudioSink sink, void* user) {
     sAudioSink = sink;
     sAudioSinkUser = user;
+}
+
+void PortVISetPacer(PortVIPacer pacer, void* user) {
+    sPacer = pacer;
+    sPacerUser = user;
 }
 
 unsigned long long PortVIAudioFrames(void) {
