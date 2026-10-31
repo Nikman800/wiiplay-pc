@@ -67,6 +67,32 @@ void wpgx_fifo_sync(uint32_t kind);
 typedef const void* (*wpgx_address_resolver)(uint32_t address, uint32_t* size, void* user);
 void wpgx_set_address_resolver(wpgx_address_resolver resolver, void* user);
 
+/* --- EFB copies (milestone 3b, HOST_BUILD.md §28) ------------------------- */
+/* Texture copies (GXCopyTex) stay on the GPU, keyed by their emulated
+   destination: later texture loads from that address sample them. With
+   writeback on, each copy is also encoded in the Wii texture format and
+   written to its destination through the address resolver's memory when the
+   frame ends (wpgx_end_frame), so CPU readers see what the hardware would
+   have written. */
+typedef struct {
+    uint32_t address, format;           /* destination, GXTexFmt (GX_CTF_* too) */
+    uint16_t width, height;             /* copy size */
+    uint16_t src_left, src_top, src_width, src_height; /* EFB source rectangle */
+    uint8_t half, clear, depth, vfilter; /* box-filtered half size, cleared, Z copy, vertical filter */
+    uint32_t pixel_format;              /* GXPixelFmt of the EFB */
+    float vfilter_weights[3];           /* row above, row, row below */
+    const void* data;                   /* the copy as written to memory */
+    uint32_t size;
+    const void* efb;                    /* capture_sources: the EFB (RGBA8) just before the copy */
+    uint32_t efb_width, efb_height;
+} wpgx_copy_info;
+typedef void (*wpgx_copy_observer)(const wpgx_copy_info* copy, void* user);
+/* writeback 0: copies stay GPU-side only. observer (may be NULL) sees each
+   copy after it was written back, in copy order. */
+void wpgx_set_copy_writeback(int writeback, int capture_sources, wpgx_copy_observer observer, void* user);
+/* Copies written back so far. */
+uint32_t wpgx_copies_written(void);
+
 /* --- Test helpers on Aurora's GX API (milestone 1) ------------------------ */
 
 /* Clear colour (0xRRGGBBAA), viewport/scissor and an orthographic projection

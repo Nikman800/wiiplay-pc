@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 
 #include "gx/fifo.hpp"
@@ -21,7 +22,7 @@ namespace {
 
 // Bumped whenever our Aurora patches change what a cached pipeline means, so
 // a stale pipeline_cache.db is discarded instead of loaded.
-constexpr uint32_t kPipelineCacheKey = 2;
+constexpr uint32_t kPipelineCacheKey = 3;
 
 int gLogLevel = LOG_INFO;
 bool gInitialized = false;
@@ -30,6 +31,12 @@ std::string gDataDir;
 std::string gAdapterName;
 alignas(32) uint8_t gFifo[256 * 1024];
 GXTexObj gTexObjs[GX_MAX_TEXMAP];
+wpgx_address_resolver gResolver = nullptr;
+void* gResolverUser = nullptr;
+bool gCopyWriteback = false;
+wpgx_copy_observer gCopyObserver = nullptr;
+void* gCopyObserverUser = nullptr;
+uint32_t gCopiesWritten = 0;
 
 void LogCallback(AuroraLogLevel level, const char* module, const char* message, unsigned int) {
     static const char* const kNames[] = {"DEBUG", "INFO", "WARN", "ERROR", "FATAL"};
@@ -106,6 +113,10 @@ WPGX_API int wpgx_begin_frame(void) {
 WPGX_API void wpgx_end_frame(void) {
     gInFrame = false;
     aurora_end_frame();
+    // Policy (HOST_BUILD.md §28): the frame's texture copies reach memory when it ends.
+    if (gCopyWriteback) {
+        AuroraFlushCopyWriteback();
+    }
 }
 
 WPGX_API int wpgx_read_frame(uint8_t* rgba, size_t size, uint32_t* width, uint32_t* height) {
@@ -132,8 +143,55 @@ WPGX_API void wpgx_fifo_sync(uint32_t kind) {
 }
 
 WPGX_API void wpgx_set_address_resolver(wpgx_address_resolver resolver, void* user) {
+    gResolver = resolver;
+    gResolverUser = user;
     AuroraSetAddressResolver(resolver, user);
 }
+
+namespace {
+void CopyWriteback(const AuroraCopyWritebackInfo* copy, void*) {
+    // The destination is memory the resolver maps (the emulated MEM1/MEM2)
+    uint32_t size = 0;
+    const void* p = gResolver != nullptr ? gResolver(copy->address, &size, gResolverUser) : nullptr;
+    if (p == nullptr || size < copy->size) {
+        std::fprintf(stderr, "wpgx: copy writeback to unmapped 0x%08X (%u bytes)\n", copy->address, copy->size);
+        return;
+    }
+    std::memcpy(const_cast<void*>(p), copy->data, copy->size);
+    ++gCopiesWritten;
+    if (gCopyObserver != nullptr) {
+        const wpgx_copy_info info = {copy->address,
+                                     copy->format,
+                                     copy->width,
+                                     copy->height,
+                                     copy->srcLeft,
+                                     copy->srcTop,
+                                     copy->srcWidth,
+                                     copy->srcHeight,
+                                     copy->half,
+                                     copy->clear,
+                                     copy->depth,
+                                     copy->vfilter,
+                                     copy->pixelFormat,
+                                     {copy->vfilterWeights[0], copy->vfilterWeights[1], copy->vfilterWeights[2]},
+                                     copy->data,
+                                     copy->size,
+                                     copy->efb,
+                                     copy->efbWidth,
+                                     copy->efbHeight};
+        gCopyObserver(&info, gCopyObserverUser);
+    }
+}
+} // namespace
+
+WPGX_API void wpgx_set_copy_writeback(int writeback, int capture_sources, wpgx_copy_observer observer, void* user) {
+    gCopyWriteback = writeback != 0;
+    gCopyObserver = observer;
+    gCopyObserverUser = user;
+    AuroraSetCopyWriteback(gCopyWriteback ? CopyWriteback : nullptr, nullptr, capture_sources != 0);
+}
+
+WPGX_API uint32_t wpgx_copies_written(void) { return gCopiesWritten; }
 
 // --- Test helpers -------------------------------------------------------------
 

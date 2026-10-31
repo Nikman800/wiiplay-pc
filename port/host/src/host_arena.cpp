@@ -7,9 +7,10 @@
  * returned pointer that records where the carved block starts and how large
  * it is, so any alignment can be honoured. The game's side is single-threaded,
  * like the rest of the host stand-ins, but the allocator takes a lock: the
- * executables' operator new / delete come here, and they also serve the C++
- * code of a dynamically loaded Vulkan driver on its own threads (seen with
- * Mesa's Intel driver under gx3d_harness, port/docs/HOST_BUILD.md §27). The
+ * executables' operator new / delete come here, and before they were made
+ * local to the executables (exe.map, port/docs/HOST_BUILD.md §28) they also
+ * served the C++ code of a dynamically loaded Vulkan driver on its own
+ * threads (seen with Mesa's Intel driver under gx3d_harness, §27). The
  * Phase 7 OS layer replaces it with the decompiled MEM/EGG heaps carved from
  * the same block.
  */
@@ -21,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <thread>
 #include <sys/mman.h>
 
 u8* port_arena_base = NULL;
@@ -28,6 +30,10 @@ u8* port_arena_base = NULL;
 namespace {
 
 std::mutex sLock;
+// The thread that created the arena, and how many allocations came from any
+// other thread (HOST_BUILD.md §28: none expected from GPU drivers).
+std::thread::id sOwner;
+size_t sOtherThreadAllocs = 0;
 
 const size_t kHeader = 16;
 const size_t kGrain = 16;
@@ -139,6 +145,7 @@ void PortArenaInit(void) {
     if (port_arena_base != NULL) {
         return;
     }
+    sOwner = std::this_thread::get_id();
 
     void* p = mmap(NULL, PORT_ARENA_SIZE, PROT_NONE,
                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
@@ -163,6 +170,9 @@ void PortArenaInit(void) {
 void* PortArenaAlloc(size_t size, int align) {
     std::lock_guard<std::mutex> lock(sLock);
     PortArenaInit();
+    if (std::this_thread::get_id() != sOwner) {
+        ++sOtherThreadAllocs;
+    }
 
     size_t a = static_cast<size_t>(align < 0 ? -align : align);
     if (a < kGrain) {
@@ -247,6 +257,11 @@ int PortArenaReserve(void* lo, void* hi) {
 
 size_t PortArenaUsed(void) {
     return sUsed;
+}
+
+size_t PortArenaOtherThreadAllocs(void) {
+    std::lock_guard<std::mutex> lock(sLock);
+    return sOtherThreadAllocs;
 }
 
 void* PortArenaMEM1Lo(void) {

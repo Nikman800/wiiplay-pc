@@ -62,6 +62,12 @@ CXXFLAGS := -std=gnu++17 -fno-exceptions -fno-rtti $(COMMON) \
 # g3d_resanmchr.cpp switches a u32 over enumerators of (1 << 31) (an int);
 # CodeWarrior accepts it, C++11 calls it a narrowing conversion.
 CXXFLAGS += -Wno-narrowing
+# Every executable keeps its operator new / delete to itself (exe.map, §28):
+# shared libraries (GPU drivers) allocate with libstdc++'s. Compile-only runs
+# ignore it.
+EXE_LDFLAGS := -Wl,--version-script=$(HOST)/exe.map
+CFLAGS += $(EXE_LDFLAGS)
+CXXFLAGS += $(EXE_LDFLAGS)
 
 # nw4r::lyt (layouts and layout animations), built and bound without drawing.
 LYT_SRCS := $(addprefix src/nw4r/lyt/,lyt_animation.cpp lyt_arcResourceAccessor.cpp \
@@ -669,6 +675,7 @@ CMAKE ?= cmake
 AURORA_GENERATOR := $(if $(shell command -v ninja 2>/dev/null),Ninja,Unix Makefiles)
 AURORA_JOBS ?= $(shell nproc 2>/dev/null || echo 4)
 GX_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-gx
+LAVAPIPE_ICD ?= $(firstword $(wildcard /usr/share/vulkan/icd.d/lvp_icd*.json /etc/vulkan/icd.d/lvp_icd*.json))
 
 $(AURORA_STAMP): $(HOST)/aurora/CMakeLists.txt
 	@mkdir -p $(AURORA_BUILD)
@@ -684,7 +691,7 @@ $(AURORA_STAMP): $(HOST)/aurora/CMakeLists.txt
 # `cmake --build` runs in one tree both re-run the configure step after a
 # submodule change and fail ("Configuring incomplete").
 $(WPGX_LIB): $(AURORA_STAMP) FORCE
-	@$(CMAKE) --build $(AURORA_BUILD) --target wiiplay_gx gx_fifo_tests -j $(AURORA_JOBS) > $(AURORA_BUILD)/build.log 2>&1 \
+	@$(CMAKE) --build $(AURORA_BUILD) --target wiiplay_gx gx_fifo_tests gfx_readback_tests -j $(AURORA_JOBS) > $(AURORA_BUILD)/build.log 2>&1 \
 	    || { grep -E "error|FAILED|CMake Error" $(AURORA_BUILD)/build.log | head -20; tail -5 $(AURORA_BUILD)/build.log; exit 1; }
 
 $(OUT)/gx_harness: $(HOST)/tests/gx_harness.cpp $(HOST)/tests/disc_walk.h $(HOST)/aurora/wpgx.h $(WPGX_LIB) $(LIB)
@@ -714,7 +721,8 @@ $(OUT)/gxlyt_harness: $(HOST)/tests/gxlyt_harness.cpp $(HOST)/aurora/wpgx.h $(GX
 GX3D_SRCS := src/nw4r/g3d/platform/g3d_gpu.cpp src/nw4r/g3d/platform/g3d_tmem.cpp \
     $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/egg/gfxe/*.cpp) \
     $(wildcard $(REPO)/src/egg/gfx/*.cpp) $(wildcard $(REPO)/src/egg/math/*.cpp))) \
-    src/Pack/RPGraphics/RPGrpCamera.cpp src/Pack/RPGraphics/RPGrpScreen.cpp
+    src/Pack/RPGraphics/RPGrpCamera.cpp src/Pack/RPGraphics/RPGrpScreen.cpp \
+    src/Pack/RPParty/RPPartyCommon/RPKcl_3.cpp
 GX3D_OBJS := $(filter-out $(OUT)/host/src/host_gxlight.cpp.o,$(MDL_OBJS)) \
     $(sort $(patsubst %,$(OUT)/decomp/%.o,$(GX3D_SRCS))) $(OUT)/host/src/host_sc.cpp.o
 $(OUT)/gx3d_harness: $(HOST)/tests/gx3d_harness.cpp $(HOST)/tests/disc_walk.h $(HOST)/aurora/wpgx.h \
@@ -730,6 +738,11 @@ gx-aurora-tests: $(WPGX_LIB)
 	@$(AURORA_BUILD)/aurora/tests/gx_fifo_tests --gtest_brief=1 > $(AURORA_BUILD)/gx_fifo_tests.log 2>&1 \
 	    || { tail -30 $(AURORA_BUILD)/gx_fifo_tests.log; exit 1; }
 	@echo "gx_fifo_tests: $$(grep -E 'PASSED|tests ran' $(AURORA_BUILD)/gx_fifo_tests.log | tr '\n' ' ')"
+	@# The GPU tests (readback, EFB copies, Z textures, logic ops; §28) on lavapipe
+	@VK_ICD_FILENAMES=$(LAVAPIPE_ICD) MESA_SHADER_CACHE_DISABLE=true \
+	    $(AURORA_BUILD)/aurora/tests/gfx_readback_tests --gtest_brief=1 > $(AURORA_BUILD)/gfx_readback_tests.log 2>&1 \
+	    || { grep -vE '^\[(debug|info|2)\]' $(AURORA_BUILD)/gfx_readback_tests.log | tail -30; exit 1; }
+	@echo "gfx_readback_tests: $$(grep -E 'PASSED|SKIPPED|tests ran' $(AURORA_BUILD)/gfx_readback_tests.log | tr '\n' ' ')"
 # The bring-up render on lavapipe (software Vulkan; --gpu for the real adapter).
 gx: $(OUT)/gx_harness $(OUT)/gxlyt_harness $(OUT)/gx3d_harness gx-aurora-tests
 	python3 $(HOST)/tests/test_gx.py --harness $(OUT)/gx_harness --disc $(DISC) --scratch $(GX_SCRATCH)

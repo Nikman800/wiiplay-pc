@@ -3172,3 +3172,193 @@ sys_harness: 6 heaps; FST 59 files 67 directories (sys/fst.bin and the tree agre
   game's model layer instead of repeating its g3d calls; the paddles; then the full game frame
   loop (`RPGrpRenderer` views, layouts, effects) from the scene creator.
 - Foreign-thread allocations (GPU drivers) out of the M0 arena.
+
+## 28. Aurora milestone 3b: render to texture (Laser Hockey's bloom and shadow volume)
+
+The EFB copy features are in: `GXCopyTex` into Wii memory through the address resolver, read back
+in the Wii texture format, the copy filter, a display copy without clear, `GXSetZTexture` and logic
+ops. `gx3d_harness` now draws Laser Hockey with the draw paths `RPHkyGame` creates (bloom with
+`Environment/neon.pblm`, the shadow volume path), and the GPU drivers no longer allocate from M0.
+
+### GPU-driver allocations out of M0
+
+The executables define the global `operator new` / `delete` (the M0 arena). The linker exported
+them, because `libstdc++.so` defines the same symbols, so every shared library in the process
+bound to them, including a Vulkan driver's C++ code on its own threads (§27). Now every host
+executable is linked with a version script, `port/host/exe.map` (`EXE_LDFLAGS`, in `CFLAGS` and
+`CXXFLAGS`; compile-only runs ignore it), that makes `_Znw*`, `_Zna*`, `_Zdl*`, `_Zda*` local: the
+executable's own code (the decomp and the port) still binds to them, every shared library keeps
+libstdc++'s (malloc). `nm -D` shows no exported `operator new`/`delete`. Because libstdc++ can now
+allocate a block (a `std::string` buffer, say) that an inlined destructor frees in the executable,
+the port's `operator delete` (`host_sdk.cpp`) returns pointers outside the arena to `free`.
+
+`PortArenaOtherThreadAllocs()` (`port/arena.h`) counts allocations made off the thread that created
+the arena; `gx3d_harness` prints it (`ARENA_OTHER_THREADS`). Before: 7876 per run on Mesa's Intel
+driver, 234457 on lavapipe (LLVM). After: 146, the harness resolver's own `std::map` entries (it
+runs on Aurora's FIFO thread; the test requires at most the number of resolved addresses). Six runs
+each on lavapipe and the Intel GPU: no crash, identical frames per driver. The arena keeps its lock.
+
+### EFB copies (Aurora patches 13-14)
+
+The SDK's `GXCopyTex` / `GXCopyDisp` reach Aurora as BP writes; with a resolver installed the
+command processor decodes them (Aurora's own `GXCopyTex` API, which sets a host destination first,
+is unchanged):
+
+| BP | Use |
+|---|---|
+| 0x49 / 0x4A | source origin, size (minus one) |
+| 0x4B | destination (address >> 5), resolved |
+| 0x4D, 0x4E | stride, display copy y scale (shadow only: the copy size comes from 0x4A) |
+| 0x52 | trigger: clamp top/bottom (bits 0-1), copy format (bit 3 high bit, 4-6), half size (box filter, bit 9), clear (11), display copy (14), intensity conversion (15) |
+| 0x53 / 0x54 | vertical filter, seven 6-bit coefficients |
+| 0x43 | PE control: format Z24 while the SDK makes a depth copy (`GXCopyTex` switches it); the colour format before it is the copy's source format |
+
+Formats: colour RGBA8, RGB5A3, RGB565, CTF R4/R8/RA4/RA8/A8/G8/B8/RG8/GB8; intensity I4/I8/IA4/IA8;
+depth Z8/Z16/Z24X8 and CTF Z4/Z8M/Z8L/Z16L (Aurora's existing conversion shaders). YUVA8 is
+rejected with an error (unused). A copy is a GPU texture keyed by the resolved destination:
+a later texture load (BP image registers, §26) from that address samples it. It stays
+authoritative until another copy replaces it or the bytes at the address change: the hash of
+the memory taken at the copy (and after its writeback) is checked at each texture cache
+invalidation (`GXInvalidateTexAll`), as for any guest texture. Half-size copies sample the 2x2
+corner of each block with linear filtering (the box average). The vertical filter samples the row
+above, the row and the row below (one destination row apart, so two source rows for a half-size
+copy) with the coefficients summed per row (2, 3, 2) over 64, clamped to the source rectangle
+per the clamp bits, saturated; the SDK's "no filter" (0, 0, 21, 22, 21, 0, 0) is the identity and
+skipped. Depth copies are not box filtered (nearest). The anti-aliasing sample pattern (BP
+0x01-0x04) is ignored: the EFB is not multisampled.
+
+Display copies: there is no XFB; the frame is presented from the EFB. A display copy that does not
+clear makes the next frame load the EFB instead of clearing it. Its vertical filter (the render
+mode's deflicker) and gamma are not applied to the presented image (a progressive host display;
+the only gamma the game sets is 1.0, in the HOME menu).
+
+**Writeback (CPU-visible copies).** `wpgx_set_copy_writeback(1, capture_sources, observer, user)`
+(the harness turns it on): every texture copy to a resolved address is also read back, encoded in
+the Wii texture format by Aurora's copy pack shader (tiled, big-endian; RGBA6 quantised), and
+written to its destination in M0 when the frame ends (`wpgx_end_frame`, i.e. at `GXCopyDisp`), in
+copy order, so the newest copy to an address wins, as on the hardware. Policy: the CPU sees a
+copy's bytes from the end of the frame that made it. A copy that the CPU reads in the same frame
+(after its own `GXDrawDone`) sees the old bytes: Aurora records a frame and runs it at the frame's
+end, so a mid-frame readback would need a frame split (not needed so far: the RFL faces and the
+Kokeshi icons are drawn as textures, which sample the GPU copy at once; their CPU readers, if any,
+run in later frames). Aurora API: `AuroraSetCopyWriteback(cb, user, captureSources)` and
+`AuroraFlushCopyWriteback()` (called by the glue after `aurora_end_frame`); the callback gets an
+`AuroraCopyWritebackInfo` (destination, format, size, source rectangle, half, clear, depth, filter
+weights, EFB format, the bytes, and with source capture the whole EFB colour just before the copy).
+
+### Z textures, logic ops, fog range
+
+- `GXSetZTexture` (BP 0xF4 bias, 0xF5 type and op; Aurora's own `GXSetZTexture` now encodes them):
+  the last TEV stage's texel (sampled even when its colour inputs do not use it) as an 8-bit
+  (`r`), 16-bit (`r << 8 | a`) or 24-bit (`r, g, b`) value plus the bias replaces the depth, or is
+  added to it (`@builtin(frag_depth)`). Used by EGG's DrawGX Z clear, DOF, XluSnap and the shadow
+  volume path's fog variant.
+- Logic ops: WebGPU has none. Each op is the blend that gives the bitwise result for channel
+  values 0 and 255, some with the shader writing `1 - colour` or `1`: CLEAR, AND (min), REVAND,
+  COPY, INVAND, NOOP, XOR, OR (`s(1-d) + d`: also exact whenever either side is 0, the DOF case),
+  NOR, EQUIV, INV, INVCOPY, INVOR, SET. REVOR and NAND have no such blend and are drawn as COPY and
+  INVCOPY. The game uses COPY (EGG's process meter) and OR (DOF).
+- Fog range adjustment (BP 0xE8-0xED) was already decoded and applied by Aurora (upstream test
+  `FogRangeAdj_DecodesCenterAndCoefficientTable`); nothing was needed. Laser Hockey has no fog.
+
+### Laser Hockey's draw paths in `gx3d_harness`
+
+As `RPHkyGame` sets them up: model scene 0 with path flags 0x28 (`ScnRenderer::createPath` with
+the shadow volume and bloom flags, as `RPGrpModelScene` maps them), the shadow volume path's flag
+2 because bloom is on (`RPGrpDrawPathManager`), shadow colour (0, 0, 0, 0xC0), and the bloom
+parameters from `Common/RPHkyScene/common.carc` → `Environment/neon.pblm` (`RPHkyGame::Load`,
+`SetBinary`). The clear colour's alpha is 0, as `RPGrpRenderer::SetClearColor` sets it (the
+shadow volume path counts in the EFB alpha). Per frame the bloom path makes 8 copies (EFB capture
+at half size with the vertical filter, the mask (IA8), blur and gather buffers, the result) and
+the shadow volume path 2 (the EFB alpha as CTF_A8, the stencil-like alpha with the blur filter):
+11 per frame, all written back.
+
+Found: Laser Hockey draws no shadow volumes. The path runs (steps at scene priorities 26, 51,
+76), but nothing draws in its volume step (`RPGrpDrawPathManager`'s draw hook step 4: no Laser
+Hockey object draws there; the party games that draw volumes are Table Tennis's ball, Fishing's hook
+and Charge!'s goal), and
+every Laser Hockey model is in draw group 0 (`Opa4th`, after the path), so it could not receive a
+shadow anyway. The real frame is therefore the table with bloom. To exercise the path,
+`--puck-shadow` adds a volume the way the party games draw one (`RP_drawShadowVolume`, `RPKcl_3.cpp`,
+now linked: a 32-sided cylinder, here radius 26, height 200, at (30, 0, 30) beside the puck) in a
+scene proc at the draw hook's step-4 priority, and puts the table in draw group 1 (`Opa1st`, before
+the path) as a receiver; `--table-group1` is the same without the volume.
+
+New options: `--no-bloom`, `--no-sv`, `--puck-shadow`, `--table-group1`, `--copy-dir DIR` (each
+copy's bytes, and with `--capture-sources` the EFB before it). New output: `COPY` lines (index,
+frame, destination, format, size, source, half, clear, depth, filter, bytes, EFB format, filter
+weights), `COPIES_WRITTEN`, `WRITEBACK ok bad` (M0 against the newest copy to each destination
+after the last frame), `SHADOWVOL`, `TIMING`, `PBLM`, `ARENA_OTHER_THREADS`.
+
+### The tests
+
+`test_gx3d.py` keeps every §27 check, on runs without the draw paths (`--no-bloom --no-sv`), and
+adds:
+
+| Check | How | Verified |
+|---|---|---|
+| Copies | frame 1's 11 copies, each decoded with `gxtex.py` and compared with an independent model built from the EFB read back just before it: source rectangle (clamped), 2x2 box for half size, the vertical filter with the decoded weights, the format's channels (BT.601 intensity + 16 for IA8), the RGBA6 EFB's 6-bit precision. A texel passes when it is the 6-bit value of an 8-bit value within 1 of the model's (the GPU filters with 8-bit weights) or within 2 | yes: every texel of every copy (max 1) |
+| Writeback | every copy written back; M0 at each destination equals the newest copy to it | yes |
+| Source capture | the frame with `--capture-sources` (a render pass split at every copy) equals one without | yes |
+| Log | no Aurora warning or error but the device-destroyed one; unhandled registers all documented (the copy registers and 0xF4/0xF5 left the list; 19 remain) | yes |
+| Bloom | the full frame against the frame without the draw paths: 143219 pixels brighter, none darker (beyond 4) | property only |
+| Shadow volume | `--puck-shadow` against `--table-group1` (bloom on, no translucent pass, no puck): the table pixels whose surface point (CPU raster of the table's triangles with world positions) lies inside the 32-sided prism are the reference times 63/255 (shadow alpha 0xC0), within 5; every other pixel is unchanged; pixels within 2.5 units of the prism's outline (the blur filter widens the stencil by a row) are not judged | yes: 974 inside (max 0.5), 240238 outside identical |
+| Arena | allocations off the main thread at most the resolver's map entries | yes |
+| GPU (`--gpu-compare`, Intel UHD) | the frame without the paths: max 2, mean 0.05 (as §27); the full frame: max 27, mean 1.41 (the bloom's blurs and filtered copies amplify the drivers' filtering precision; limit mean 2) | tolerance only |
+
+Aurora's googletests: `gx_fifo_tests` (246: copy register decoding, formats, half size, clamp,
+filter weights, display copy, Z texture registers) and, new in `make gx`, `gfx_readback_tests` (24,
+on lavapipe: a real device): half-size copy box filter and writeback bytes, the vertical filter's
+rows and top clamp, a copy sampled by a later texture load until the CPU writes the memory and
+invalidates, a display copy without clear keeping the EFB, Z texture replace and add read back
+with `GXPeekZ`'s readback, all 14 exact logic ops on binary channels plus OR onto zero, an
+alpha-only clearing copy.
+
+Visual only: the bloom's look against the game (the composite's blend and colour are not
+modelled; `full.png`), and how a real shadow would look (no Laser Hockey asset has one). The SV
+path with bloom off (flag 2 clear, used by scenes without bloom) relies on receivers being drawn
+after its first step with alpha updates off; with the table in group 1 the materials' alpha
+(about 90) is everywhere, so the whole table is "shadowed" in both runs: not a Laser Hockey case
+and not checked.
+
+`gxtex.py` fix found by the IA8 copy: IA8 keeps alpha in the first (high) byte and intensity in the
+second, like IA4's nibbles (Dolphin and Aurora decode it so); it had them swapped (texture and TLUT).
+
+### Aurora patches (submodule working tree, not committed; series in the job's scratch)
+
+| # | Commit message | What |
+|---|---|---|
+| 13 | `gfx: copy vertical filter, kept EFB after a display copy, GPU sync helpers` | `resolve_pass_into(..., CopyFilter)`, filtered copies always go through a conversion shader; `keep_efb_next_frame`; `finish_gpu_work` / `poll_gpu_events`; `capture_color_now`; test stubs |
+| 14 | `gx: EFB copies, copy writeback, Z textures and logic ops for raw command streams` | above; `GXPipelineConfigVersion` 14 |
+| 15 | `tests: cover EFB copies, copy writeback, Z textures and logic ops` | `gx_fifo_tests` +5, `gfx_readback_tests` +7 |
+
+The glue's pipeline cache key is 3.
+
+Expected output (part of `make test` on 64-bit; `make gx` prints the googletest lines first):
+
+```
+gx_fifo_tests: [  PASSED  ] 246 tests.
+gfx_readback_tests: [  PASSED  ] 24 tests.
+...
+test_gx3d: 608x456 after 2 frames on llvmpipe (LLVM 21.1.8, 256 bits); GX stream 17026 bytes
+  ...
+  full frame (bloom, shadow volume): 22 EFB copies in 2 frames, all written back (8 destinations equal M0); arena allocations from other threads: 146 (the resolver's)
+  copies (frame 1) vs model from the EFB before each: #11 0x27 608x456 max 0; #12 0x27 608x456 vf max 0; #13 0x6 304x228 half vf max 0; #14 0x6 152x114 max 0; #15 0x3 152x114 max 1; #16 0x6 152x114 max 0; #17 0x6 152x114 max 0; #18 0x6 152x114 max 0; #19 0x6 76x57 half max 1; #20 0x6 76x58 max 0; #21 0x6 152x114 max 0
+  bloom (full frame vs without the draw paths): 143219 pixels brighter, 0 darker
+  shadow volume: 974 table pixels inside darkened (max diff 0.5), 240238 outside unchanged
+errors: 0
+OK
+```
+
+### Still open (toward the game's frame loop)
+
+- `RPGrpModel*` on the host (§20's template-specialisation errors), so the harness can use the
+  game's model layer (`RPSimpleModel::LoadModel`, draw groups) instead of repeating its g3d calls;
+  then the paddles and the puck's CLR0 animation.
+- `RPGrpRenderer`'s views (3D view, two 2D views with layouts: the HUD, score and timer),
+  `RPScnProcDrawHook` with the effect manager (the puck trail and paddle glows: `nw4r::ef`
+  through GX), then `RPSysSceneMgr`'s frame loop driven from the scene creator: the health screen
+  (§26), the title, the menus, a minigame.
+- A copy the CPU reads within the frame that made it (a frame split at `GXDrawDone`), if a reader
+  turns up; Shooting Range's light maps (`RPGrpDrawPathLightMap`, light textures captured with
+  copies) as the next scene; lit materials; `GXPoke*` / `GXPeek*` on Aurora's readback.

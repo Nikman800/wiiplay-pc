@@ -1,0 +1,16 @@
+/*
+ * Linker version script for every host executable (HOST_BUILD.md §28).
+ *
+ * The executables define the global operator new / delete (the game's heaps:
+ * the M0 arena). Without this script the linker exports those definitions,
+ * because libstdc++.so defines the same symbols, and every shared library in
+ * the process then binds to them: a Vulkan driver's C++ code allocated from
+ * the arena on its own threads. Here they are local: the executable's own
+ * code (the decomp and the port) still uses them, and every shared library
+ * keeps libstdc++'s (malloc).
+ */
+{
+  local:
+    _Znwm*; _Znam*; _Znwj*; _Znaj*;
+    _ZdlPv*; _ZdaPv*;
+};

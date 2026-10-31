@@ -27,6 +27,18 @@ reading of the disc can make:
               corner lines have their CLR0 colour's dominant channel;
   determinism two runs give the same bytes; with --gpu-compare, the real GPU's
               frame is within a small tolerance of lavapipe's.
+
+These run without the scene's draw paths (--no-bloom --no-sv). With them, as
+RPHkyGame sets them up (§28):
+
+  copies      each EFB copy of a frame against an independent model computed
+              from the EFB read back just before it (source rectangle, box
+              filter, vertical filter, format channels, RGBA6 precision);
+              every copy written back, M0 equal to the newest copy;
+  bloom       only adds light against the frame without the paths;
+  shadow      a volume beside the puck (--puck-shadow, the table as receiver)
+              darkens exactly the table pixels inside it by the shadow alpha;
+  arena       no allocation off the main thread but the resolver's own.
 """
 
 import argparse
@@ -34,6 +46,7 @@ import glob
 import math
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -52,36 +65,26 @@ CLEAR = (0xFF, 0x00, 0xFF)
 
 # Aurora log lines that are expected, with the reason (HOST_BUILD.md §27).
 ALLOWED_LOG = {
-    "STUB: display copy is not implemented": "GXCopyDisp: no XFB on the host (§26)",
     "Device lost: Device was destroyed.": "wpgx_shutdown destroys the device",
 }
 # Registers Aurora does not handle that the frame writes (BP / CP / XF): all
 # outside what this scene needs.
 ALLOWED_UNHANDLED = {
-    ("BP", 0x01): "copy filter sample pattern (EFB copies)",
-    ("BP", 0x02): "copy filter sample pattern (EFB copies)",
-    ("BP", 0x03): "copy filter sample pattern (EFB copies)",
-    ("BP", 0x04): "copy filter sample pattern (EFB copies)",
+    ("BP", 0x01): "copy anti-aliasing sample pattern (the EFB is not multisampled)",
+    ("BP", 0x02): "copy anti-aliasing sample pattern (the EFB is not multisampled)",
+    ("BP", 0x03): "copy anti-aliasing sample pattern (the EFB is not multisampled)",
+    ("BP", 0x04): "copy anti-aliasing sample pattern (the EFB is not multisampled)",
     ("BP", 0x23): "setup-unit performance counter",
     ("BP", 0x24): "rasteriser performance counter",
     ("BP", 0x44): "field mask (interlaced copies)",
     ("BP", 0x45): "draw done (GXDrawDone is synchronous on the host)",
     ("BP", 0x46): "bus clock",
-    ("BP", 0x49): "EFB copy source origin",
-    ("BP", 0x4A): "EFB copy source size",
-    ("BP", 0x4B): "EFB copy destination",
-    ("BP", 0x4D): "EFB copy destination stride",
-    ("BP", 0x4E): "EFB copy vertical scale",
-    ("BP", 0x53): "copy vertical filter",
-    ("BP", 0x54): "copy vertical filter",
     ("BP", 0x55): "bounding box reset",
     ("BP", 0x56): "bounding box reset",
     ("BP", 0x58): "PE control bits (GXInit)",
     ("BP", 0x67): "performance counter",
     ("BP", 0x68): "field mode",
     ("BP", 0x69): "bus clock",
-    ("BP", 0xF4): "Z texture bias (GXSetZTexture, disabled)",
-    ("BP", 0xF5): "Z texture (GXSetZTexture, disabled)",
     ("CP", 0x20): "CP performance counter select",
     ("XF", 0x0000): "XF error register (GXInit)",
     ("XF", 0x0006): "XF performance counter select",
@@ -147,6 +150,18 @@ def parse_output(text):
             o[f[0].lower()] = [float(x) for x in f[1:]]
         elif f[0] == "WORLD":
             o["world"].setdefault(f[1], {})[int(f[2])] = [float(x) for x in f[3:]]
+        elif f[0] == "COPY":
+            o.setdefault("copies", []).append(dict(
+                index=int(f[1]), frame=int(f[2]), address=int(f[3], 16), format=int(f[4]), width=int(f[5]),
+                height=int(f[6]), src=tuple(int(x) for x in f[7:11]), half=int(f[11]), clear=int(f[12]),
+                depth=int(f[13]), vfilter=int(f[14]), size=int(f[15]), pixel_format=int(f[16]),
+                weights=tuple(float(x) for x in f[17:20])))
+        elif f[0] in ("COPIES_WRITTEN", "ARENA_OTHER_THREADS"):
+            o[f[0].lower()] = int(f[1])
+        elif f[0] == "WRITEBACK":
+            o["writeback"] = (int(f[1]), int(f[2]))
+        elif f[0] == "SHADOWVOL":
+            o["shadowvol"] = [float(x) for x in f[1:]]
         elif line.startswith("gx3d_harness: "):
             o["summary"] = line
     return o
@@ -427,7 +442,7 @@ def raster(tris, w, h):
                 uv = None
                 if t0 is not None:
                     q = b0 / w0 + b1 / w1 + b2 / w2
-                    uv = tuple((b0 * t0[k] / w0 + b1 * t1[k] / w1 + b2 * t2[k] / w2) / q for k in range(2))
+                    uv = tuple((b0 * t0[k] / w0 + b1 * t1[k] / w1 + b2 * t2[k] / w2) / q for k in range(len(t0)))
                 cur = depth[i]
                 if cur is None or z < cur[0] - 1e-6:
                     depth[i] = [z, key, uv, False]
@@ -675,6 +690,185 @@ def compare(a, b):
     return max(diff), sum(diff) / len(diff), sum(1 for x in diff if x > 8)
 
 
+# --- Render to texture (milestone 3b, HOST_BUILD.md §28) ------------------------------------------
+
+# GX copy formats the model knows: decoder name for gxtex and what the copy keeps
+COPY_FORMATS = {6: ("RGBA8", "rgba"), 3: ("IA8", "ia"), 1: ("I8", "i"), 0x27: ("I8", "a"), 0x28: ("I8", "r")}
+
+
+def q6(v):
+    """An 8-bit value at the RGBA6 EFB's precision (6 bits, replicated)."""
+    return (v & 0xFC) | (v >> 6)
+
+
+def copy_model(c, efb, ew):
+    """Independent model of an EFB copy (GXCopyTex) from the EFB contents before it: the source rectangle,
+    box filter for half-size copies, the vertical filter, then the format's channels. Returns per texel a
+    tuple in the decoder's RGBA order."""
+    sl, st, sw, sh = c["src"]
+    has_alpha = c["pixel_format"] == 1  # RGBA6_Z24
+    kind = COPY_FORMATS[c["format"]][1]
+    raw = kind in ("rgba", "a", "r")
+
+    def src(x, y):
+        x = min(max(x, sl), sl + sw - 1)
+        y = min(max(y, st), st + sh - 1)  # copies are clamped top and bottom
+        o = 4 * (y * ew + x)
+        return (efb[o], efb[o + 1], efb[o + 2], efb[o + 3] if has_alpha else 255)
+
+    s = 2 if c["half"] else 1
+
+    def box(x, y):
+        vals = [src(sl + s * x + i, st + s * y + j) for j in range(s) for i in range(s)]
+        return [sum(v[k] for v in vals) / len(vals) for k in range(4)]
+
+    w0, w1, w2 = c["weights"] if c["vfilter"] else (0.0, 1.0, 0.0)
+    out = []
+    for y in range(c["height"]):
+        rows = [box(x, y) for x in range(c["width"])]
+        if c["vfilter"]:
+            up = [box(x, max(y - 1, 0)) for x in range(c["width"])]
+            dn = [box(x, min(y + 1, c["height"] - 1)) for x in range(c["width"])]
+            rows = [[min(255.0, w0 * a[k] + w1 * b[k] + w2 * d[k]) for k in range(4)] for a, b, d in zip(up, rows, dn)]
+        for r, g, b, a in rows:
+            if kind == "rgba":
+                t = (r, g, b, a)
+            elif kind == "ia":
+                i = min(255.0, 0.257 * r + 0.504 * g + 0.098 * b + 16.0)
+                t = (i, i, i, a)
+            elif kind == "i":
+                i = min(255.0, 0.257 * r + 0.504 * g + 0.098 * b + 16.0)
+                t = (i, i, i, i)
+            elif kind == "a":
+                t = (a, a, a, a)
+            else:
+                t = (r, r, r, r)
+            out.append(t)
+    return out, raw and has_alpha
+
+
+def texel_error(got, want, quantized):
+    """|got - want| for one channel; with the RGBA6 EFB's precision, 0 when got is the 6-bit value of an 8-bit
+    value within 1 of the model's (the GPU filters with 8-bit weights)."""
+    if quantized and got in {q6(k) for k in range(max(0, int(math.floor(want)) - 1), min(255, int(math.ceil(want)) + 1) + 1)}:
+        return 0
+    return abs(got - want)
+
+
+def check_copies(o, copy_dir, errs, frame=1):
+    """Every colour copy of `frame` against its model from the EFB read back just before it."""
+    results = []
+    for c in o.get("copies", []):
+        if c["frame"] != frame or c["depth"]:
+            continue
+        if c["format"] not in COPY_FORMATS:
+            errs.append(f"copies: copy {c['index']} has format 0x{c['format']:x}, not modelled")
+            continue
+        efbs = glob.glob(os.path.join(copy_dir, f"efb{c['index']:03d}_*.rgba"))
+        data_path = os.path.join(copy_dir, f"copy{c['index']:03d}.bin")
+        if not efbs or not os.path.exists(data_path):
+            errs.append(f"copies: copy {c['index']}: no source or data dump")
+            continue
+        ew, eh = (int(v) for v in re.search(r"_(\d+)x(\d+)\.rgba$", efbs[0]).groups())
+        with open(efbs[0], "rb") as f:
+            efb = f.read()
+        with open(data_path, "rb") as f:
+            data = f.read()
+        if len(data) != c["size"] or c["size"] != gxtex.image_size(COPY_FORMATS[c["format"]][0], c["width"], c["height"]):
+            errs.append(f"copies: copy {c['index']}: {len(data)} bytes, expected the format's size")
+            continue
+        got = gxtex.decode(COPY_FORMATS[c["format"]][0], data, c["width"], c["height"])
+        want, quantized = copy_model(c, efb, ew)
+        worst, over2, over4 = 0, 0, 0
+        for i, t in enumerate(want):
+            d = max(texel_error(got[4 * i + k], t[k], quantized) for k in range(4))
+            worst = max(worst, d)
+            over2 += d > 2
+            over4 += d > 4
+        worst = int(math.ceil(worst))
+        results.append((c, worst, over2, len(want)))
+        if over2:
+                errs.append(f"copies: copy {c['index']} (format 0x{c['format']:x}, {c['width']}x{c['height']}): "
+                        f"max diff {worst}, {over2} texels over 2, {over4} over 4")
+    return results
+
+
+def check_shadow(o, ref, shadowed, models, errs):
+    """The shadow volume path as the game runs it, with bloom (--puck-shadow vs --table-group1, no translucent
+    pass, no puck): the
+    pixels whose table surface lies inside the volume (a 32-sided prism, RP_drawShadowVolume's cylinder) are
+    darkened by the shadow colour's alpha (0xC0: x 63/255), every other pixel is unchanged."""
+    m = o["shadowvol"]
+    sx, sy, sz, tx, ty, tz = m[0], m[5], m[10], m[3], m[7], m[11]
+    projector = Projector(o["camera"], o["proj"], o["viewport"])
+    path, b, mdl = models["Hck_Field_2"]
+    world = o["world"]["Hck_Field_2"]
+    r = b.r
+    tris = []
+    for kind in ("DrawOpa",):
+        for mat, shp_i in mdl.draws[kind]:
+            shp = mdl.shapes[shp_i]
+            mtx = r.s32(shp + 0x08)
+            pos = mdl.array("pos", r.s16(shp + 0x48))
+            wm = world[mtx]
+            for t in mdl.triangles(shp):
+                v = []
+                for pi, _ti in t:
+                    p = pos[pi]
+                    wp = tuple(wm[4 * k] * p[0] + wm[4 * k + 1] * p[1] + wm[4 * k + 2] * p[2] + wm[4 * k + 3]
+                               for k in range(3))
+                    sxp, syp, zp, wv = projector(wm, p)
+                    v.append((sxp, syp, zp, wv, wp))
+                tris.append(((mdl.mat_names[mat], shp_i), v, False))
+    depth, near_edge = raster(tris, W_EFB, H_EFB)
+    n = 32
+    edges = [(0.5 * math.sin(2 * math.pi * i / n), 0.5 * math.cos(2 * math.pi * i / n)) for i in range(n + 1)]
+    (ax, az), (bx, bz) = edges[0], edges[1]
+    orient = 1.0 if (bx - ax) * (0 - az) - (bz - az) * (0 - ax) > 0 else -1.0  # the centre is inside
+    inside = outside = bad_in = bad_out = 0
+    worst = 0
+    for i in range(W_EFB * H_EFB):
+        if depth[i] is None or near_edge[i]:
+            continue
+        x, y, z = depth[i][2]
+        lx, ly, lz = (x - tx) / sx, (y - ty) / sy, (z - tz) / sz
+        # signed distance (world units) to the prism's side: polygon edges, counter-clockwise or not
+        dist = min(orient * ((ex1 - ex0) * (lz - ez0) - (ez1 - ez0) * (lx - ex0)) / math.hypot(ex1 - ex0, ez1 - ez0)
+                   for (ex0, ez0), (ex1, ez1) in zip(edges, edges[1:]))
+        side = min(dist * sx, (0.5 - abs(ly)) * sy)
+        if abs(side) < 2.5:
+            continue  # within ~2 px of the volume's outline: blurred by the copy's vertical filter
+        a = ref[4 * i:4 * i + 3]
+        g = shadowed[4 * i:4 * i + 3]
+        if side > 0:
+            inside += 1
+            d = max(abs(g[k] - a[k] * 63 / 255) for k in range(3))
+            worst = max(worst, d)
+            bad_in += d > 5
+        else:
+            outside += 1
+            bad_out += g != a
+    if inside == 0:
+        errs.append("shadow: the volume covers no table pixel")
+    if bad_in or bad_out:
+        errs.append(f"shadow: {bad_in} of {inside} pixels inside not darkened to 63/255, "
+                    f"{bad_out} of {outside} outside changed")
+    return inside, outside, worst
+
+
+def check_bloom(base, bloom, errs):
+    """Bloom only adds light (the composite is additive): no pixel darker than the frame without it beyond the
+    RGBA6 EFB's precision, and some pixels brighter."""
+    darker = brighter = 0
+    for i in range(0, len(base), 4):
+        d = [bloom[i + k] - base[i + k] for k in range(3)]
+        darker += min(d) < -4
+        brighter += max(d) > 4
+    if darker or not brighter:
+        errs.append(f"bloom: {darker} pixels darker than without bloom, {brighter} brighter")
+    return darker, brighter
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--harness", required=True)
@@ -689,10 +883,12 @@ def main():
         raise SystemExit("FAIL: lavapipe (lvp_icd*.json) not found")
     errs = []
 
-    o, err, full = run(args.harness, args.disc, args.scratch, "full", icd)
-    _o2, _e2, full2 = run(args.harness, args.disc, args.scratch, "full2", icd)
-    oo, err_opa, opa = run(args.harness, args.disc, args.scratch, "opa", icd, "--no-xlu")
-    _o3, _e3, first = run(args.harness, args.disc, args.scratch, "puckfirst", icd, "--puck-first")
+    # Milestone 3a's checks on the scene without its draw paths (--no-bloom --no-sv); the paths are checked below
+    base = ("--no-bloom", "--no-sv")
+    o, err, full = run(args.harness, args.disc, args.scratch, "base", icd, *base)
+    _o2, _e2, full2 = run(args.harness, args.disc, args.scratch, "base2", icd, *base)
+    oo, err_opa, opa = run(args.harness, args.disc, args.scratch, "opa", icd, "--no-xlu", *base)
+    _o3, _e3, first = run(args.harness, args.disc, args.scratch, "puckfirst", icd, "--puck-first", *base)
     models = load_models(args.disc)
 
     check_inputs(o, models, errs)
@@ -711,20 +907,53 @@ def main():
     judged, empty = check_coverage(opa, depth, near_edge, errs)
     res, sums = check_materials(opa, depth, near_edge, models, errs)
 
+    # The full frame: bloom and the shadow volume path as RPHkyGame sets them up
+    copy_dir = os.path.join(args.scratch, "copies")
+    shutil.rmtree(copy_dir, ignore_errors=True)
+    os.makedirs(copy_dir)
+    fo, ferr, frame = run(args.harness, args.disc, args.scratch, "full", icd, "--capture-sources", "--copy-dir", copy_dir)
+    _fo2, _fe2, frame2 = run(args.harness, args.disc, args.scratch, "full2", icd)
+    check_log(ferr, errs)
+    if frame != frame2:
+        errs.append("full frame: a run without --capture-sources differs (source capture must not change it)")
+    copies = fo.get("copies", [])
+    if fo.get("copies_written") != len(copies) or not copies:
+        errs.append(f"copies: {fo.get('copies_written')} written back, {len(copies)} reported")
+    wb_ok, wb_bad = fo.get("writeback", (0, -1))
+    if wb_bad or not wb_ok:
+        errs.append(f"writeback: {wb_bad} destinations in M0 differ from their newest copy ({wb_ok} equal)")
+    # The only arena allocations off the main thread are the harness resolver's own map entries (it runs on
+    # Aurora's FIFO thread); GPU drivers allocated thousands before §28
+    if fo.get("arena_other_threads", 1 << 30) > len(fo["resolved"]):
+        errs.append(f"arena: {fo.get('arena_other_threads')} allocations from other threads, "
+                    f"at most {len(fo['resolved'])} expected (the resolver's own bookkeeping)")
+    copy_results = check_copies(fo, copy_dir, errs)
+    darker, brighter = check_bloom(full, frame, errs)
+    shadow_base = ("--no-xlu", "--no-puck")
+    so, _se, sref = run(args.harness, args.disc, args.scratch, "shadowref", icd, "--table-group1", *shadow_base)
+    so2, _se2, sframe = run(args.harness, args.disc, args.scratch, "shadow", icd, "--puck-shadow", *shadow_base)
+    inside, outside, sworst = check_shadow(so2, sref, sframe, models, errs)
+
     gpu = None
     if args.gpu_compare:
         g = gpu_icd()
         if g is None:
             gpu = "no Intel Vulkan driver"
         else:
-            go, _ge, gfull = run(args.harness, args.disc, args.scratch, "gpu", g)
-            mx, mean, n = compare(gfull, full)
+            go, _ge, gbase = run(args.harness, args.disc, args.scratch, "gpu", g, *base)
+            mx, mean, n = compare(gbase, full)
             gpu = f"{go.get('summary', '').split(' on ')[-1].split(';')[0]}: max {mx}, mean {mean:.3f}, {n} channels over 8"
             if mean > 1.0 or n > W_EFB * H_EFB * 3 // 200:
                 errs.append(f"GPU vs lavapipe: {gpu}")
+            # The full frame: the bloom's blurs and filtered copies amplify the drivers' filtering precision
+            _go2, _ge2, gfull = run(args.harness, args.disc, args.scratch, "gpufull", g)
+            mx, mean, n = compare(gfull, frame)
+            gpu += f"; full frame: max {mx}, mean {mean:.3f}, {n} channels over 8"
+            if mean > 2.0:
+                errs.append(f"GPU vs lavapipe (full frame): max {mx}, mean {mean:.3f}")
 
     if args.keep_png:
-        for name, rgba in (("full", full), ("opa", opa)):
+        for name, rgba in (("full", frame), ("base", full), ("opa", opa), ("shadow", sframe), ("shadowref", sref)):
             d = bytearray(rgba)
             d[3::4] = b"\xff" * (W_EFB * H_EFB)
             gxtex.write_png(os.path.join(args.scratch, name + ".png"), W_EFB, H_EFB, bytes(d))
@@ -742,6 +971,14 @@ def main():
           + "; hue: " + ", ".join(f"{k.split(':')[1]} {tuple(v // max(1, res.get(k, [1])[0]) for v in s)}"
                                 for k, s in sorted(sums.items())))
     print(f"  determinism: two runs identical: {full == full2}" + (f"; GPU {gpu}" if gpu else ""))
+    print(f"  full frame (bloom, shadow volume): {len(copies)} EFB copies in 2 frames, all written back "
+          f"({wb_ok} destinations equal M0); arena allocations from other threads: {fo.get('arena_other_threads')} "
+          f"(the resolver's)")
+    print("  copies (frame 1) vs model from the EFB before each: " + "; ".join(
+        f"#{c['index']} 0x{c['format']:x} {c['width']}x{c['height']}{' half' if c['half'] else ''}"
+        f"{' vf' if c['vfilter'] else ''} max {w}" for c, w, _o, _n in copy_results))
+    print(f"  bloom (full frame vs without the draw paths): {brighter} pixels brighter, {darker} darker")
+    print(f"  shadow volume: {inside} table pixels inside darkened (max diff {sworst:.1f}), {outside} outside unchanged")
     for e in errs[:40]:
         print("ERROR:", e)
     print(f"errors: {len(errs)}")

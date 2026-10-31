@@ -254,6 +254,14 @@ void* HostAlloc(size_t size, int align) {
 }
 
 void HostFree(void* p) {
+    // The executables' operator new / delete are local to them (exe.map,
+    // HOST_BUILD.md §28), so libstdc++.so allocates with malloc. A block it
+    // allocated can still reach this delete through a libstdc++ inline
+    // (a std::string buffer, say): it goes back to malloc.
+    if (p != NULL && !port_in_arena(p)) {
+        std::free(p);
+        return;
+    }
     PortArenaFree(p);
 }
 

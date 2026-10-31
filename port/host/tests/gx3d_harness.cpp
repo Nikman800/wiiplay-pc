@@ -15,8 +15,9 @@
  *  - RPHkyGame's constructor: model scene 0 (RPGrpModelScene: ScnRoot::Construct
  *    (0x400, 0x400, 16, 8), 32 identity cameras, a light manager (16, 8, 1 view)
  *    with every light set selecting ambient 0 and light 0, a fog manager, an
- *    EGG::ScnRenderer with them). The scene's draw paths (0x28: shadow volume
- *    and bloom) are not created: both need EFB copies (§27, not covered);
+ *    EGG::ScnRenderer with them) and its draw paths 0x28: shadow volume (flag
+ *    2, as RPGrpDrawPathManager sets it with bloom on; shadow colour
+ *    (0, 0, 0, 0xC0)) and bloom (Environment/neon.pblm, RPHkyGame::Load), §28;
  *  - RPGrpScreen(0, 0, SizeXMax, SizeYMax, CANVAS_LU), fovy 40, CANVAS_CC;
  *    RPGrpCamera, orbit type, target (0, 0, 0), distance -745, rotation
  *    (-90, 0, 0) (RPHkyGame::Reset);
@@ -45,7 +46,11 @@
  * model draw resolved (the frame is the same without them).
  *
  * --no-xlu skips DrawXlu, --no-puck the puck, --puck-first enters the puck
- * before the table (a depth-test check).
+ * before the table (a depth-test check). --no-bloom / --no-sv leave a draw
+ * path out; --puck-shadow draws a shadow volume beside the puck at the draw
+ * hook's step 4 and makes the table a receiver (draw group 1), which
+ * --table-group1 does alone; --copy-dir DIR dumps every EFB copy (written back
+ * to M0 at each frame's end) and with --capture-sources the EFB before it.
  *
  * Output (stdout, for the test): the matrices the frame used (camera,
  * projection, viewport, world matrices), the BRRES files', model buffers',
@@ -197,6 +202,51 @@ ScnMdlSimple* BuildModel(const char* pName, ResMdl mdl, u32 bufferOption) {
     return p;
 }
 
+// The party games' shadow volume helper (RPKcl_3.cpp)
+extern "C" void RP_drawShadowVolume(const math::MTX34* pMtx);
+
+class ShadowVolumeProc : public EGG::IScnProc {
+public:
+    virtual void scnProcDraw(u16) {
+        RP_drawShadowVolume(&mMtx);
+    }
+    math::MTX34 mMtx;
+};
+
+// Every texture copy, after it was written back to M0 (in copy order): a COPY line, and with
+// --copy-dir the bytes (and with --capture-sources the EFB before the copy).
+const char* gCopyDir = nullptr;
+u32 gCopyIndex = 0;
+int gCopyFrame = 0;
+
+std::map<u32, std::vector<u8>> gLastCopy; // the newest copy to each destination
+
+void CopyObserver(const wpgx_copy_info* c, void*) {
+    const u8* bytes = static_cast<const u8*>(c->data);
+    gLastCopy[c->address & 0x3FFFFFFF].assign(bytes, bytes + c->size);
+    std::printf("COPY\t%u\t%d\t%08x\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%.9g\t%.9g\t%.9g\n",
+                gCopyIndex, gCopyFrame, c->address & 0x3FFFFFFF, c->format, c->width, c->height, c->src_left,
+                c->src_top, c->src_width, c->src_height, c->half, c->clear, c->depth, c->vfilter, c->size,
+                c->pixel_format, c->vfilter_weights[0], c->vfilter_weights[1], c->vfilter_weights[2]);
+    if (gCopyDir != nullptr) {
+        char path[1024];
+        std::snprintf(path, sizeof path, "%s/copy%03u.bin", gCopyDir, gCopyIndex);
+        if (FILE* f = std::fopen(path, "wb")) {
+            std::fwrite(c->data, 1, c->size, f);
+            std::fclose(f);
+        }
+        if (c->efb != nullptr) {
+            std::snprintf(path, sizeof path, "%s/efb%03u_%ux%u.rgba", gCopyDir, gCopyIndex, c->efb_width,
+                          c->efb_height);
+            if (FILE* f = std::fopen(path, "wb")) {
+                std::fwrite(c->efb, 1, size_t{c->efb_width} * c->efb_height * 4, f);
+                std::fclose(f);
+            }
+        }
+    }
+    gCopyIndex++;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -215,7 +265,13 @@ int main(int argc, char** argv) {
     bool puck = true;
     bool xlu = true;
     bool puckFirst = false;
+    bool bloom = true;
+    bool sv = true;
+    bool puckShadow = false;
+    bool tableGroup1 = false;
+    bool captureSources = false;
     const char* dumpPath = nullptr;
+    const char* copyDir = nullptr;
     for (int i = 4; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--frames" && i + 1 < argc) {
@@ -232,6 +288,19 @@ int main(int argc, char** argv) {
             puckFirst = true;
         } else if (a == "--dump-stream" && i + 1 < argc) {
             dumpPath = argv[++i];
+        } else if (a == "--no-bloom") {
+            bloom = false;
+        } else if (a == "--no-sv") {
+            sv = false;
+        } else if (a == "--puck-shadow") {
+            puckShadow = true;
+            tableGroup1 = true;
+        } else if (a == "--table-group1") {
+            tableGroup1 = true;
+        } else if (a == "--copy-dir" && i + 1 < argc) {
+            copyDir = argv[++i];
+        } else if (a == "--capture-sources") {
+            captureSources = true;
         } else {
             Die("unknown option");
         }
@@ -258,6 +327,9 @@ int main(int argc, char** argv) {
         Die("wpgx_init failed");
     }
     wpgx_set_address_resolver(Resolve, nullptr);
+    // Texture copies reach M0 in the Wii format at the end of each frame (§28)
+    gCopyDir = copyDir;
+    wpgx_set_copy_writeback(1, captureSources ? 1 : 0, CopyObserver, nullptr);
     if (dumpPath != nullptr) {
         gDump = std::fopen(dumpPath, "wb");
     }
@@ -303,11 +375,51 @@ int main(int argc, char** argv) {
     pRenderer->configure();
     pRenderer->setLightManager(pLightMgr);
     pRenderer->setFogManager(pFogMgr);
-    // pathFlags 0x28 (shadow volume, bloom) are not created: they need EFB copies.
-    pRenderer->createPath(0, &sAllocator);
+    // pathFlags 0x28: shadow volume and bloom (--no-sv, --no-bloom leave one out)
+    u32 createFlags = 0;
+    if (sv) {
+        createFlags |= EGG::ScnRenderer::cCreateFlag_SV;
+    }
+    if (bloom) {
+        createFlags |= EGG::ScnRenderer::cCreateFlag_Bloom;
+    }
+    pRenderer->createPath(createFlags, &sAllocator);
     u8 opaPrio = 0, xluPrio = 0;
     pRenderer->getTimingPriorityRange(EGG::ScnRenderer::cTiming_Opa4th, &opaPrio, NULL);
     pRenderer->getTimingPriorityRange(EGG::ScnRenderer::cTiming_Xlu1st, &xluPrio, NULL);
+    EGG::DrawPathShadowVolume* pSV =
+        static_cast<EGG::DrawPathShadowVolume*>(pRenderer->getDrawPathBase(EGG::ScnRenderer::cDrawPath_SV));
+    EGG::DrawPathBloom* pBloom =
+        static_cast<EGG::DrawPathBloom*>(pRenderer->getDrawPathBase(EGG::ScnRenderer::cDrawPath_Bloom));
+    // RPGrpDrawPathManager: with bloom on, the shadow volume path keeps the EFB alpha (flag 2)
+    if (pSV != NULL && pBloom != NULL) {
+        pSV->OnSVFlag(2);
+    }
+    // RPHkyGame: the shadow colour
+    if (pSV != NULL) {
+        const GXColor shadowColor = {0, 0, 0, 0xC0};
+        pSV->SetShadowColor(shadowColor);
+    }
+    // --puck-shadow: a shadow volume under the puck, drawn where RPGrpDrawPathManager's draw hook
+    // runs the game's step-4 objects (Opa3rd; only while the shadow volume path is on). Laser
+    // Hockey's own code draws none; RP_drawShadowVolume is the party games' helper (RPPnpBall).
+    ShadowVolumeProc* pShadowProc = NULL;
+    if (puckShadow && pSV != NULL) {
+        pShadowProc = new ShadowVolumeProc();
+        pShadowProc->createScnProc(1, &sAllocator);
+        pRenderer->setLocalPriorityScnProc(pShadowProc, EGG::ScnRenderer::cTiming_Opa3rd,
+                                           pRenderer->getLocalPriorityMax(), 0);
+        // Unit cylinder (radius 0.5, y -0.5..0.5) scaled to radius 26, height 200, offset as by a
+        // light from (-1, 1, -1)
+        PSMTXScale(pShadowProc->mMtx, 52.0f, 200.0f, 52.0f);
+        PSMTXTransApply(pShadowProc->mMtx, pShadowProc->mMtx, 30.0f, 0.0f, 30.0f);
+        PrintMtx("SHADOWVOL", &pShadowProc->mMtx._00, 12);
+    }
+    for (u32 t = EGG::ScnRenderer::cTiming_Opa1st; t <= EGG::ScnRenderer::cTiming_Opa4th; t++) {
+        u8 lo = 0, hi = 0;
+        pRenderer->getTimingPriorityRange(t, &lo, &hi);
+        std::printf("TIMING\topa%u\t%u\t%u\n", t - EGG::ScnRenderer::cTiming_Opa1st + 1, lo, hi);
+    }
 
     // --- RPHkyGame: screen, camera, light ---------------------------------------------
     RPGrpScreen* pScreen = new RPGrpScreen(0.0f, 0.0f, EGG::Screen::GetSizeXMax(),
@@ -338,6 +450,15 @@ int main(int argc, char** argv) {
     ARCHandle handle;
     if (pArc == NULL || !ARCInitHandle(pArc, &handle)) {
         Die("cannot mount the scene archive");
+    }
+    // RPHkyGame::Load: the bloom parameters
+    if (pBloom != NULL) {
+        ARCFileInfo info;
+        if (!ARCOpen(&handle, "Environment/neon.pblm", &info)) {
+            Die("neon.pblm not found");
+        }
+        pBloom->SetBinary(ARCGetStartAddrInMem(&info));
+        std::printf("PBLM\tEnvironment/neon.pblm\t%u\n", ARCGetLength(&info));
     }
     Brres field = LoadBrres(&handle, "G3D/Hck_Field_2.brres");
     Brres anim = LoadBrres(&handle, "G3D/Hck_anim.brres");
@@ -383,16 +504,24 @@ int main(int argc, char** argv) {
         Model m = {"Hck_pack", BuildModel("Hck_pack", packMdl, 0x108)};
         models.push_back(m);
     }
+    // --puck-shadow / --table-group1: the table is a shadow receiver, in draw group 1
+    // (RPGrpModelScene: Opa1st, before the shadow volume path); every Laser Hockey model is in
+    // group 0 (Opa4th, after it)
+    u8 receiverPrio = opaPrio;
+    if (tableGroup1) {
+        pRenderer->getTimingPriorityRange(EGG::ScnRenderer::cTiming_Opa1st, &receiverPrio, NULL);
+    }
     for (Model& m : models) {
         // RPSimpleModel::CalcModelMtx: identity rotation, position 0, scale 1
         m.pMdl->SetMtx(ScnObj::MTX_LOCAL, &ident);
-        m.pMdl->SetPriorityDrawOpa(opaPrio);
+        m.pMdl->SetPriorityDrawOpa(m.pMdl == pField ? receiverPrio : opaPrio);
         m.pMdl->SetPriorityDrawXlu(xluPrio);
     }
 
     // --- Frames --------------------------------------------------------------------------
+    // Alpha 0, as RPGrpRenderer::SetClearColor sets the display clear colour
     const GXColor clear = {static_cast<u8>(clearRgb >> 16), static_cast<u8>(clearRgb >> 8),
-                           static_cast<u8>(clearRgb), 255};
+                           static_cast<u8>(clearRgb), 0};
     for (int frame = 0; frame < frames; frame++) {
         if (!wpgx_begin_frame()) {
             Die("frame skipped");
@@ -411,6 +540,9 @@ int main(int argc, char** argv) {
             pRoot->PushBack(models[puckFirst ? models.size() - 1 - i : i].pMdl);
         }
         pRenderer->pushBackDrawPath();
+        if (pShadowProc != NULL) {
+            pShadowProc->pushBackToScnGroup(pRoot);
+        }
         pRenderer->UpdateFrame();
         pRenderer->CalcWorld();
         pCamera->CalcMatrix();
@@ -447,7 +579,16 @@ int main(int argc, char** argv) {
 
         GXDrawDone();
         GXCopyDisp(pXfb, GX_TRUE);
+        gCopyFrame++;
     }
+    std::printf("COPIES_WRITTEN\t%u\n", wpgx_copies_written());
+    // M0 holds what the hardware would have written: the newest copy to each destination
+    u32 writebackOk = 0, writebackBad = 0;
+    for (const auto& c : gLastCopy) {
+        const u8* m0 = static_cast<const u8*>(port_hptr(0x80000000u | c.first));
+        (std::memcmp(m0, c.second.data(), c.second.size()) == 0 ? writebackOk : writebackBad)++;
+    }
+    std::printf("WRITEBACK\t%u\t%u\n", writebackOk, writebackBad);
 
     // --- What the frame used --------------------------------------------------------------
     PrintMtx("CAMERA", &pCamera->GetSavedCameraMatrix()._00, 12);
@@ -493,6 +634,8 @@ int main(int argc, char** argv) {
     if (gDump != nullptr) {
         std::fclose(gDump);
     }
+    // GPU drivers allocate with libstdc++'s operator new, not the arena (§28)
+    std::printf("ARENA_OTHER_THREADS\t%zu\n", PortArenaOtherThreadAllocs());
     std::printf("gx3d_harness: %ux%u after %d frames on %s; GX stream %llu bytes\n", w, h, frames,
                 wpgx_adapter_name(), static_cast<unsigned long long>(PortGXStreamBytes()));
     PortGXSetSink(nullptr);

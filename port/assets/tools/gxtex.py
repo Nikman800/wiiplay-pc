@@ -110,8 +110,8 @@ def _expand(value: int, bits: int) -> int:
 
 def _palette_color(name: str, word: int) -> tuple[int, int, int, int]:
     if name == "IA8":
-        intensity = word >> 8
-        return intensity, intensity, intensity, word & 0xFF
+        intensity = word & 0xFF
+        return intensity, intensity, intensity, word >> 8
     if name == "RGB565":
         r = _expand((word >> 11) & 0x1F, 5)
         g = _expand((word >> 5) & 0x3F, 6)
@@ -148,9 +148,11 @@ def _texel(fmt: str, source: bytes, palette: list[tuple[int, int, int, int]], in
         value |= value << 4
         return value, value, value, value
     if fmt == "IA8":
+        # Alpha in the first (high) byte, intensity in the second, as IA4 keeps alpha in the high nibble
+        # (Dolphin and Aurora decode it so; an EFB copy to IA8 writes it so)
         value = int.from_bytes(source[index * 2 : index * 2 + 2], "big")
-        intensity = value >> 8
-        return intensity, intensity, intensity, value & 0xFF
+        intensity = value & 0xFF
+        return intensity, intensity, intensity, value >> 8
     if fmt == "RGB565":
         return _palette_color("RGB565", int.from_bytes(source[index * 2 : index * 2 + 2], "big"))
     if fmt == "RGB5A3":
