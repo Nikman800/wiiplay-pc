@@ -373,6 +373,21 @@ WPGX_API void wpgx_audio_set_gain(float gain) {
     }
 }
 
+WPGX_API int wpgx_audio_device_format(int* rate, int* channels, int* buffer_frames) {
+    if (gAudio == nullptr) {
+        return -1;
+    }
+    SDL_AudioSpec spec{};
+    int frames = 0;
+    if (!SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(gAudio), &spec, &frames)) {
+        return -1;
+    }
+    *rate = spec.freq;
+    *channels = spec.channels;
+    *buffer_frames = frames;
+    return 0;
+}
+
 WPGX_API const char* wpgx_audio_driver(void) {
     const char* name = SDL_GetCurrentAudioDriver();
     return name != nullptr ? name : "none";

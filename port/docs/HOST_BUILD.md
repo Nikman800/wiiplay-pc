@@ -4334,3 +4334,224 @@ the mouse and a gamepad, its sounds on a real device, Wii Menu closing the windo
   not driven by a test.
 - Several remotes in the HOME Menu (four cursors, the settings panel's batteries) and the
   Classic Controller path (`HBMKPadData::use_devtype`) are not driven.
+
+## 35. Performance: the tracker, live graphics settings, copy writeback, pacing, audio, the cursor
+
+The windowed game was reported "extremely laggy" (then: the NVIDIA driver broken, so the
+default adapter was the integrated GPU or the CPU), and after a reboot (RTX 3070 Laptop GPU) still
+slow, with sound at the wrong speed and a cursor trailing the mouse. This milestone adds a
+per-frame performance tracker first, then fixes what it shows. How to use it:
+[RUNNING.md](RUNNING.md#performance---perf-and-f3).
+
+### Files
+
+| File | What |
+|---|---|
+| `port/host/src/host_perf.cpp`, `include/port/perf.h` | **New.** The tracker: per displayed frame the wall time and its phases, pipelines, audio, the cursor; the CSV, the summary, the overlay text. |
+| `port/host/src/host_main.cpp` | `--perf`, `--perf-out`, `--gpu`, `--live-gfx` / `--test-gfx`, `--async-pipelines` / `--blocking-pipelines`, `--mailbox` / `--fifo`, `--writeback on|off`; the GX sink and frame boundary timed; the KPAD cursor sample; no `FRAME` lines in a window unless traced or scripted. |
+| `port/host/src/host_live.cpp`, `include/port/live.h` | The pacer's sleep timed; F3; the audio controller bounded, re-priming after an underrun, skipping AX frames over a high mark, the device format logged; `pointer_stabilise` and the `KPADSetPosParam` wrapper. |
+| `port/host/aurora/wpgx.cpp`, `wpgx.h`, `wpgx_platform.cpp` | Adapter choice and list, adapter type and backend, present mode, mailbox; the performance counters (`wpgx_get_perf`); the ImGui overlay (`wpgx_overlay`); the pipeline cache key from the library's build ID; the audio device's format. |
+| `port/host/Makefile` | `host_perf.cpp`; `boot` linked with `-Wl,--wrap=KPADSetPosParam`. |
+| `port/extern/aurora` | Three generic patches (below). |
+
+### The tracker (`--perf`, F3)
+
+A frame runs from one Aurora frame begun to the next (each `GXCopyDisp` ends one). Its wall time
+splits into phases, each timed where it happens; only clocks are read on the game's path, so the
+deterministic runs are unchanged:
+
+| Phase | Where |
+|---|---|
+| `gx` | the GX sink: `wpgx_fifo_write`, flushes, draw-done syncs (a draw waiting for its pipeline lands here) |
+| `end` | `wpgx_end_frame` up to the writeback: FIFO drain, recording, hand-over to the render thread |
+| `gpu` | waiting for the GPU: the copy writeback (`AuroraFlushCopyWriteback`), `wpgx_read_frame` |
+| `present` | `wpgx_begin_frame`: waiting for a free frame slot (the GPU or the present queue is behind) |
+| `sleep` | the pacer's `sleep_until` |
+| `input` | `PortLivePoll` (window-system events) |
+| `calc` | the rest: the game's code, the AX mixer, the clock |
+
+Per frame also: pipelines compiled, compile time (any thread), draws that waited and their wait,
+draws skipped (async pipelines), draw calls, copies written back, the audio queue (ms), underruns,
+skipped AX frames, overruns, pacer re-anchors, the audio controller's correction, and the cursor:
+the input layer's target for remote 0 (the mouse) against the KPAD position the game read
+(`EGG::CoreControllerMgr`, controller 0, newest sample). Counters from Aurora come through
+`wpgx_get_perf` (cumulative; the tracker takes differences), Aurora's from patch 1 below.
+
+At exit (`--frames`, closing the window, Wii Menu) with `--perf`: the CSV (one row per frame)
+and a summary file next to it (`.txt`), the summary also on stderr. Default path
+`$XDG_STATE_HOME/wiiplay/perf-YYYYmmdd-HHMMSS.csv` (`~/.local/state` without the variable);
+`--perf-out FILE.csv` elsewhere (refused inside the source tree or the disc). The summary: the
+settings line (adapter, type, backend, present mode, pipelines, disk cache, writeback, mode,
+audio driver), frames and fps, min / avg / p50 / p95 / p99 / max of every phase, frames over
+16.7, 20 and 33.3 ms, busy time (wall - sleep), pipeline totals, audio totals, the cursor
+(below) and the ten worst frames with frame number, scene, wall and busy time, the dominant
+phase and the pipelines compiled in it. Note: paced at 59.94 Hz a frame is 16.68 ms and jitter
+puts about half of them "over 16.7"; over 20 ms is the count of frames that missed.
+
+The overlay (window only; F3 toggles it, also without `--perf`, which then writes nothing):
+Dear ImGui through Aurora (its context exists with an SDL window; `wpgx_overlay` draws a
+borderless window between `aurora_begin_frame`'s `NewFrame` and `aurora_end_frame`), the numbers
+averaged over the last 120 frames and a bar graph of their wall times (scale 50 ms, a line at
+16.7). The window always tracks (a few clock reads per frame, 100 bytes per frame of memory).
+
+Cursor: lag = the shift k (0-15 frames) for which the KPAD position best matches the target k
+frames earlier, over frames where the target moves; the error there and at k = 0; at rest (the
+target unchanged for 30 frames) the mean and largest distance. Units: half the picture width
+(KPAD's -1..1).
+
+### Measurements (before / after)
+
+Headless, SDL's dummy audio driver, no display variables, the test scripts (menus: `menus.txt`;
+Shooting Range: `menus.txt` + `shooting.txt`; Laser Hockey, Fishing, Charge!: `menus_saved.txt`
++ the game's script, from a save with every game open), `--perf-out`. Two kinds of run:
+
+- *Virtual time* (no pacer: as fast as the host goes): the work per frame, and the pipeline
+  hitches.
+- *Real time* (`--realtime --audio-out`, the window's pacing and audio path): what a player gets.
+  Menus 4900 frames, Shooting Range 7000, the others 6000.
+
+"Before" is the window's old settings (`--test-gfx`: no disk cache, blocking pipelines, the CPU
+adapter allowed, copy writeback on); "after" the new window defaults (`--live-gfx`: disk cache
+warm, writeback off). The driver's own shader cache (`$XDG_CACHE_HOME`) was warm in both.
+
+**Real time** (wall p99 ms / frames over 20 ms / busy avg ms / worst frame ms):
+
+| Scene | RTX 3070 before | RTX 3070 after | Intel UHD before | Intel UHD after |
+|---|---|---|---|---|
+| Menus (4900) | 18.8 / 17 / 8.5 / 107 | 16.9 / 3 / 5.4 / 50 | 21.6 / 257 / 9.0 / 98 | 16.9 / 4 / 5.5 / 50 |
+| Shooting Range (7000) | 39.8 / 315 / 9.4 / 178 | 17.0 / 4 / 6.6 / 50 | 27.5 / 979 / 11.2 / 152 | 17.0 / 5 / 6.3 / 50 |
+| Laser Hockey (6000) | 19.5 / 33 / 10.9 / 250 | 17.0 / 5 / 6.6 / 50 | 22.3 / 447 / 12.8 / 188 | 16.9 / 3 / 6.8 / 50 |
+| Fishing (6000) | 32.2 / 363 / 12.1 / 179 | 17.0 / 5 / 7.1 / 50 | 23.2 / 483 / 13.7 / 129 | 17.0 / 6 / 7.7 / 50 |
+| Charge! (6000) | 20.0 / 64 / 11.4 / 418 | 16.9 / 5 / 8.3 / 59 | 28.9 / 858 / 13.2 / 345 | 17.9 / 27 / 7.3 / 59 |
+
+Before, `gpu` (the copy writeback waiting for the GPU) averaged 3.8-7.4 ms a frame on the RTX and
+5.8-10.4 ms on the Intel GPU (p99 up to 28 ms), and every first use of a pipeline stalled the
+frame (blocking) for 20-50 ms on these drivers. After, the frames that still take over 20 ms are
+the few scene loads (the 50 ms worst frame is a load). Audio in all of these: 0 underruns and 0
+overruns after; before, the frames the host fell behind on cost pacer re-anchors (up to 14 in
+Shooting Range on the Intel GPU) and skipped AX frames. Paced, the laptop's CPU and GPU clock
+down: `calc` and `gx` are 3-4 times their virtual-time values.
+
+**Virtual time, pipelines** (RTX 3070; pipelines compiled / draws that waited / draws skipped /
+worst frame ms; the menus and the four games in one data directory, in that order):
+
+| Settings | Menus | Shooting Range | Laser Hockey | Fishing | Charge! |
+|---|---|---|---|---|---|
+| no disk cache, blocking (before) | 94 / 94 / 0 / 407 | 168 / 168 / 0 / 533 | 153 / 153 / 0 / 535 | 184 / 184 / 0 / 369 | 226 / 226 / 0 / 1772 |
+| disk cache, first run | 94 / 94 / 0 / 152 | 168 / 74 / 0 / 169 | 197 / 29 / 0 / 185 | 253 / 56 / 0 / 142 | 347 / 94 / 0 / 395 |
+| disk cache, warm | 347 / 0 / 0 / 43 | 347 / 0 / 0 / 84 | 347 / 0 / 0 / 42 | 347 / 0 / 0 / 51 | 347 / 0 / 0 / 42 |
+| async, first run | 94 / 0 / 13751 / 44 | 168 / 0 / 10097 / 74 | 197 / 0 / 1678 / 44 | 253 / 0 / 3221 / 50 | 347 / 0 / 16763 / 42 |
+
+A single pipeline took up to 640 ms to compile on the NVIDIA driver (Charge!: 1.8 s for one
+frame). With the disk cache warm, Aurora compiles all 347 known pipelines in the background at
+start and no draw waits. Async pipelines avoid the first-run stalls but skip draws, and the
+game renders some textures once (the Mii faces, `RFLiMakeTexture`; the light textures): a
+skipped draw there stays wrong. So the window keeps blocking pipelines with the disk cache: the
+first time a scene is seen it can hitch, never again for the same build.
+
+**The cursor** (real time, `--events`: the mouse circling at 25 px radius, then 4 px steps; RTX):
+
+| | lag | error moving (at that lag) | error at rest avg / max |
+|---|---|---|---|
+| game stabilisation (before; `pointer_stabilise 1`) | 12 frames | 0.0061 | 0.0081 / 0.0142 |
+| radius 0 for the mouse (after) | 1 frame | 0.0012 | 0.0015 / 0.0018 |
+
+(Half the picture width = 320 px: 0.008 is 2.6 px, 0.0015 half a pixel, the DPD's resolution.)
+
+### Fixes
+
+**Live graphics settings (`--live-gfx`, the default with `--window`).** The window used the test
+settings. Now: Aurora's pipeline and Dawn caches on disk in the data directory
+(`$XDG_DATA_HOME/wiiplay/aurora`: `pipeline_cache.db`, `dawn_cache.db`), keyed by build:
+`wpgx` derives the default `pipelineCacheKey` from our patch version and the GNU build ID of
+`libwiiplay_gx.so` (read from its own `PT_NOTE` through `dl_iterate_phdr`), so every rebuild
+starts a fresh cache and no stale pipeline is ever loaded; blocking pipelines (above;
+`--async-pipelines` for the other trade); no CPU adapter unless `--gpu cpu`; mailbox
+presentation; copy writeback off. `--test-gfx` gives the old settings with a window; headless
+runs (the tests) keep them by default.
+
+**Copy writeback off in the window.** §28's writeback reads back every texture copy, encodes it
+and writes it to emulated memory at the frame's end, which makes the CPU wait for the GPU every
+frame (13 copies a frame in Shooting Range and Fishing). No CPU reader of a copy changes any
+frame: with `--writeback off` against on (`--test-gfx --hash`, RTX), every frame hash is
+identical over the whole of the menus (4900 frames), Shooting Range (16200), Laser Hockey (14600)
+and the other seven games' test scripts (Find Mii 8600, Tanks! 8900, Billiards 11100, Fishing
+12900, Table Tennis 7400, Pose Mii 8750, Charge! 10300). The copies stay authoritative on the GPU
+(§28: keyed by destination until the memory changes) either way. Tests keep writeback on
+(`--writeback on|off` chooses). A writeback deferred by a frame (deliver frame N's copies when
+N+1 ends, without waiting) was tried and dropped: Aurora's GPU events may only be polled with
+its render thread idle, so the flush still synchronised most frames and real time got worse
+(RTX, frames over 20 ms: 92 / 984 / 1498 / 1327 / 1432 in the five scenes).
+
+**Adapter.** Aurora asks for the high-performance adapter (the discrete GPU on a hybrid laptop);
+patch 2 adds a choice by name, index or type and the list. `--gpu NAME|N|discrete|integrated|cpu`,
+`WIIPLAY_GPU`, `--gpu list`; the chosen adapter, its type, backend and the present mode are
+printed at start in a window (`boot: gpu: ...`) and head the perf summary. With the NVIDIA driver
+broken the old settings could fall back to the Intel GPU or to llvmpipe (`allow_cpu_adapter =
+1`) silently: a window now refuses the CPU adapter (and says so) unless asked.
+
+**Pacing and presentation.** The pacer sleeps to each event's game time (59.94 Hz retraces) and
+was combined with FIFO vsync. On a 60 Hz display that is mostly harmless (the game is slower
+than the display, FIFO rarely blocks; a frame repeats every 16.7 s), but on a display at or
+below 59.94 Hz, or a present path that takes more than a refresh (PRIME offload on a hybrid
+laptop, a compositor), FIFO blocks the game thread in the frame-slot wait (`present`) on top of
+the pacer, the game falls behind real time, the audio runs dry and the cursor trails. Now the
+pacer is the only clock and presentation does not block: mailbox (patch 3,
+`aurora_set_vsync_mailbox`: with vsync, mailbox where the surface offers it, else FIFO relaxed /
+FIFO), so frames are still shown whole at a refresh. `--fifo` restores FIFO; `--no-vsync`
+gives mailbox or immediate (tearing). `present` in the tracker shows any remaining wait.
+
+**Audio clock controller.** It moved the pacer's anchor by 1 % of the queue error per AX frame
+without a bound: a device consuming slowly (or stalling) slowed the game in proportion, a
+device that stopped stopped it. Now: gain 0.001 s per s of error per AX frame (10 ms of error ->
+0.33 %, time constant about 3 s), clamped at ±0.5 % of real time; above a high mark (150 ms
+queued) an AX frame (3 ms) is skipped instead of queued (counted); above 300 ms the queue is
+dropped (overrun, a stalled device); an empty queue (underrun: the game fell behind) is
+re-primed with 50 ms of silence so one late frame is not followed by a run of underruns. The
+SDL dummy driver consumes about 3 % slow: the controller sits at -0.5 % and the queue settles
+(no skips in 100 s runs, up to 145 ms queued). Pitch: the stream is declared as s16 stereo at
+32000 Hz (96 samples per 3 ms AX frame of game time, the DSP's rate) and SDL resamples to the
+device (the device format, buffer and the correction bound are printed: `audio: pipewire, device
+48000 Hz 2 ch, buffer N frames ...`). The pitch is exact whenever game time runs at real time; a
+game falling behind (the frame time over 16.7 ms) produces sound slower than the device plays
+it, which underruns and sounded like wrong speed before. Every AX frame is mixed in the clock
+event that makes it (§29), never by a cooperative thread, so the mixer cannot be starved; the
+sound thread's commands (new sounds, parameters) run when the game thread yields, as before.
+
+**The cursor.** The game sets KPAD's pointer play radius to 0.06 (sensitivity 1) every frame
+(`RPSysCoreController::beginFrame`, `KPADSetPosParam`); under that distance KPAD moves the
+pointer by (distance / 0.06)^4 of the way per sample, holding a real remote's jitter still. A
+mouse has no jitter: small moves crept (12 frames behind) or stopped short (2.6 px). `boot` is
+linked with `--wrap=KPADSetPosParam`; with live input the wrapper gives remote 0 (keyboard,
+mouse, gamepad 0) radius 0, so KPAD's position is the pointer's (`pointer_stabilise 1` in the
+config file keeps the game's). The decomp is unchanged. Other latency: the input is applied at
+each retrace and the game reads it in the next frame (the measured lag of 1 frame); the window
+position goes through `wpgx_window_to_picture` (the letterbox of the presented picture, then
+-1..1 over the 640x456 picture, as the remote's DPD mapping of §23 expects; error at rest half a
+pixel, so no offset); mailbox shows the newest frame at the next refresh (at most two frames in
+flight: Aurora's frame slots).
+
+**Per-frame work.** In a window the `FRAME` lines are no longer printed (60 lines a second to a
+terminal; `--trace` or a script keeps them, their probes drive scripted players). Frame reads,
+hashing and PNG work happen only with `--hash` / `--save`; Aurora logging stays at warnings; the
+address resolver is a range check (no map). The copy writeback above was the per-frame
+O(heavy) item.
+
+### Aurora patches
+
+Generic, uncommitted in the submodule on top of the `wiiplay` branch (18df730); the series is kept
+outside the repository with the job's notes (PUBLIC-safe: no paths, no names).
+
+| # | Subject | Files |
+|---|---|---|
+| 1 | `gfx: pipeline compile and wait statistics` | `include/aurora/gfx.h` (`AuroraStats.pipelineWaits`, `skippedDraws`, `pipelineCompileNs`, `pipelineWaitNs`), `lib/gfx/pipeline_cache.cpp` |
+| 2 | `webgpu: choose the adapter by name, index or type` | `include/aurora/aurora.h` (`AuroraConfig.adapterName`), `include/aurora/gfx.h` (`aurora_get_adapter_list`), `lib/webgpu/gpu.cpp` |
+| 3 | `gfx: mailbox presentation with vsync, present mode query` | `include/aurora/gfx.h` (`aurora_set_vsync_mailbox`, `aurora_get_present_mode`), `lib/gfx/present_target.cpp`, `.hpp`, `lib/webgpu/gpu.cpp` |
+
+### Verified headless vs. by hand
+
+Verified: the tracker's numbers and files (all runs above), adapter choice and listing, the disk
+cache across runs and its build key, writeback off frame-identical, the audio controller with
+the dummy device, the cursor wrapper through synthetic SDL mouse events. Not verifiable here (no
+window may be opened): the overlay's look, mailbox on the user's display (`present` in the
+summary), sound on a real device, the mouse by hand. What to run and send back: RUNNING.md.

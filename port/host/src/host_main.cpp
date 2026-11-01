@@ -36,6 +36,8 @@
 #include <port/host.h>
 #include <port/input.h>
 #include <port/live.h>
+#include <port/perf.h>
+#include <egg/core/eggController.h>
 
 #include "wpgx.h"
 
@@ -45,6 +47,8 @@
 #include <string>
 
 #include <cerrno>
+#include <ctime>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -89,6 +93,14 @@ struct Options {
     int audioOut = -1;  // -1: with --window
     int liveInput = -1; // -1: with --window
     bool trace = false;
+    // Performance (HOST_BUILD.md §35)
+    bool perf = false;
+    const char* perfOut = nullptr;
+    const char* gpu = nullptr;
+    int liveGfx = -1;        // -1: with --window: disk pipeline cache, no CPU adapter, mailbox
+    int blockingPipes = -1;  // -1: the mode's default
+    int mailbox = -1;        // -1: with --realtime
+    int writeback = -1;      // copy writeback (§28): 0 off, 1 on; -1: off with --live-gfx
     // --dump-copies FIRST:LAST:DIR (debugging): every EFB copy of those frames
     int dumpFirst = -1, dumpLast = -1;
     const char* dumpDir = nullptr;
@@ -180,6 +192,7 @@ s32 CurrentScene() {
                     st.rumbleOn, st.testRumbles, gOpt.audioOut == 1 ? wpgx_audio_driver() : "none");
         PortLiveShutdown();
     }
+    PortPerfFinish();
     std::fflush(stdout);
     if (gAudio != nullptr) {
         std::fclose(gAudio);
@@ -201,6 +214,27 @@ void BeginFrame() {
             Finish();
         }
         usleep(10000);
+    }
+}
+
+void PrintFrame(s32 scene, u64 hash);
+
+// Remote 0's pointer: the target the input layer gives (the mouse, a script)
+// against the KPAD position the game read this frame (its first sample).
+void CursorSample(PortPerfCursor* c) {
+    const PortInputState& st = gInputStates[0];
+    c->targetX = st.pointerX;
+    c->targetY = st.pointerY;
+    c->targetValid = st.pointerValid && st.connected;
+    c->kpadX = c->kpadY = 0;
+    c->kpadValid = 0;
+    EGG::CoreControllerMgr* mgr = EGG::CoreControllerMgr::instance();
+    EGG::CoreController* ctrl = mgr != NULL ? mgr->getNthController(0) : NULL;
+    if (ctrl != NULL) {
+        EGG::CoreStatus* cs = ctrl->getCoreStatus();
+        c->kpadX = cs->pos.x;
+        c->kpadY = cs->pos.y;
+        c->kpadValid = cs->dpd_valid_fg > 0;
     }
 }
 
@@ -230,6 +264,24 @@ void FrameDone() {
         std::fclose(f);
     }
     s32 scene = CurrentScene();
+    // A window prints no FRAME lines (a terminal at 60 lines a second) unless
+    // traced or scripted (the probes in them drive scripted players)
+    if (!gOpt.window || gOpt.trace || gScript != nullptr) {
+        PrintFrame(scene, hash);
+    }
+    gFrame++;
+    if (gOpt.frames > 0 && gFrame >= gOpt.frames) {
+        Finish();
+    }
+    BeginFrame();
+    if (PortPerfActive()) {
+        PortPerfCursor cursor;
+        CursorSample(&cursor);
+        PortPerfFrame(gFrame - 1, static_cast<int>(scene), &cursor);
+    }
+}
+
+void PrintFrame(s32 scene, u64 hash) {
     std::printf("FRAME\t%d\tretrace=%d\ttime=%lld\tscene=%d\taudio=%llu", gFrame,
                 static_cast<int>(VIGetRetraceCount()), PortVIGameTimeUnits(), static_cast<int>(scene),
                 PortVIAudioFrames());
@@ -245,11 +297,6 @@ void FrameDone() {
         std::printf("\thome=%s", home);
     }
     std::printf("\n");
-    gFrame++;
-    if (gOpt.frames > 0 && gFrame >= gOpt.frames) {
-        Finish();
-    }
-    BeginFrame();
 }
 
 // --dump-copies: the copy as written to memory and the EFB before it (raw files;
@@ -278,18 +325,24 @@ void DumpCopy(const wpgx_copy_info* c, void*) {
 }
 
 void SinkWrite(const void* data, u32 size, void*) {
+    u64 start = PortPerfNow();
     wpgx_fifo_write(data, size);
+    PortPerfAdd(PORT_PERF_GX, PortPerfNow() - start);
 }
 
 void SinkSync(u32 kind, void*) {
+    u64 start = PortPerfNow();
     switch (kind) {
     case PORT_GX_SYNC_FLUSH:
         wpgx_fifo_sync(WPGX_SYNC_FLUSH);
+        PortPerfAdd(PORT_PERF_GX, PortPerfNow() - start);
         break;
     case PORT_GX_SYNC_DRAWDONE:
         wpgx_fifo_sync(WPGX_SYNC_DRAWDONE);
+        PortPerfAdd(PORT_PERF_GX, PortPerfNow() - start);
         break;
     case PORT_GX_SYNC_DISPLAY:
+        PortPerfDrawOverlay();
         wpgx_end_frame();
         FrameDone();
         break;
@@ -377,7 +430,16 @@ void Usage(const char* argv0) {
                  "  --speed F           game speed with --realtime (1 = real time)\n"
                  "  --frames N          stop after N frames (default: 600 headless, none with a window)\n"
                  "  --input SCRIPT      scripted remotes (tests)   --events SCRIPT  synthetic SDL events (tests)\n"
-                 "  --save FRAME:PATH.rgba, --hash, --audio PATH.raw, --trace, --log-level N\n",
+                 "  --save FRAME:PATH.rgba, --hash, --audio PATH.raw, --trace, --log-level N\n"
+                 "  --perf              per-frame timings: a CSV and a summary at exit (F3: overlay)\n"
+                 "  --perf-out FILE.csv where (default: $XDG_STATE_HOME/wiiplay/perf-TIME.csv)\n"
+                 "  --gpu NAME|N|list   graphics adapter: part of its name, its index, discrete,\n"
+                 "                      integrated or cpu (default: $WIIPLAY_GPU, else the discrete GPU)\n"
+                 "  --live-gfx | --test-gfx  graphics settings of the window (pipeline cache on disk,\n"
+                 "                      no CPU adapter) or of the tests (default: by mode)\n"
+                 "  --async-pipelines | --blocking-pipelines, --mailbox | --fifo,\n"
+                 "  --writeback on|off  EFB texture copies written back to memory (default: on, off with\n"
+                 "                      --live-gfx)   (HOST_BUILD.md §35)\n",
                  argv0);
     std::exit(2);
 }
@@ -542,6 +604,31 @@ int main(int argc, char** argv) {
             gOpt.liveInput = 1;
         } else if (is("--trace")) {
             gOpt.trace = true;
+        } else if (is("--perf")) {
+            gOpt.perf = true;
+        } else if (is("--perf-out") && more) {
+            gOpt.perf = true;
+            gOpt.perfOut = argv[++i];
+        } else if (is("--gpu") && more) {
+            gOpt.gpu = argv[++i];
+        } else if (is("--live-gfx")) {
+            gOpt.liveGfx = 1;
+        } else if (is("--test-gfx")) {
+            gOpt.liveGfx = 0;
+        } else if (is("--async-pipelines")) {
+            gOpt.blockingPipes = 0;
+        } else if (is("--blocking-pipelines")) {
+            gOpt.blockingPipes = 1;
+        } else if (is("--writeback") && more) {
+            const char* v = argv[++i];
+            gOpt.writeback = std::strcmp(v, "off") == 0 ? 0 : std::strcmp(v, "on") == 0 ? 1 : -2;
+            if (gOpt.writeback == -2) {
+                Usage(argv[0]);
+            }
+        } else if (is("--mailbox")) {
+            gOpt.mailbox = 1;
+        } else if (is("--fifo")) {
+            gOpt.mailbox = 0;
         } else if (is("--log-level") && more) {
             gOpt.logLevel = std::atoi(argv[++i]);
         } else {
@@ -562,6 +649,19 @@ int main(int argc, char** argv) {
         gOpt.frames = gOpt.window ? 0 : 600;
     }
     gLive = gOpt.realtime || gOpt.audioOut || gOpt.liveInput;
+    // Graphics (§35): the window's settings (pipelines cached on disk, a real
+    // GPU, mailbox presentation under the pacer) or the tests' (no cache,
+    // every draw waits for its pipeline, any adapter): deterministic output.
+    gOpt.liveGfx = gOpt.liveGfx < 0 ? (gOpt.window ? 1 : 0) : gOpt.liveGfx;
+    gOpt.blockingPipes = gOpt.blockingPipes < 0 ? 1 : gOpt.blockingPipes;
+    gOpt.mailbox = gOpt.mailbox < 0 ? (gOpt.realtime ? 1 : 0) : gOpt.mailbox;
+    // Texture copies stay on the GPU in the window (§35: the readback cost up to 20 ms a frame,
+    // and no CPU reader of a copy changes any frame of the menus or the nine games)
+    gOpt.writeback = gOpt.writeback < 0 ? (gOpt.liveGfx ? 0 : 1) : gOpt.writeback;
+    if (gOpt.gpu == nullptr) {
+        const char* env = std::getenv("WIIPLAY_GPU");
+        gOpt.gpu = env != nullptr && env[0] != '\0' ? env : nullptr;
+    }
 
     // The disc: the extracted root (files/, sys/) or its files/ directory
     static std::string discFiles, discRoot, nandDir, dataDir;
@@ -583,6 +683,24 @@ int main(int argc, char** argv) {
     }
     if (gOpt.audio != nullptr) {
         CheckWritable("the audio file", gOpt.audio, false, discRoot);
+    }
+    static std::string perfPath;
+    if (gOpt.perf) {
+        if (gOpt.perfOut != nullptr) {
+            perfPath = gOpt.perfOut;
+        } else {
+            char stamp[32];
+            time_t now = time(nullptr);
+            struct tm tmNow;
+            localtime_r(&now, &tmNow);
+            strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &tmNow);
+            perfPath = UserDir("XDG_STATE_HOME", "/.local/state") + "/perf-" + stamp + ".csv";
+        }
+        size_t slash = perfPath.rfind('/');
+        if (slash != std::string::npos && slash > 0) {
+            MakeDirs(perfPath.substr(0, slash));
+        }
+        CheckWritable("the perf file", perfPath, false, discRoot);
     }
     static std::string configPath;
     if (gOpt.config == nullptr) {
@@ -666,12 +784,21 @@ int main(int argc, char** argv) {
     cfg.vsync = gOpt.vsync ? 1 : 0;
     cfg.title = "Wii Play";
     cfg.data_dir = gOpt.dataDir;
-    cfg.disk_cache = 0;
-    cfg.blocking_pipelines = 1;
-    cfg.allow_cpu_adapter = 1;
+    cfg.disk_cache = gOpt.liveGfx ? 1 : 0;
+    cfg.blocking_pipelines = gOpt.blockingPipes;
+    const bool wantCpu = gOpt.gpu != nullptr && strcasecmp(gOpt.gpu, "cpu") == 0;
+    cfg.allow_cpu_adapter = gOpt.liveGfx && !wantCpu ? 0 : 1;
+    const bool listGpus = gOpt.gpu != nullptr && std::strcmp(gOpt.gpu, "list") == 0;
+    cfg.adapter = listGpus ? nullptr : gOpt.gpu;
+    cfg.vsync_mailbox = gOpt.mailbox;
     cfg.log_level = gOpt.logLevel;
     if (wpgx_init(&cfg) != 0) {
-        Die("wpgx_init failed");
+        Die("wpgx_init failed (no usable graphics adapter? try --gpu list, --gpu cpu)");
+    }
+    if (listGpus) {
+        std::printf("%s", wpgx_adapter_list());
+        wpgx_shutdown();
+        return 0;
     }
     wpgx_set_display_aspect(aspect);
     if (gOpt.audioOut && PortLiveStartAudio() != 0) {
@@ -682,11 +809,30 @@ int main(int argc, char** argv) {
         Die("cannot open the input devices");
     }
     wpgx_set_address_resolver(Resolve, nullptr);
-    wpgx_set_copy_writeback(1, gOpt.dumpDir != nullptr, gOpt.dumpDir != nullptr ? DumpCopy : nullptr, nullptr);
+    wpgx_set_copy_writeback(gOpt.writeback != 0, gOpt.dumpDir != nullptr, gOpt.dumpDir != nullptr ? DumpCopy : nullptr,
+                            nullptr);
     PortGXSetSink(&kSink);
     BeginFrame();
     std::printf("BOOT\tadapter=%s\tefb=%ux%u\n", wpgx_adapter_name(), EFB_WIDTH, EFB_HEIGHT);
     std::fflush(stdout);
+    char gfxLabel[512];
+    std::snprintf(gfxLabel, sizeof gfxLabel,
+                  "gpu: %s (%s, %s); present %s%s; pipelines %s, disk cache %s; copy writeback %s; %s, %s, audio %s",
+                  wpgx_adapter_name(), wpgx_adapter_type(), wpgx_backend_name(), wpgx_present_mode(),
+                  gOpt.window ? (gOpt.vsync ? " (vsync)" : " (no vsync)") : "", gOpt.blockingPipes ? "blocking" : "async",
+                  cfg.disk_cache ? "on" : "off",
+                  gOpt.writeback ? "on" : "off", gOpt.window ? "window" : "headless",
+                  gOpt.realtime ? "real time" : "virtual time", gOpt.audioOut ? wpgx_audio_driver() : "off");
+    if (gOpt.window || gOpt.perf) {
+        std::fprintf(stderr, "boot: %s\n", gfxLabel);
+    }
+    if (std::strcmp(wpgx_adapter_type(), "cpu") == 0 && gOpt.window) {
+        std::fprintf(stderr, "boot: warning: rendering on the CPU (software); see --gpu list\n");
+    }
+    if (gOpt.perf || gOpt.window) {
+        // the window always tracks (F3 shows it); --perf also writes the files
+        PortPerfStart(gOpt.perf ? perfPath.c_str() : nullptr, 0, gfxLabel);
+    }
 
     char name[] = "main.dol";
     char* gameArgv[] = {name, nullptr};

@@ -764,7 +764,7 @@ BOOT_HOST_SRCS := src/host_os.cpp src/host_dvd.cpp src/host_nand.cpp src/host_sc
     src/host_thread.cpp src/host_os_clock.c src/host_snd.cpp src/host_ax.cpp src/host_wpad.cpp \
     src/host_input.cpp src/host_reslist.cpp src/host_g3d.cpp src/host_gfx_stubs.c \
     src/host_vi.cpp src/host_boot.cpp src/host_live.cpp src/host_probe.cpp src/host_probe_games.cpp \
-    src/host_probe_hbm.cpp src/host_main.cpp
+    src/host_probe_hbm.cpp src/host_perf.cpp src/host_main.cpp
 BOOT_OBJS := $(sort $(patsubst %,$(OUT)/decomp/%.o,$(filter-out $(GX_SDK_SRCS),$(BOOT_SRCS))) \
     $(patsubst %,$(OUT)/host/%.o,$(BOOT_HOST_SRCS))) $(OUT)/decomp/src/main.cpp.o
 # Data the decomp reaches by its CodeWarrior name (RPTextWriter: a private static; Laser
@@ -778,8 +778,9 @@ $(OUT)/decomp/src/main.cpp.o: CXXFLAGS += -Dmain=PortGameMain
 $(OUT)/boot: $(HOST)/aurora/wpgx.h $(GX_SDK_OBJS) $(BOOT_OBJS) $(WPGX_LIB) $(LIB)
 	$(CXX) $(CXXFLAGS) $(GX_SDK_OBJS) $(BOOT_OBJS) $(LIB) \
 	    -L$(AURORA_BUILD) -lwiiplay_gx -Wl,-rpath,$(AURORA_BUILD) -Wl,--gc-sections \
-	    $(BOOT_CW_NAMES) -o $@
-$(OUT)/host/src/host_main.cpp.o $(OUT)/host/src/host_vi.cpp.o $(OUT)/host/src/host_live.cpp.o: CXXFLAGS += -I$(HOST)/aurora
+	    $(BOOT_CW_NAMES) -Wl,--wrap=KPADSetPosParam -o $@
+$(OUT)/host/src/host_main.cpp.o $(OUT)/host/src/host_vi.cpp.o $(OUT)/host/src/host_live.cpp.o \
+    $(OUT)/host/src/host_perf.cpp.o: CXXFLAGS += -I$(HOST)/aurora
 
 .PHONY: gx gx-aurora-tests FORCE
 FORCE:

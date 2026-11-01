@@ -48,9 +48,57 @@ port/host/build/host64/boot --disc /path/to/extracted-disc --window
   usually `~/.config/wiiplay/input.cfg`, if it exists).
 - `--no-audio`, `--speed F`, `--frames N`: no sound; a different game speed; stop after N
   frames.
+- `--gpu NAME`: the graphics adapter: part of its name (`--gpu nvidia`, `--gpu intel`), its
+  index, or `discrete` / `integrated` / `cpu`. `--gpu list` prints the adapters and exits.
+  Default: the environment variable `WIIPLAY_GPU` if set, else the discrete GPU. A window
+  refuses the CPU (software) adapter unless asked for with `--gpu cpu`. The adapter in use is
+  printed at start (`boot: gpu: ...`).
+- `--perf`: performance tracking (below).
 
 Closing the window ends the game (the save file is written by the game whenever it saves,
 as on the Wii).
+
+## Performance: `--perf` and F3
+
+```
+port/host/build/host64/boot --disc /path/to/extracted-disc --window --perf
+```
+
+Play as usual, then close the window. At exit the program prints a summary and writes two
+files to `$XDG_STATE_HOME/wiiplay/` (usually `~/.local/state/wiiplay/`):
+`perf-DATE-TIME.csv` (one row per frame) and `perf-DATE-TIME.txt` (the summary). Paste the
+`.txt` file (or the summary from the terminal, from `=== wiiplay perf summary ===` to the
+`worst frames` list) into a bug report. `--perf-out FILE.csv` writes elsewhere (outside the
+source tree and the disc).
+
+F3 shows or hides an overlay with the same numbers, averaged over the last 120 frames, and a
+graph of the frame times (the red line is 16.7 ms). F3 works without `--perf` too (nothing is
+written then).
+
+What the numbers mean (milliseconds per displayed frame):
+
+| Column | Time spent |
+|---|---|
+| `wall` | the whole frame: 16.7 at full speed (59.94 frames per second) |
+| `calc` | the game's own code, the sound mixer |
+| `gx` | handing the frame's drawing to the renderer; includes draws waiting for a new pipeline |
+| `end` | finishing the frame for the GPU |
+| `gpu` | waiting for the GPU (only with `--writeback on`: the game's render-to-texture copies read back every frame) |
+| `present` | waiting for the display / GPU to take another frame |
+| `sleep` | idle, waiting for the next 1/59.94 s |
+| `pipe_compile` | compiling new GPU pipelines (the first time a material is seen; cached on disk afterwards) |
+| `audio_queue` | sound queued for the device (about 50 ms in steady state) |
+
+The summary also counts frames over 16.7, 20 and 33.3 ms, audio underruns (the device ran out
+of sound: crackles) and skipped audio frames, and the cursor's lag (frames) and error against
+the mouse. A healthy run on a desktop GPU: `wall` p99 close to 16.7, `busy` well under 16.7,
+no underruns, cursor lag 0-1.
+
+Settings that change performance: `--gpu` (above); `--async-pipelines` (draws whose pipeline
+is still compiling are skipped instead of waited for: no hitches the first time something is
+drawn, but a frame may miss an object, and a texture the game renders once, such as a Mii
+face, may come out incomplete); `--fifo` (classic vsync instead of mailbox presentation);
+`--no-vsync`.
 
 ## The HOME Menu
 
@@ -112,6 +160,7 @@ volume 1.0
 mute_unfocused 0         # 1: silence while the window has no focus
 nunchuk 0                # 1: every remote has a Nunchuk (left stick = its stick)
 stick_deadzone 0.2
+pointer_stabilise 0      # 1: keep the game's pointer stabilisation for the mouse (a real remote's)
 ```
 
 Buttons: `A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C none`.

@@ -27,6 +27,7 @@ typedef struct PortLiveConfig {
     int muteUnfocused;    /* silence while the window has no focus */
     int nunchuk;          /* report a Nunchuk on every connected remote */
     f32 stickDeadzone;
+    int pointerStabilise; /* keep KPAD's pointer stabilisation for remote 0 (the mouse); default off */
 } PortLiveConfig;
 
 /* Reads the config file (NULL: defaults only). Returns 0, or -1 with a
@@ -65,6 +66,8 @@ typedef struct PortLiveStats {
     u32 rumbleOn;            /* motor-on calls forwarded to a gamepad */
     u32 testRumbles;         /* rumble requests the virtual test gamepad got */
     u32 events;              /* window-system events applied */
+    u32 skippedFrames;       /* AX frames not queued: the queue was over its high mark */
+    double correction;       /* the audio controller's last pace correction (fraction, + = slower) */
 } PortLiveStats;
 void PortLiveGetStats(PortLiveStats* stats);
 

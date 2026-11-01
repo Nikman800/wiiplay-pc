@@ -28,7 +28,7 @@ typedef struct {
        written under the platform's per-user data directory. */
     const char* data_dir;
     int disk_cache;         /* 0: no pipeline/Dawn cache on disk */
-    uint32_t cache_key;     /* pipeline cache key; 0 = the library's own */
+    uint32_t cache_key;     /* pipeline cache key; 0 = the library's own (its patch version and build ID) */
     int blocking_pipelines; /* 1: draws wait for their pipeline (none skipped) */
     int allow_cpu_adapter;  /* 1: accept a software adapter (lavapipe) */
     int log_level;          /* 0 debug, 1 info, 2 warning, 3 error */
@@ -40,6 +40,10 @@ typedef struct {
     int fullscreen;         /* 1: start fullscreen */
     int vsync;              /* 1: present with vsync (FIFO / FIFO relaxed) */
     const char* title;      /* window title; NULL = "wiiplay" */
+    /* HOST_BUILD.md §35 */
+    const char* adapter;    /* graphics adapter: index, type (discrete, integrated, cpu) or part of the
+                               name (wpgx_adapter_list); NULL = the high-performance default */
+    int vsync_mailbox;      /* with vsync: present in mailbox mode where offered (never waits for a refresh) */
 } wpgx_config;
 
 /* Returns 0 on success. */
@@ -56,6 +60,41 @@ int wpgx_read_frame(uint8_t* rgba, size_t size, uint32_t* width, uint32_t* heigh
 
 /* Name of the graphics adapter in use (for logs). */
 const char* wpgx_adapter_name(void);
+/* Its type ("discrete", "integrated", "cpu", "unknown") and backend ("vulkan", ...). */
+const char* wpgx_adapter_type(void);
+const char* wpgx_backend_name(void);
+/* The adapters offered, one per line ("index: name (type, backend, driver)"). */
+const char* wpgx_adapter_list(void);
+/* The window's present mode ("fifo", "fifo-relaxed", "mailbox", "immediate"; "none" headless). */
+const char* wpgx_present_mode(void);
+/* Draws wait for their pipeline (1) or are skipped until it is compiled (0); from the next draw. */
+void wpgx_set_blocking_pipelines(int blocking);
+
+/* --- Performance counters (HOST_BUILD.md §35) ---------------------------- */
+/* Cumulative since wpgx_init; the caller takes differences per frame. Times
+   in nanoseconds of the calling thread's wall clock unless noted. */
+typedef struct {
+    uint64_t begin_frame_ns;     /* wpgx_begin_frame: waiting for a free frame slot (GPU / present behind) */
+    uint64_t end_frame_ns;       /* wpgx_end_frame without the writeback: FIFO drain, recording, submission */
+    uint64_t writeback_ns;       /* copy writeback: waiting for the GPU to finish the frame's copies */
+    uint64_t read_frame_ns;      /* wpgx_read_frame */
+    uint64_t pipeline_compile_ns; /* compiling pipelines, any thread */
+    uint64_t pipeline_wait_ns;   /* draws waiting for their pipeline (FIFO thread) */
+    uint32_t pipelines_created;
+    uint32_t pipelines_queued;   /* now */
+    uint32_t pipeline_waits;
+    uint32_t skipped_draws;      /* draws dropped: pipeline not ready (non-blocking pipelines) */
+    uint32_t copies_written;
+    uint32_t draw_calls;         /* the last submitted frame */
+} wpgx_perf;
+void wpgx_get_perf(wpgx_perf* perf);
+
+/* An overlay drawn over the presented picture (windowed only; Dear ImGui):
+   lines of text and a bar graph of `count` values, full height at
+   `graph_max`, with a mark at `graph_mark`. Call between wpgx_begin_frame and
+   wpgx_end_frame; it shows in that frame. Returns 0 when nothing can be drawn
+   (headless). */
+int wpgx_overlay(const char* text, const float* values, int count, float graph_max, float graph_mark);
 
 /* --- The port's GX command stream (milestone 2, HOST_BUILD.md §26) -------- */
 
@@ -173,6 +212,9 @@ void wpgx_audio_clear(void);
 void wpgx_audio_set_gain(float gain);
 /* The SDL audio driver in use ("pipewire", "pulseaudio", "dummy", ...). */
 const char* wpgx_audio_driver(void);
+/* The playback device's format: sample rate, channels and buffer size in
+   sample frames (0 if unknown). Returns 0 on success. */
+int wpgx_audio_device_format(int* rate, int* channels, int* buffer_frames);
 
 /* Tests: synthetic SDL events, delivered through the same path as real ones. */
 void wpgx_test_push_key(const char* name, int down);

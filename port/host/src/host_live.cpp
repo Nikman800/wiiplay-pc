@@ -13,6 +13,7 @@
 #include <port/host.h>
 #include <port/input.h>
 #include <port/live.h>
+#include <port/perf.h>
 
 #include "wpgx.h"
 
@@ -60,7 +61,7 @@ KeyBind sKeyBinds[MAX_KEY_BINDS];
 int sKeyBindCount = 0;
 u16 sPadBinds[PAD_BUTTONS + 2]; // buttons, then the two triggers
 
-PortLiveConfig sConfig = {1.5f, 2.0f, 1, 1, 1.0f, 0, 0, 0.2f};
+PortLiveConfig sConfig = {1.5f, 2.0f, 1, 1, 1.0f, 0, 0, 0.2f, 0};
 
 bool NameEq(const char* a, const char* b) {
     for (; *a && *b; a++, b++) {
@@ -156,8 +157,17 @@ int Split(char* line, char** words, int max) {
 
 const u32 AUDIO_RATE = 32000;
 const u32 AUDIO_TARGET = 1600;  // frames queued in steady state (50 ms)
-const u32 AUDIO_PREFILL = 1600; // silence queued when the stream starts
-const u32 AUDIO_LIMIT = 9600;   // above this (300 ms) the queue is dropped
+const u32 AUDIO_PREFILL = 1600; // silence queued when the stream starts or runs dry
+const u32 AUDIO_HIGH = 4800;    // above this (150 ms) an AX frame is skipped
+const u32 AUDIO_LIMIT = 9600;   // above this (300 ms: the device stalled) the queue is dropped
+const f64 AX_FRAME_SECONDS = 96.0 / AUDIO_RATE;
+// The device steers the pace by at most this fraction of real time (0.5 %):
+// a device clock's drift is far smaller; a device running slower than that
+// costs skipped AX frames instead of slowing the game.
+const f64 AUDIO_MAX_CORRECTION = 0.005;
+// Seconds of correction per AX frame per second of queue error: 10 ms of error
+// gives 0.33 % (time constant about 3 s); clamped to the bound above.
+const f64 AUDIO_GAIN = 0.001;
 
 bool sPacing = false;
 bool sStarted = false;
@@ -170,13 +180,16 @@ bool sAudioPrimed = false;
 bool sFocused = true;
 PortLiveStats sStats;
 
-// The device paces the game: each AX frame nudges the anchor by a fraction of
-// the queue's distance from its target (a proportional controller, time
-// constant about a third of a second).
-void SteerByAudio() {
-    u32 queued = wpgx_audio_queued_frames();
-    double error = (static_cast<double>(queued) - AUDIO_TARGET) / AUDIO_RATE; // seconds ahead
-    sAnchor += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(error * 0.01));
+// The device paces the game: each AX frame nudges the anchor by a bounded
+// fraction of the queue's distance from its target (a proportional
+// controller).
+void SteerByAudio(u32 queued) {
+    f64 error = (static_cast<f64>(queued) - AUDIO_TARGET) / AUDIO_RATE; // seconds ahead
+    f64 shift = error * AUDIO_GAIN;
+    const f64 bound = AUDIO_MAX_CORRECTION * AX_FRAME_SECONDS;
+    shift = shift > bound ? bound : (shift < -bound ? -bound : shift);
+    sStats.correction = shift / AX_FRAME_SECONDS;
+    sAnchor += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<f64>(shift));
 }
 
 void Pace(long long units, void*) {
@@ -200,7 +213,9 @@ void Pace(long long units, void*) {
         return;
     }
     if (target > now) {
+        u64 start = PortPerfNow();
         std::this_thread::sleep_until(target);
+        PortPerfAdd(PORT_PERF_SLEEP, PortPerfNow() - start);
     }
 }
 
@@ -422,6 +437,8 @@ int PortLiveLoadConfig(const char* path, char* err, int errLen) {
                 sConfig.nunchuk = v != 0;
             } else if (NameEq(w[0], "stick_deadzone")) {
                 sConfig.stickDeadzone = Clamp(v, 0.0f, 0.9f);
+            } else if (NameEq(w[0], "pointer_stabilise")) {
+                sConfig.pointerStabilise = v != 0;
             } else {
                 return bad("unknown setting");
             }
@@ -449,6 +466,14 @@ int PortLiveStartAudio(void) {
     }
     wpgx_audio_set_gain(sConfig.volume);
     sAudio = true;
+    int rate = 0, channels = 0, buffer = 0;
+    if (wpgx_audio_device_format(&rate, &channels, &buffer) == 0) {
+        std::fprintf(stderr,
+                     "audio: %s, device %d Hz %d ch, buffer %d frames (%.1f ms); stream s16 stereo %u Hz "
+                     "(SDL resamples), queue target %.0f ms, pace correction <= %.1f %%\n",
+                     wpgx_audio_driver(), rate, channels, buffer, rate > 0 ? 1000.0 * buffer / rate : 0.0,
+                     AUDIO_RATE, 1000.0 * AUDIO_TARGET / AUDIO_RATE, 100.0 * AUDIO_MAX_CORRECTION);
+    }
     return 0;
 }
 
@@ -456,24 +481,49 @@ void PortLiveAudioFrame(const short* samples, u32 frames) {
     if (!sAudio) {
         return;
     }
+    static short silence[AUDIO_PREFILL * 2];
     if (!sAudioPrimed) {
-        static short silence[AUDIO_PREFILL * 2];
         wpgx_audio_queue(silence, AUDIO_PREFILL);
         sAudioPrimed = true;
     }
     u32 queued = wpgx_audio_queued_frames();
     if (queued == 0) {
+        // The device ran dry (the game fell behind): it played silence; queue
+        // the cushion again so that one late frame is not followed by more.
         sStats.underruns++;
+        wpgx_audio_queue(silence, AUDIO_PREFILL);
+        queued = AUDIO_PREFILL;
     } else if (queued > AUDIO_LIMIT) {
-        // The game ran ahead of the device (a stall in the device or pacing
-        // off): drop the backlog rather than play late.
+        // The device stalled: drop the backlog rather than play late.
         wpgx_audio_clear();
         sStats.overruns++;
+        queued = 0;
     }
-    wpgx_audio_queue(samples, frames);
+    if (queued > AUDIO_HIGH) {
+        // Ahead of a device slower than the correction can follow: skip 3 ms.
+        sStats.skippedFrames++;
+    } else {
+        wpgx_audio_queue(samples, frames);
+    }
     if (sPacing && sSpeed == 1.0f) {
-        SteerByAudio();
+        SteerByAudio(queued);
     }
+}
+
+// KPAD's pointer stabilisation (HOST_BUILD.md §35): the game sets a play
+// radius (0.06 of the half-width, sensitivity 1) every frame, under which KPAD
+// moves the pointer by (distance / radius)^4 of the way per sample: a real
+// remote's jitter is held still, but a mouse's small moves lag or stop short.
+// With live input (and pointer_stabilise 0, the default) remote 0, which the
+// mouse drives, gets radius 0: KPAD's position is the pointer's. The boot
+// executable is linked with --wrap=KPADSetPosParam.
+void __real_KPADSetPosParam(s32 chan, f32 playRadius, f32 sensitivity);
+void __wrap_KPADSetPosParam(s32 chan, f32 playRadius, f32 sensitivity) {
+    if (sInput && chan == 0 && !sConfig.pointerStabilise) {
+        playRadius = 0.0f;
+        sensitivity = 1.0f;
+    }
+    __real_KPADSetPosParam(chan, playRadius, sensitivity);
 }
 
 int PortLiveStartInput(void) {
@@ -499,6 +549,7 @@ int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]) {
     sPolled = true;
     sLastPoll = now;
 
+    u64 pollStart = PortPerfNow();
     wpgx_pump_events();
     int quit = 0;
     wpgx_event e;
@@ -509,6 +560,10 @@ int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]) {
             quit = 1;
             break;
         case WPGX_EV_KEY:
+            if (e.down && NameEq(e.name, "F3")) {
+                PortPerfToggleOverlay();
+                break;
+            }
             if (e.down && (NameEq(e.name, "F11") || (NameEq(e.name, "Return") && sHeldCount > 0 &&
                                                      (NameEq(sHeld[0], "Left Alt") || NameEq(sHeld[0], "Right Alt"))))) {
                 wpgx_set_fullscreen(!wpgx_is_fullscreen());
@@ -584,6 +639,7 @@ int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]) {
             wpgx_gamepad_rumble(chan, 0.5f, 0.5f, 2000);
         }
     }
+    PortPerfAdd(PORT_PERF_INPUT, PortPerfNow() - pollStart);
     return quit;
 }
 

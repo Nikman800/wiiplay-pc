@@ -4,15 +4,23 @@
 #include <aurora/aurora.h>
 #include <aurora/event.h>
 #include <aurora/gfx.h>
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <magic_enum.hpp>
 #include <dolphin/gx.h>
 #include <dolphin/mtx.h>
 #include <dolphin/vi.h>
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+
+#include <elf.h>
+#include <link.h>
 
 #include "gx/fifo.hpp"
 #include "webgpu/gpu.hpp"
@@ -45,6 +53,70 @@ bool gCopyWriteback = false;
 wpgx_copy_observer gCopyObserver = nullptr;
 void* gCopyObserverUser = nullptr;
 uint32_t gCopiesWritten = 0;
+std::string gAdapterType;
+std::string gBackendName;
+std::string gAdapterList;
+wpgx_perf gPerf{};
+
+uint64_t NowNs() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                     std::chrono::steady_clock::now().time_since_epoch())
+                                     .count());
+}
+
+// The GNU build ID of this library (the linker's hash of its contents): the
+// on-disk pipeline cache is keyed by it, so every build starts its own cache.
+uint32_t BuildIdKey() {
+    struct Ctx {
+        const void* self;
+        uint32_t key;
+    } ctx{reinterpret_cast<const void*>(&BuildIdKey), 0};
+    dl_iterate_phdr(
+        [](dl_phdr_info* info, size_t, void* data) -> int {
+            auto* c = static_cast<Ctx*>(data);
+            const auto addr = reinterpret_cast<uintptr_t>(c->self);
+            bool mine = false;
+            for (int i = 0; i < info->dlpi_phnum && !mine; i++) {
+                const auto& ph = info->dlpi_phdr[i];
+                const uintptr_t start = info->dlpi_addr + ph.p_vaddr;
+                mine = ph.p_type == PT_LOAD && addr >= start && addr < start + ph.p_memsz;
+            }
+            if (!mine) {
+                return 0;
+            }
+            for (int i = 0; i < info->dlpi_phnum; i++) {
+                const auto& ph = info->dlpi_phdr[i];
+                if (ph.p_type != PT_NOTE) {
+                    continue;
+                }
+                const auto* p = reinterpret_cast<const uint8_t*>(info->dlpi_addr + ph.p_vaddr);
+                const uint8_t* end = p + ph.p_memsz;
+                while (p + sizeof(ElfW(Nhdr)) <= end) {
+                    const auto* n = reinterpret_cast<const ElfW(Nhdr)*>(p);
+                    const uint8_t* desc = p + sizeof(ElfW(Nhdr)) + ((n->n_namesz + 3) & ~3u);
+                    if (n->n_type == NT_GNU_BUILD_ID) {
+                        uint32_t h = 2166136261u;
+                        for (uint32_t k = 0; k < n->n_descsz; k++) {
+                            h = (h ^ desc[k]) * 16777619u;
+                        }
+                        c->key = h;
+                    }
+                    p = desc + ((n->n_descsz + 3) & ~3u);
+                }
+            }
+            return 1;
+        },
+        &ctx);
+    return ctx.key;
+}
+
+std::string Lower(std::string_view s) {
+    std::string out(s);
+    for (char& c : out) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return out;
+}
 
 void LogCallback(AuroraLogLevel level, const char* module, const char* message, unsigned int) {
     static const char* const kNames[] = {"DEBUG", "INFO", "WARN", "ERROR", "FATAL"};
@@ -79,8 +151,15 @@ WPGX_API int wpgx_init(const wpgx_config* config) {
     cfg.logCallback = LogCallback;
     cfg.logLevel = static_cast<AuroraLogLevel>(config->log_level);
     cfg.disableShaderCache = config->disk_cache == 0;
-    cfg.pipelineCacheKey = config->cache_key ? config->cache_key : kPipelineCacheKey;
+    // The library's own key: our patches' version and this build's ID
+    uint32_t key = config->cache_key;
+    if (key == 0) {
+        key = (kPipelineCacheKey * 0x9E3779B1u) ^ BuildIdKey();
+        key = key != 0 ? key : kPipelineCacheKey;
+    }
+    cfg.pipelineCacheKey = key;
     cfg.vsync = config->vsync != 0;
+    cfg.adapterName = config->adapter;
     if (config->headless) {
         cfg.surface.type = AURORA_SURFACE_HEADLESS;
         cfg.surface.width = width;
@@ -94,10 +173,30 @@ WPGX_API int wpgx_init(const wpgx_config* config) {
     }
     aurora_initialize(0, nullptr, &cfg);
     if (!config->headless) {
+        aurora_set_vsync_mailbox(config->vsync_mailbox != 0);
         aurora_enable_vsync(config->vsync != 0);
     }
     wpgx_platform_init(config->headless != 0, width, height);
     gAdapterName = std::string(aurora::webgpu::g_adapterInfo.device.data, aurora::webgpu::g_adapterInfo.device.length);
+    const auto& info = aurora::webgpu::g_adapterInfo;
+    switch (info.adapterType) {
+    case wgpu::AdapterType::DiscreteGPU:
+        gAdapterType = "discrete";
+        break;
+    case wgpu::AdapterType::IntegratedGPU:
+        gAdapterType = "integrated";
+        break;
+    case wgpu::AdapterType::CPU:
+        gAdapterType = "cpu";
+        break;
+    default:
+        gAdapterType = "unknown";
+        break;
+    }
+    gBackendName = Lower(magic_enum::enum_name(info.backendType));
+    gAdapterList.resize(aurora_get_adapter_list(nullptr, 0) + 1);
+    aurora_get_adapter_list(gAdapterList.data(), gAdapterList.size());
+    gAdapterList.resize(gAdapterList.size() - 1);
 
     GXInit(gFifo, sizeof gFifo);
     // The EFB is the hardware's: the configured width and 528 lines (or the
@@ -130,24 +229,78 @@ WPGX_API void wpgx_shutdown(void) {
 
 WPGX_API int wpgx_begin_frame(void) {
     wpgx_platform_take_events(aurora_update());
+    const uint64_t start = NowNs();
     gInFrame = aurora_begin_frame();
+    gPerf.begin_frame_ns += NowNs() - start;
     return gInFrame ? 1 : 0;
 }
 
 WPGX_API void wpgx_end_frame(void) {
     gInFrame = false;
+    const uint64_t start = NowNs();
     aurora_end_frame();
+    const uint64_t ended = NowNs();
+    gPerf.end_frame_ns += ended - start;
     // Policy (HOST_BUILD.md §28): the frame's texture copies reach memory when it ends.
     if (gCopyWriteback) {
         AuroraFlushCopyWriteback();
+        gPerf.writeback_ns += NowNs() - ended;
     }
 }
 
 WPGX_API int wpgx_read_frame(uint8_t* rgba, size_t size, uint32_t* width, uint32_t* height) {
-    return aurora_read_framebuffer(rgba, size, width, height) ? 0 : -1;
+    const uint64_t start = NowNs();
+    const bool ok = aurora_read_framebuffer(rgba, size, width, height);
+    gPerf.read_frame_ns += NowNs() - start;
+    return ok ? 0 : -1;
 }
 
 WPGX_API const char* wpgx_adapter_name(void) { return gAdapterName.c_str(); }
+WPGX_API const char* wpgx_adapter_type(void) { return gAdapterType.c_str(); }
+WPGX_API const char* wpgx_backend_name(void) { return gBackendName.c_str(); }
+WPGX_API const char* wpgx_adapter_list(void) { return gAdapterList.c_str(); }
+WPGX_API const char* wpgx_present_mode(void) { return aurora_get_present_mode(); }
+WPGX_API void wpgx_set_blocking_pipelines(int blocking) { AuroraSetDrawsBlocking(blocking != 0); }
+
+WPGX_API void wpgx_get_perf(wpgx_perf* perf) {
+    const AuroraStats* st = aurora_get_stats();
+    gPerf.pipeline_compile_ns = __atomic_load_n(&st->pipelineCompileNs, __ATOMIC_RELAXED);
+    gPerf.pipeline_wait_ns = __atomic_load_n(&st->pipelineWaitNs, __ATOMIC_RELAXED);
+    gPerf.pipelines_created = __atomic_load_n(&st->createdPipelines, __ATOMIC_RELAXED);
+    gPerf.pipelines_queued = __atomic_load_n(&st->queuedPipelines, __ATOMIC_RELAXED);
+    gPerf.pipeline_waits = __atomic_load_n(&st->pipelineWaits, __ATOMIC_RELAXED);
+    gPerf.skipped_draws = __atomic_load_n(&st->skippedDraws, __ATOMIC_RELAXED);
+    gPerf.draw_calls = st->drawCallCount;
+    gPerf.copies_written = gCopiesWritten;
+    *perf = gPerf;
+}
+
+WPGX_API int wpgx_overlay(const char* text, const float* values, int count, float graph_max, float graph_mark) {
+    ImGuiContext* ctx = ImGui::GetCurrentContext();
+    if (ctx == nullptr || !ctx->WithinFrameScope) {
+        return 0;
+    }
+    ImGui::SetNextWindowPos(ImVec2(8.0f, 8.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.6f);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                                   ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+    if (ImGui::Begin("wiiplay perf", nullptr, flags)) {
+        ImGui::TextUnformatted(text);
+        if (values != nullptr && count > 0) {
+            const ImVec2 size(static_cast<float>(count) * 2.0f, 60.0f);
+            const ImVec2 origin = ImGui::GetCursorScreenPos();
+            ImGui::PlotHistogram("##frames", values, count, 0, nullptr, 0.0f, graph_max, size);
+            if (graph_mark > 0.0f && graph_mark < graph_max) {
+                const float y = origin.y + size.y * (1.0f - graph_mark / graph_max);
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(origin.x, y), ImVec2(origin.x + size.x, y),
+                                                    IM_COL32(255, 80, 80, 200));
+            }
+        }
+    }
+    ImGui::End();
+    return 1;
+}
 
 // --- The port's GX command stream -----------------------------------------------
 
