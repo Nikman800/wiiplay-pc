@@ -1026,6 +1026,11 @@ int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]) {
         }
         UpdateGestures(chan, actions, chan == 0 ? sWheelY : 0.0f);
         st->pointerValid = chan != 0 || sMouseSeen || sPads[0].present ? 1 : 0;
+        if (Hold(chan) & PORT_HOLD_SIDEWAYS) {
+            // Held on its side (Charge!) the remote cannot see the sensor bar: the game
+            // waits for the pointer to leave the screen before the race starts
+            st->pointerValid = 0;
+        }
         st->pointerX = sPointerX[chan];
         st->pointerY = sPointerY[chan];
         if (sMotor[chan] && sConfig.rumble && sPads[chan].present) {
