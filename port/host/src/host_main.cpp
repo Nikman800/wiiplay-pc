@@ -52,6 +52,7 @@ extern int PortGameMain(int argc, char** argv);
 extern "C" u8 Health_strapArchive[];
 // Minigame state for the FRAME line (host_probe.cpp)
 extern "C" int PortGameProbe(char* buf, int len);
+extern "C" int PortHomeProbe(char* buf, int len); // host_probe_hbm.cpp
 
 namespace {
 
@@ -159,10 +160,17 @@ s32 CurrentScene() {
     return mgr != NULL ? mgr->getCurrentSceneID() : -1;
 }
 
-[[noreturn]] void Finish() {
-    std::printf("END\tframes=%d\tretrace=%d\tscene=%d\taudio=%llu\tgx=%llu\n", gFrame,
+// The end of the run: --frames reached, the window closed, or the game left
+// through OSReturnToMenu / OSShutdownSystem (`exit=` names which: the HOME
+// Menu's "Wii Menu" ends the program here, §34)
+[[noreturn]] void Finish(const char* exitReason = nullptr) {
+    std::printf("END\tframes=%d\tretrace=%d\tscene=%d\taudio=%llu\tgx=%llu", gFrame,
                 static_cast<int>(VIGetRetraceCount()), static_cast<int>(CurrentScene()), PortVIAudioFrames(),
                 static_cast<unsigned long long>(PortGXStreamBytes()));
+    if (exitReason != nullptr) {
+        std::printf("\texit=%s", exitReason);
+    }
+    std::printf("\n");
     if (gLive) {
         PortLiveStats st;
         PortLiveGetStats(&st);
@@ -231,6 +239,10 @@ void FrameDone() {
     char game[64];
     if (PortGameProbe(game, sizeof game)) {
         std::printf("\tgame=%s", game);
+    }
+    char home[96];
+    if (PortHomeProbe(home, sizeof home)) {
+        std::printf("\thome=%s", home);
     }
     std::printf("\n");
     gFrame++;
@@ -452,6 +464,14 @@ void CheckWritable(const char* what, const std::string& path, bool isDir, const 
 }
 
 } // namespace
+
+// The game left: OSReturnToMenu ("menu": the HOME Menu's "Wii Menu") or
+// OSShutdownSystem ("shutdown"), both after the game's own shutdown
+// (RPSysSystem::systemShutDown: saves finished, sound faded, remotes off).
+// The program ends as at --frames: the END line, the window and audio closed.
+extern "C" [[noreturn]] void PortBootExit(const char* reason) {
+    Finish(reason);
+}
 
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {

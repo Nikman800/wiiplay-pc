@@ -172,6 +172,13 @@ int PortInputAimHook(int chan, f32* x, f32* y) __attribute__((weak));
  * left the state alone. */
 int PortInputPlayHook(int chan, int frame, PortInputState* state) __attribute__((weak));
 
+/* "FRAME hbm PANE" ("hbm none" stops): while set, each retrace (after `aim`,
+ * before `play`) this hook (weak; the boot's host_probe_hbm.cpp) gives where
+ * remote CHAN must point to be on the centre of the HOME Menu's pane PANE
+ * (the library's own pane rectangle and hit-test mapping); 0 = the HOME Menu
+ * is not open or has no such pane (the pointer stays). */
+int PortInputHomeHook(int chan, const char* pane, f32* x, f32* y) __attribute__((weak));
+
 #ifdef __cplusplus
 }
 #endif

@@ -23,5 +23,13 @@
 526 pad button east up
 # the pointer onto "Yes": the game rumbles the remote as it reaches the button
 640 mouse 195 348
+# HOME (§34): the Escape key opens the HOME Menu; H and the gamepad's Guide button are
+# HOME too (the menu is already opening: no effect)
+690 key Escape down
+694 key Escape up
+698 key H down
+702 key H up
+706 pad button guide down
+710 pad button guide up
 # the window's close button
 715 quit

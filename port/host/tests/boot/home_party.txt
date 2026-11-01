@@ -1,0 +1,50 @@
+# The HOME Menu over the party menu and over Laser Hockey (port/docs/HOST_BUILD.md §34):
+# test_boot.py appends this to tests/boot/menus_saved.txt (which ends on the party menu),
+# without its `end`. `hbm PANE` puts the pointer on the centre of a HOME Menu pane (the
+# library's own pane rectangles, host_probe_hbm.cpp).
+# HOME on the party menu
+3000 press HOME
+3006 release HOME
+# "Wii Remote Settings": the panel (battery, volume, rumble)
+3120 hbm B_bar_10
+3140 press A
+3146 release A
+# Volume - then +, Rumble Off then On
+3220 hbm B_optnBtn_00
+3240 press A
+3246 release A
+3280 hbm B_optnBtn_01
+3300 press A
+3306 release A
+3340 hbm B_optnBtn_11
+3360 press A
+3366 release A
+3400 hbm B_optnBtn_10
+3420 press A
+3426 release A
+# "Close Wii Remote Settings", then "Close": back to the party menu
+3460 hbm B_bar_10
+3480 press A
+3486 release A
+3560 hbm B_btn_00
+3580 press A
+3586 release A
+3620 hbm none
+# Laser Hockey (as tests/boot/hockey_smoke.txt, 300 frames later)
+3700 mouse 318 75
+3730 press A
+3736 release A
+4100 mouse 320 228
+4130 press A
+4136 release A
+4300 aim 1
+# HOME during play, then "Close": the game goes on
+4690 aim 0
+4700 press HOME
+4706 release HOME
+4820 hbm B_btn_00
+4840 press A
+4846 release A
+4880 hbm none
+4890 aim 1
+end 100000

@@ -3,11 +3,12 @@
 The port runs the decompiled game's own `main` on a PC (Linux, 64-bit) with Aurora
 (WebGPU through Dawn) for graphics and SDL3 for the window, input and sound. It plays
 the boot, the title, the save check, player and Mii selection, the party menu and the
-minigames. All nine are linked; Shooting Range (aim with the mouse, a gamepad's right stick or
-gyro; fire with B: the right mouse button, a gamepad's right shoulder or trigger) and Laser
-Hockey (the paddle follows the pointer) are tested from start to finish, the other seven start
-and draw their first frames in the tests so far. As on the Wii, the games open one at a time:
-finishing one opens the next. Technical notes: [HOST_BUILD.md](HOST_BUILD.md) §29-§32.
+minigames. All nine are linked and played from start to finish in the tests (by game-side
+players reading the game's state); for example Shooting Range (aim with the mouse, a
+gamepad's right stick or gyro; fire with B: the right mouse button, a gamepad's right
+shoulder or trigger) and Laser Hockey (the paddle follows the pointer). As on the Wii, the
+games open one at a time: finishing one opens the next. The HOME Menu works as on the Wii
+(below). Technical notes: [HOST_BUILD.md](HOST_BUILD.md) §29-§34.
 
 ## What you need
 
@@ -50,6 +51,22 @@ port/host/build/host64/boot --disc /path/to/extracted-disc --window
 
 Closing the window ends the game (the save file is written by the game whenever it saves,
 as on the Wii).
+
+## The HOME Menu
+
+HOME (Escape or H on the keyboard, the Guide button on a gamepad) opens the game's own HOME
+Menu on the title, the party menu and in a minigame: the game pauses underneath, and the menu
+has its pointer, buttons and sounds. On Select Players and Select Mii the game does not allow
+it: a crossed-out HOME icon shows instead, as on the Wii.
+
+- **Close** (or HOME again): back to the game, which goes on where it was paused.
+- **Wii Remote Settings**: the battery of each connected remote, the speaker volume and
+  rumble (they start from the console settings, `--sc`; changes last until the program
+  ends and are not written back), and Reconnect (the remotes disconnect and connect again).
+- **Reset**: after "Yes", the game resets itself to the title screen, as Wii Play does on
+  the Wii (without the health screen).
+- **Wii Menu**: after "Yes", the game shuts down as it would on the Wii (it finishes any save
+  and fades out its sound) and the program ends. There is no Wii Menu to return to.
 
 ## Controls
 
@@ -101,19 +118,19 @@ Buttons: `A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C none`.
 
 ## Known limits
 
-- Minigames: Find Mii, Table Tennis, Pose Mii, Billiards, Fishing, Charge! and Tanks! start
-  and draw, but have not been played through yet (HOST_BUILD.md §32). Charge! needs tilt (a
-  gamepad's accelerometer), Tanks! the Nunchuk stick or the D-pad.
+- Minigames: Charge! needs tilt (a gamepad's accelerometer), Tanks! the Nunchuk stick or the
+  D-pad; two-player modes have not been tried (HOST_BUILD.md §33).
 - Miis: see HOST_BUILD.md §30 for the state of Mii drawing.
 - The Wii's ROM font is not on the disc; the game uses it only for debug text and for a
   font-size query in Table Tennis and Laser Hockey (HOST_BUILD.md §30).
-- WiiConnect24, the HOME Menu and the remote speaker are not available; the remote speaker's
-  sounds are muted.
+- WiiConnect24 and the remote speaker are not available. The remote speaker's sounds (the game's
+  and the HOME Menu's) are muted.
 
 ## Tests
 
 - `make -C port/host test`: every harness, then the boot headless on lavapipe: the title, the
-  menus, a short Shooting Range and a short Laser Hockey (about 8 minutes).
+  menus, a short Shooting Range, a short Laser Hockey, and the HOME Menu over the title, the
+  party menu and Laser Hockey with Close, Reset and Wii Menu (about 8 minutes).
 - `make -C port/host playtest`: whole games, twice each for determinism: all nine minigames
   from the party menu to the results and back, played by game-side players (HOST_BUILD.md
   §31-§33; about 95 minutes). Run it before committing a game milestone. A subset:

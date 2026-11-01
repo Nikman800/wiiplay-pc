@@ -1413,12 +1413,9 @@ test_polyline: 390 checks, 0 errors
     (`RFL_DefaultDatabase.c`) are built in code and do not depend on it.
 - **RFL display lists and face textures.** `RFLiInitShapeRes`'s display lists and
   `RFLiMakeTexture`'s render-to-texture face (`GXCopyTex`) need the Phase 7 GX layer.
-- **HOME Menu at run time.**
-  - `HBMInit` / `HBMCalc` / `HBMDraw`: controllers, the pointer hit test with `PSMTXInverse`,
-    drawing, and the AX reverb hooks.
-  - The HOME Menu's sound archive player (`HomeButtonSe.brsar` itself opens through the snd
-    harness).
-  - PLAN Phase 7 replaces or stubs the HOME Menu.
+- **HOME Menu at run time.** Done in the boot since §34 (`HBMInit` / `HBMCalc` / `HBMDraw`,
+  the pointer hit tests, drawing, the AX reverb hooks, the sounds through
+  `RPSndHomeMenuArcMgr`).
 
 ## 17. Animation evaluation: g3d animations and ef curves
 
@@ -2552,7 +2549,9 @@ the game (§31) `aim 0|1` (each frame a game-side probe, if linked, puts the poi
 and `fire PERIOD` (B pressed for the first half of every PERIOD frames; 0 stops); since §33
 `play 0|1` (each frame a game-side player, if linked, sets the whole remote: pointer, buttons,
 roll ("twist"), pitch ("tilt"), acceleration, stick) and `shake X Y Z N` (an acceleration of
-X, Y, Z g on top of `accel` for N frames: a flick, a lift or a jerk). Defaults: no
+X, Y, Z g on top of `accel` for N frames: a flick, a lift or a jerk); since §34 `hbm PANE`
+(each frame the HOME Menu probe, if linked, puts the pointer on the centre of the HOME Menu's
+pane PANE, by the library's own pane rectangles; `hbm none` stops). Defaults: no
 remote connected, battery 4, distance 2 m, level.
 
 ### The harness
@@ -3472,7 +3471,7 @@ manager set-up, cursor) are not used by the boot.
 | Kind | What |
 |---|---|
 | Data not attributed to a unit | `lbl_80316CB8` (EGG::Exception's pad combination), `lbl_80316CC8` ("timeStamp.txt", "Now Loading"), `Health_strapArchive` (filled from main.dol), `RPSndAudioActorBase::sActorList`, `AudioSound3DActor` / `AudioSoundActorBaseWithCamera<4>` statics, the `RPDollMgr` / `RPPlayerConfirm` / `RPSceneInfo` singletons, `ScnMdl1Mat1Shp`'s type name |
-| No device | WiiConnect24 (`NWC24*` fail with `NWC24_ERR_FATAL`; the game records "not available"), the IPL ROM font (`OSInitFont` fails; drawing with it aborts), VF (none), `WPADReadFaceData` (no controller), reset / power callbacks recorded only, `OSReturnToMenu` / `OSShutdownSystem` exit |
+| No device | WiiConnect24 (`NWC24*` fail with `NWC24_ERR_FATAL`; the game records "not available"), the IPL ROM font (`OSInitFont` fails; drawing with it aborts), VF (none), `WPADReadFaceData` (no controller), reset / power callbacks recorded only, `OSReturnToMenu` / `OSShutdownSystem` exit (since §34 cleanly: the END line with `exit=menu` / `shutdown`, the window and audio closed) |
 | Called by CodeWarrior name | `EGG_Vector2f_operator_minus/plus`, `__mi__`, `__pl__`, `__ml__`, `cross__` of `EGG::Vector3f`, `SetBrightnessColor__19RPSysKokeshiManager...`: forwarded to the real arithmetic / function |
 | Not linked | the minigame scenes but Shooting Range (§31): their vtables are tables of a function that aborts with "a minigame scene is not linked" |
 
@@ -4203,3 +4202,135 @@ on a Wii was not compared with a capture (the layout data puts it there). By han
   `RPColliderList::AsCollider` casts a class to an unrelated polymorphic type; the others are
   vector types) and two-signature `extern "C"` declarations (above). Other 64-bit layout
   assumptions may remain in code no player reaches (two-player modes, later levels).
+
+## 34. Milestone 9: the HOME Menu
+
+HOME on the title, the menus or in a minigame opens the game's own HOME Menu:
+`RPSysHomeMenuMgr` (RPKernel) driving homebuttonMiniLib (`HBMInit` / `HBMCalc` / `HBMDraw`,
+its layouts, pointer hit tests, the Wii Remote Settings panel, the Yes / No dialogs), drawn
+over the paused game, with its sounds through the AX mixer. Close (or HOME) returns to the
+game, which goes on where it was paused; Reset is the game's own soft reset; Wii Menu shuts the
+game down and ends the program. Nothing in the decomp or in Aurora had to change: the earlier
+layers cover the whole path (§16 the HOME Menu files, §21 the mixer and its aux callbacks, §23
+the WPAD backend, §26-§28 GX, §29 the alarms on the virtual clock). New on the host are a clean
+exit for `OSReturnToMenu` / `OSShutdownSystem`, a probe of the HOME Menu's state, a script
+command that points at a HOME Menu pane, and the tests.
+
+### Files
+
+| File | What |
+|---|---|
+| `port/host/src/host_probe_hbm.cpp` | **New**, boot only. `PortHomeProbe`: the FRAME line's `home=` field (below). `PortInputHomeHook`: the `hbm PANE` script command. Reads only. |
+| `port/host/src/host_input.cpp`, `include/port/input.h` | Script command `hbm PANE` / `hbm none` (§23) and the weak `PortInputHomeHook` |
+| `port/host/src/host_main.cpp` | `home=` in FRAME lines; `PortBootExit(reason)`: the END line gains `exit=menu` / `exit=shutdown`, then the usual shutdown (live statistics, audio device, Aurora) |
+| `port/host/src/host_boot.cpp` | `OSReturnToMenu` / `OSShutdownSystem` call `PortBootExit` (they printed a `boot:` line and `_Exit`ed before: no END line, the window and audio device not closed) |
+| `port/host/Makefile` | `host_probe_hbm.cpp` in the boot |
+| `port/host/tests/test_boot.py` | Runs K, T1 / T2, W; the HOME keys in run D (below) |
+| `port/host/tests/boot/home_party.txt`, `home_title.txt`, `home_menu.txt` | **New.** The runs' scripts |
+| `port/host/tests/boot/live.txt` | Escape, H and the gamepad's Guide button at the end of run D |
+| `port/docs/RUNNING.md` | The HOME Menu for players |
+
+No decomp file changed (`check_matching.py`: all identical, as before). No Aurora change.
+
+### How it runs (the game's own path)
+
+| Step | Code |
+|---|---|
+| HOME pressed | `RPSysCommonObject::preUpdate` -> `RPSysHomeMenuMgr::update` -> `checkMenuStart`: a `downTrigger` of HOME on any core controller; if the scene allows a scene change now (else it waits: `mIsStarting`) and the menu is not disabled (else the ban icon: `RPMenuScene`, Select Players and Select Mii, disables it; each scene's set-up enables it again through `RPSysCommonObject::init`), menu state Start and `RPSndAudioMgr::enterMenu`: every sound player but the pause player pauses (fading out), the effects are cleared, the remote speakers disconnect. Live mode: Escape, H, a gamepad's Guide (§30); tests: `press HOME`. |
+| Start -> Open | when `RPSndSpeakerMgr::isDisconnectAllFinished`: `HBMInit` (the library's sound init: its AXFX reverb on aux A through its own allocator hooks, `AXRegisterAuxACallback`, the aux return volumes), `stopMotorAll`, the DPD and KPAD parameter stacks pushed, the scene's `pauseCallBack(true)` |
+| Open | each frame the core controllers' `KPADStatus` are copied for `HBMCalc`; the library maps a pointer to its layout (`HomeButton::update_controller`: x 304, y 228 per unit, times `adjust` for 16:9) and hit-tests each pane with the inverse of its global matrix (`PaneComponent::contain`); `HBMDraw` draws its layout, the four cursors and its fader in the common 2D view 31 at draw step 5 (`RPSysCommonObject::UserDraw`), after the game's own scene, which the game keeps drawing, paused (this game makes no EFB capture of it; in the frames it shows dimmed under the menu's layout) |
+| Sounds | the library's `play_sound` calls the game's `soundCallback` -> `RPSndHomeMenuArcMgr::startSe` (`HomeButtonSe.brsar`, nw4r::snd) -> the software AX mixer; the reverb runs as the aux A callback |
+| Wii Remote Settings | battery from `WPADGetInfoAsync` (the backend's level, the script's `battery`), volume `WPADGetSpeakerVolume` / `WPADSetSpeakerVolume`, rumble `WPADIsMotorEnabled` / `WPADEnableMotor`, `WPADSaveConfig` (the host keeps settings in memory, §22); Reconnect: `WPADDisconnect` on all four, `WPADStartFastSimpleSync`, the connect window for its own time (the backend's `WPADDisconnect` drops a remote until the input layer sets it again at the next report, so a connected remote is back at once) |
+| Close / HOME | `HBM_SELECT_HOMEBTN`: menu state End, `exitMenu` (the sound players resume, the effects are set again), the stacks popped, `pauseCallBack(false)` |
+| Reset | the dialog, Yes: `HBM_SELECT_BTN2` -> `RPSysSceneMgr::softReset(true)`, `stopAllSoundOnPauseOff`; the scene manager (soft reset, then guard) changes to the Party Pack title (`RPSysSceneCreator::changeSoftReset`) and `RPSndAudioMgr::resetSystem`. This is Wii Play's own reset, inside the process; the game never calls `OSRestart`, so no re-exec is needed. From the party menu it goes through `RPPartyRootScene` (26) to the title (25). |
+| Wii Menu | the dialog, Yes: `HBM_SELECT_BTN1` -> `RPSysSceneMgr::returnToMenu(true)` (`VISetBlack`, saves disabled), the scene manager fades out to a dummy scene change, and `RPSysSceneCreator::destroy` (the current scene ending) calls `RPSysSystem::systemShutDown` (motors off, up to 300 retraces for NAND and the sound shutdown) -> `OSReturnToMenu` -> the host's END line with `exit=menu` and a clean exit (status 0) |
+
+The console's own Reset and Power buttons have no host equivalent (`OSSetResetCallback` /
+`OSSetPowerCallback` are recorded only); closing the window still ends the program directly.
+
+### The probe and the `hbm` command (`host_probe_hbm.cpp`)
+
+`home=MENU,ACTIVE,VISIBLE,SEQUENCE,STATE,SELECTED,POINTED,SOUND,BATTERY,VOLUME,RUMBLE,SCENEMGR,BAN`
+while the menu is open or opening, a HOME Menu sound is attached, the scene manager is not in
+its normal state or the ban icon shows (the library's fields `-` when it is not active):
+
+| Field | Source |
+|---|---|
+| MENU, ACTIVE, VISIBLE | `RPSysHomeMenuMgr`: menu state (0 end, 1 start, 2 open, 3 reset), `mIsActive`, `mIsVisible` |
+| SEQUENCE, STATE, SELECTED | `HomeButton`: `mSequence` (0 normal, 1 Wii Remote Settings, 2 dialog), `mState`, `mSelectBtnNum` (0 Close / HOME, 1 Wii Menu, 2 Reset) |
+| POINTED | the pane a press of remote 0 would go to, as `gui::Manager::update` decides: the last component in layout order that the library's hit test has pointed and that takes presses now |
+| SOUND | the sound `RPSndHomeMenuArcMgr`'s handle holds (`HBMSound`: 0 HOME, 1 return, 2 Wii Menu, 3 reset, 4 focus, 5 select, 7 / 8 settings open / close, 9 / 10 volume + / -, 14 / 15 rumble on / off); the handle keeps the latest sound only, so two sounds started in one frame show as one |
+| BATTERY, VOLUME, RUMBLE | what the settings panel shows for remote 0: `mWpadInfo[0].battery`, `mVolumeNum`, `mVibFlag` |
+| SCENEMGR | `RPSysSceneMgr`'s state: 0 normal, 1 guard, 2 soft reset, 3 return to menu, 4 shutdown |
+| BAN | the ban icon (`RPSysHomeMenuMgr::BanIcon`): 0 hidden, 1 fading in, 2 shown, 3 fading out |
+
+`hbm PANE`: the pane's rectangle (`GetPaneRect` with the library's `DrawInfo`) through its
+global matrix gives its extent in the layout; the bars (`B_btn_00`: Close, `B_bar_10`: Wii
+Remote Settings) reach past the screen, so the target is the centre of the part a pointer can
+reach (within +-0.95), mapped back through `update_controller` (dividing by 304 / 228 and the
+adjust factor). Panes: `B_btnL_00` Wii Menu, `B_btnL_01` Reset, `B_btn_00` Close,
+`B_bar_10` the settings bar (open and close), `B_optnBtn_00` / `01` volume - / +,
+`B_optnBtn_10` / `11` rumble on / off, `B_optnBtn_20` Reconnect, `B_BtnA` / `B_BtnB` Yes / No.
+
+### The test (`make test`: `tests/test_boot.py`)
+
+| Run | Script | Checked |
+|---|---|---|
+| K | `menus_saved.txt` + `home_party.txt` (5000 frames) | two menu sessions, on the party menu and in Laser Hockey; at every scripted press the library's own hit test has the pointer on the pane meant (8 presses); the panel opened and closed (sequences 0, 1, 0), volume 7 -> 6 -> 7, rumble on -> off -> on, battery 4 (the script's remote); both sessions end with Close (selection 0); the sounds in order: HOME, settings open, volume -, volume +, rumble off, rumble on, settings close, return, then HOME, return in the game; in the mixer's output every sound after the game's sound has faded peaks over 400 within 15 frames while the game is silent (rms under 50 before the first pointer move), and the game's sound is back after Close (rms over 300); Laser Hockey in play at the press, its clock standing while the menu is open and counting down again after (at least 60); the party menu takes the next input (Laser Hockey starts); five screens in their scenes, all distinct; the log |
+| T1, T2 | `home_title.txt` (1800 frames, the save) | on the title: the panel, Close; then Reset: the dialog (sequence 2), selection 2, menu state 3, the scene manager soft reset -> guard -> normal; the sounds HOME, settings open / close, return, reset; then A and B reach Select Players (scenes 0, 25, 1), where HOME opens no menu and the ban icon fades in, shows and fades out; every frame hash and `home=` field identical over the two runs; the log |
+| W | `home_menu.txt` | Wii Menu, Yes: selection 1, the scene manager returning to the menu (3), the sounds HOME and Wii Menu, then END with `exit=menu` before the script's end (the game's shutdown, then `OSReturnToMenu`); the log |
+| D | `live.txt` | the Escape key, the H key and the gamepad's Guide button each give HOME (synthetic SDL events), and the menu starts after Escape |
+
+PNGs with `--png DIR`: `home_party.png` (the HOME Menu over the party menu),
+`home_settings.png` (the Wii Remote Settings panel), `home_party_resumed.png`,
+`home_hockey.png` (over Laser Hockey), `home_hockey_resumed.png`, `home_ban.png` (the ban icon on
+Select Players).
+
+Expected output (the new lines of `test_boot`; `make -j8 test` took 8 minutes with them,
+measured: the three long runs M, K, H go first, three at a time):
+
+```
+  home menu over the party menu and Laser Hockey: sessions at retraces [(3001, 3619), (4701,
+    4879)]; 8 presses on the panes meant (the library's hit test); sounds home/settings_open/
+    volume_minus/volume_plus/rumble_off/rumble_on/settings_close/return then home/return (19
+    starts), peaks 519-18612 in the mix, the game's sound while open rms 40.3, after rms 853.3;
+    hockey clock 6969 at the press, 123 counted after; 5 distinct screens; log: 1 allowed
+    warnings, 21 unhandled registers, all documented
+  home menu over the title, then Reset: sessions at retraces [(401, 799), (901, 1192)]; 5 presses
+    on the panes meant; sounds home/settings_open/settings_close/return/reset; scene manager 0 ->
+    2 -> 1 -> 0; scenes 0 -> 25 -> 1; HOME on Select Players: ban icon 0 -> 1 -> 2 -> 3 -> 0;
+    hashes identical over two runs: True
+  home menu, Wii Menu: 2 presses on the panes meant; scene manager 0 -> 3; END exit=menu after
+    711 frames
+  live (headless, dummy audio, synthetic SDL events): 13.256 s wall for 11.929 s game time; audio
+    underruns 0, overruns 0, 1522 frames queued, 3 re-anchors; 31 events; rumble 2 on the virtual
+    gamepad
+```
+
+(Run D has five more events than in §30: the HOME keys.)
+
+### Verified headless vs. visual only vs. by hand
+
+Verified (the game's and library's own state, the mixer's output, the log, determinism): the
+menu opening from HOME on the title, the party menu and in Laser Hockey (the ban icon instead
+on Select Players); the pointer's hit
+tests and presses on Close, the settings bar, volume, rumble, Reset, Wii Menu and Yes; the
+settings panel's values from the WPAD backend; the sounds through the mixer while the game is
+paused; the game paused and going on (Laser Hockey's clock); Reset back to the title and on to
+Select Players; Wii Menu ending the program cleanly; the live keys. Visual only (the PNGs): the
+look of the menu, the panel, the dialogs, the cursor. In a development run, not in the test:
+Reconnect (the connect window, the remote back after it), the Reset dialog and fade over the
+party menu (through `RPPartyRootScene` to the title). By hand with `--window`: the menu with
+the mouse and a gamepad, its sounds on a real device, Wii Menu closing the window.
+
+### Next steps
+
+- The remote speaker: the HOME Menu also plays its sounds on the remotes' speakers (the
+  connect sounds, `RemoteSpk`); they reach the backend's speaker callback and stay muted like
+  the game's (§30).
+- 16:9: the library scales its layout by `adjust` (`RPSysHomeMenuMgr::update`); the `hbm`
+  mapping divides by it, but no test runs the HOME Menu in 16:9 yet.
+- HOME while a scene cannot change (a load, a fade) is deferred by the game (`mIsStarting`);
+  not driven by a test.
+- Several remotes in the HOME Menu (four cursors, the settings panel's batteries) and the
+  Classic Controller path (`HBMKPadData::use_devtype`) are not driven.

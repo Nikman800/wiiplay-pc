@@ -1,0 +1,19 @@
+# The HOME Menu's "Wii Menu" (port/docs/HOST_BUILD.md §34): HOME on the title, "Wii Menu",
+# "Yes": the game shuts down (RPSysSystem::systemShutDown) and OSReturnToMenu ends the
+# program (END ... exit=menu).
+0 connect
+0 mouse 320 228
+200 press A
+206 release A
+# the pointer off the buttons when the menu opens (a focus sound in the same frame would
+# hide the HOME sound from the probe, which sees the sound handle's latest sound)
+300 mouse 320 130
+400 press HOME
+406 release HOME
+520 hbm B_btnL_00
+540 press A
+546 release A
+620 hbm B_BtnA
+640 press A
+646 release A
+end 100000

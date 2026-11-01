@@ -264,15 +264,15 @@ OSStateCallback OSSetPowerCallback(OSStateCallback callback) {
     return old;
 }
 
+// There is no system menu to return to and no console to power off: both end
+// the program cleanly (host_main.cpp's END line with exit=menu / shutdown, the
+// window and the audio device closed; §34)
+extern "C" [[noreturn]] void PortBootExit(const char* reason);
 void OSReturnToMenu(void) {
-    std::printf("boot: OSReturnToMenu\n");
-    std::fflush(stdout);
-    std::_Exit(0);
+    PortBootExit("menu");
 }
 void OSShutdownSystem(void) {
-    std::printf("boot: OSShutdownSystem\n");
-    std::fflush(stdout);
-    std::_Exit(0);
+    PortBootExit("shutdown");
 }
 
 /* ---- Placeholders called by their CodeWarrior names ------------------------ */

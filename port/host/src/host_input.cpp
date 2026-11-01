@@ -325,6 +325,7 @@ enum ScriptOp {
     OP_FIRE,
     OP_PLAY,
     OP_SHAKE,
+    OP_HBM,
 };
 
 struct ScriptCmd {
@@ -333,6 +334,7 @@ struct ScriptCmd {
     ScriptOp op;
     f32 args[4];
     u16 buttons;
+    char name[24];  // `hbm`: a HOME Menu pane name ("" = none)
 };
 
 struct PortInputScript {
@@ -346,6 +348,7 @@ struct PortInputScript {
     int play[WPAD_MAX_CONTROLLERS];
     int shakeEnd[WPAD_MAX_CONTROLLERS];
     f32 shakeAcc[WPAD_MAX_CONTROLLERS][3];
+    char hbmPane[WPAD_MAX_CONTROLLERS][24];
 };
 
 namespace {
@@ -353,7 +356,7 @@ namespace {
 struct OpName {
     const char* name;
     ScriptOp op;
-    int nargs;  // numbers; -1: button names
+    int nargs;  // numbers; -1: button names; -2: one name
 };
 
 const OpName sOps[] = {
@@ -364,7 +367,7 @@ const OpName sOps[] = {
     {"pitch", OP_PITCH, 1},     {"accel", OP_ACCEL, 3},     {"stick", OP_STICK, 2},
     {"fsroll", OP_FSROLL, 1},   {"fspitch", OP_FSPITCH, 1}, {"fsaccel", OP_FSACCEL, 3},
     {"aim", OP_AIM, 1},         {"fire", OP_FIRE, 1},       {"play", OP_PLAY, 1},
-    {"shake", OP_SHAKE, 4},
+    {"shake", OP_SHAKE, 4},     {"hbm", OP_HBM, -2},
 };
 
 int tokenize(char* line, char** tok, int max) {
@@ -467,6 +470,15 @@ PortInputScript* PortInputScriptLoad(const char* path, char* err, int errLen) {
                     std::snprintf(err, errLen, "%s:%d: bad number %s", path, lineNo, tok[2 + i]);
                     ok = false;
                 }
+            }
+        } else if (op->nargs == -2) {
+            if (n != 3 || std::strlen(tok[2]) >= sizeof(cmd.name)) {
+                std::snprintf(err, errLen, "%s:%d: %s takes one name", path, lineNo, op->name);
+                ok = false;
+                break;
+            }
+            if (std::strcmp(tok[2], "none") != 0) {
+                std::strcpy(cmd.name, tok[2]);
             }
         } else {
             for (int i = 2; i < n; i++) {
@@ -588,6 +600,9 @@ void PortInputScriptApply(PortInputScript* script, int frame, PortInputState sta
         case OP_PLAY:
             script->play[c.chan] = c.args[0] != 0.0f;
             break;
+        case OP_HBM:
+            std::strcpy(script->hbmPane[c.chan], c.name);
+            break;
         case OP_SHAKE:
             // An acceleration pulse on top of `accel` for N frames (a flick or a jerk)
             if (script->shakeEnd[c.chan] > frame) {
@@ -636,6 +651,16 @@ void PortInputScriptApply(PortInputScript* script, int frame, PortInputState sta
     for (int chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
         f32 x, y;
         if (script->aim[chan] && PortInputAimHook != NULL && PortInputAimHook(chan, &x, &y)) {
+            states[chan].pointerValid = 1;
+            states[chan].pointerX = x;
+            states[chan].pointerY = y;
+        }
+    }
+    // HOME Menu: the probe (if linked) points at the centre of the named pane
+    for (int chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
+        f32 x, y;
+        if (script->hbmPane[chan][0] != '\0' && PortInputHomeHook != NULL &&
+            PortInputHomeHook(chan, script->hbmPane[chan], &x, &y)) {
             states[chan].pointerValid = 1;
             states[chan].pointerX = x;
             states[chan].pointerY = y;

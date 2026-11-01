@@ -1,0 +1,46 @@
+# The HOME Menu over the title screen, twice (port/docs/HOST_BUILD.md §34; test_boot.py runs
+# it on a NAND with a save, so A and B on the title go to Select Players): the Wii Remote
+# Settings panel and "Close"; then "Reset" and "Yes" (the game's own soft reset back to the
+# title), then A and B, and HOME on Select Players (disabled there: the ban icon).
+0 connect
+0 mouse 320 228
+# health and safety screen
+200 press A
+206 release A
+# the pointer off the buttons when the menu opens (a focus sound in the same frame would
+# hide the HOME sound from the probe, which sees the sound handle's latest sound)
+300 mouse 320 130
+# title: HOME, the settings panel, Close
+400 press HOME
+406 release HOME
+520 hbm B_bar_10
+540 press A
+546 release A
+640 hbm B_bar_10
+660 press A
+666 release A
+740 hbm B_btn_00
+760 press A
+766 release A
+800 hbm none
+850 mouse 320 130
+# HOME, "Reset", "Yes"
+900 press HOME
+906 release HOME
+1020 hbm B_btnL_01
+1040 press A
+1046 release A
+1120 hbm B_BtnA
+1140 press A
+1146 release A
+1180 hbm none
+1200 mouse 320 228
+# the title again: A and B -> Select Players
+1500 press A
+1500 press B
+1506 release A
+1506 release B
+# HOME on Select Players, where the game disables the HOME Menu: its ban icon instead
+1650 press HOME
+1656 release HOME
+end 100000

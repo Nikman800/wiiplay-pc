@@ -13,7 +13,13 @@ layers, Aurora headless on lavapipe) three times:
   run M   the menus from a fresh NAND to the party menu (tests/boot/menus.txt), then a short
           Shooting Range (tests/boot/shooting_smoke.txt: round 1 until hits score, pause, Quit);
   run H   a NAND with a save that has every game open (written here), the menus
-          (tests/boot/menus_saved.txt), then a short Laser Hockey (tests/boot/hockey_smoke.txt).
+          (tests/boot/menus_saved.txt), then a short Laser Hockey (tests/boot/hockey_smoke.txt);
+  run K   the same save and menus, then the HOME Menu (§34) over the party menu (the Wii Remote
+          Settings panel: volume, rumble; Close) and over Laser Hockey in play (Close)
+          (tests/boot/home_party.txt);
+  run T1, T2  the HOME Menu over the title (the panel, Close), then Reset (the game's own soft
+          reset back to the title), then A and B (tests/boot/home_title.txt): identical runs;
+  run W   the HOME Menu's "Wii Menu" from the title: the program ends (tests/boot/home_menu.txt).
 
 The full games (two runs each, for determinism) are tests/test_play.py (`make playtest`).
 
@@ -30,6 +36,12 @@ Checked independently of the game's code:
             retrace), one display copy per game frame;
   audio     AX frames every 3 ms of game time (180 units), the raw output's size, and sound
             in it (not silence) once the title is up;
+  home      the HOME Menu's state from host_probe_hbm.cpp (the manager's and library's states,
+            the selected button, the pane the library's own hit test has under the pointer at
+            each scripted press, the sounds RPSndHomeMenuArcMgr starts, the panel's battery /
+            volume / rumble, the scene manager's reset state) and the mixer's output (each
+            sound heard while the game's own sound is paused); the game paused while the
+            menu is open (Laser Hockey's clock) and going on after;
   log       no Aurora warning but the documented ones, every unhandled register documented
             (test_gx3d's list plus the draw-sync token registers), nothing unresolved, the
             process ends with its END line (no aborting stand-in reached).
@@ -42,6 +54,7 @@ Nothing from the disc goes into the repository: frames, NAND and caches go to --
 
 import argparse
 import concurrent.futures
+import itertools
 import os
 import re
 import shutil
@@ -102,6 +115,29 @@ HOCKEY_SMOKE_FRAMES = 4600
 HOCKEY_SMOKE_SHOTS = [(3700, "explanation"), (3950, "countdown"), (4200, "play"), (4380, "paused"),
                       (4590, "back_to_menu")]
 HOCKEY_SMOKE_SCENES = {"explanation": "ESceneID_RPPartyMainScene", "back_to_menu": "ESceneID_RPPartyMainScene"}
+
+# The HOME Menu (§34). The probe (host_probe_hbm.cpp): home=MENU,ACTIVE,VISIBLE,SEQUENCE,
+# STATE,SELECTED,POINTED,SOUND,BATTERY,VOLUME,RUMBLE,SCENEMGR,BAN. RPSysHomeMenuMgr's menu
+# states: 0 end, 1 start, 2 open, 3 reset; the library's sequences: 0 normal, 1 Wii Remote
+# settings, 2 dialog; selected: 0 Close / HOME, 1 Wii Menu, 2 Reset (HBMSelectBtnNum);
+# RPSysSceneMgr: 0 normal, 1 guard, 2 soft reset, 3 return to menu; BAN: the ban icon
+# (HOME while the menu is disabled): 0 hidden, 1 fading in, 2 shown, 3 fading out.
+# Sounds (HBMSound, HomeButtonSe.brsar): 0 HOME button, 1 return to the game, 2 to the
+# Wii Menu, 3 reset, 4 focus, 5 select, 7 / 8 settings open / close, 9 / 10 volume + / -,
+# 14 / 15 rumble on / off.
+HOME_SOUNDS = {0: "home", 1: "return", 2: "wii_menu", 3: "reset", 4: "focus", 5: "select",
+               7: "settings_open", 8: "settings_close", 9: "volume_plus", 10: "volume_minus",
+               14: "rumble_on", 15: "rumble_off"}
+# run K: tests/boot/menus_saved.txt + home_party.txt
+HOME_PARTY_FRAMES = 5000
+HOME_PARTY_SHOTS = [(3090, "party"), (3200, "settings"), (3680, "party_resumed"), (4790, "hockey"),
+                    (4990, "hockey_resumed")]
+HOME_PARTY_SCENES = {"party": "ESceneID_RPPartyMainScene", "settings": "ESceneID_RPPartyMainScene",
+                     "party_resumed": "ESceneID_RPPartyMainScene"}
+# runs T1 / T2: tests/boot/home_title.txt; run W: tests/boot/home_menu.txt
+HOME_TITLE_FRAMES = 1800
+HOME_BAN_SHOT = 1700  # run T1: the ban icon on Select Players
+HOME_MENU_FRAMES = 1000
 
 def party_save(nand, games=0x1FF):
     """RPParty.dat in the game's format (RPSysSaveData::write: the pack and version
@@ -186,7 +222,7 @@ def run(boot, disc, scratch, name, env, extra, saved=False, timeout=2400):
         kv = dict(x.split("=", 1) for x in f[1:] if "=" in x)
         if f[0] == "FRAME":
             frames.append((int(f[1]), int(kv["retrace"]), int(kv["time"]), int(kv["scene"]),
-                           int(kv["audio"]), kv.get("hash"), kv.get("game")))
+                           int(kv["audio"]), kv.get("hash"), kv.get("game"), kv.get("home")))
         elif f[0] == "SCENE":
             scenes.append((int(kv["retrace"]), int(kv["scene"])))
         elif f[0] == "END":
@@ -211,10 +247,12 @@ def run_live(boot, disc, scratch, env):
     if p.returncode != 0:
         sys.stderr.write(p.stderr[-4000:])
         raise SystemExit("FAIL: boot (live) exited %d" % p.returncode)
-    inputs, scenes, end, live = [], [], None, None
+    inputs, scenes, end, live, home = [], [], None, None, []
     for line in p.stdout.splitlines():
         f = line.split("\t")
         kv = dict(x.split("=", 1) for x in f[1:] if "=" in x)
+        if f[0] == "FRAME" and "home" in kv:
+            home.append((int(kv["retrace"]), kv["home"].split(",")))
         if f[0] == "INPUT":
             px, py = (float(v) for v in kv["pointer"].split(","))
             inputs.append((int(kv["retrace"]), int(kv["buttons"], 16), px, py, float(kv["roll"])))
@@ -224,10 +262,10 @@ def run_live(boot, disc, scratch, env):
             end = kv
         elif f[0] == "LIVE":
             live = kv
-    return inputs, scenes, end, live, p.stderr
+    return inputs, scenes, end, live, p.stderr, home
 
 
-def check_live(inputs, scenes, end, live, stderr, title_id, errs):
+def check_live(inputs, scenes, end, live, stderr, title_id, errs, home):
     if end is None or live is None:
         errs.append("live: no END / LIVE line")
         return None
@@ -272,6 +310,13 @@ def check_live(inputs, scenes, end, live, stderr, title_id, errs):
     yes = state_at(650)
     if yes is None or abs(yes[2] - (195 / 320.0 - 1)) > 1e-3 or abs(yes[3] - (348 / 228.0 - 1)) > 1e-3:
         errs.append("live: mouse at (195, 348) gave pointer %s" % (yes,))
+    # HOME from the Escape key, the H key and the gamepad's Guide button; the menu opens
+    for r, what in ((692, "Escape"), (700, "H"), (708, "the gamepad's Guide button")):
+        x = state_at(r)
+        if x is None or x[1] != 0x8000:
+            errs.append("live: %s gave buttons %s, expected HOME" % (what, x and "%04x" % x[1]))
+    if not any(r > 690 and h[1] == "1" for r, h in home):
+        errs.append("live: the HOME Menu did not start after the Escape key")
     if int(live["testrumble"]) == 0 or int(live["rumble"]) == 0:
         errs.append("live: no rumble reached the virtual gamepad (%s)" % live)
     if title_id not in [s for _, s in scenes]:
@@ -395,6 +440,236 @@ def check_hockey(fm, stderr, shots, ids, errs, spec, scenes, full):
     return seq, len(play), contacts, travel, goals, final, distinct, allowed, unhandled
 
 
+# --- the HOME Menu (§34) ---------------------------------------------------------------------
+
+def home_values(fm):
+    """[(frame index, retrace, scene, home fields or None)] (None: the menu is closed)."""
+    out = []
+    for f in fm:
+        h = None
+        if f[7] is not None:
+            h = [v if v in ("-",) or not re.match(r"^-?\d+$", v) else int(v) for v in f[7].split(",")]
+        out.append((f[0], f[1], f[3], h))
+    return out
+
+
+def home_sessions(hv):
+    """Runs of frames with the menu active: [(first index, last index)] into hv."""
+    sessions, start = [], None
+    for i, (_, _, _, h) in enumerate(hv):
+        active = h is not None and h[1] == 1
+        if active and start is None:
+            start = i
+        if not active and start is not None:
+            sessions.append((start, i - 1))
+            start = None
+    if start is not None:
+        sessions.append((start, len(hv) - 1))
+    return sessions
+
+
+def home_sounds(hv, a, b):
+    """The HOME Menu sounds started in hv[a..b]: [(index, id)] (the probe's handle changing
+    to a sound, or to another one)."""
+    out, last = [], -1
+    for i in range(a, b + 1):
+        h = hv[i][3]
+        snd = h[7] if h is not None else -1
+        if snd != -1 and snd != last:
+            out.append((i, snd))
+        last = snd
+    return out
+
+
+def first_seen(ids, keep):
+    seq = []
+    for x in ids:
+        if x in keep and x not in seq:
+            seq.append(x)
+    return seq
+
+
+def script_hbm_start(presses):
+    """The retrace of the script's first `hbm PANE` (script_presses keeps it)."""
+    return presses.first_hbm
+
+
+class Presses(list):
+    first_hbm = None
+
+
+def script_presses(paths):
+    """(retrace, pane) of each `press A` made while an `hbm PANE` target is set."""
+    target, out = None, Presses()
+    for path in paths:
+        with open(path) as f:
+            for line in f:
+                t = line.split("#")[0].split()
+                if len(t) >= 3 and t[1] == "hbm":
+                    target = None if t[2] == "none" else t[2]
+                    if target is not None and out.first_hbm is None:
+                        out.first_hbm = int(t[0])
+                elif len(t) >= 3 and t[1] == "press" and "A" in t[2:] and target is not None:
+                    out.append((int(t[0]), target))
+    return out
+
+
+def check_presses(hv, presses, errs, what):
+    """At each scripted press the library's own hit test has the pointer on the pane meant."""
+    for r, pane in presses:
+        h = next((h for _, rr, _, h in hv if rr >= r), None)
+        if h is None or h[6] != pane:
+            errs.append("%s: press at retrace %d: pointer on %s, expected %s" % (what, r, h[6] if h else None, pane))
+    return len(presses)
+
+
+def audio_window(pcm, fm, i0, i1):
+    """The rendered samples of frames fm[i0] .. fm[i1 - 1] (AX frames counted in FRAME lines)."""
+    a0, a1 = fm[i0][4] * 96 * 4, fm[min(i1, len(fm) - 1)][4] * 96 * 4
+    return struct.unpack("<%dh" % ((a1 - a0) // 2), pcm[a0:a1]) if a1 > a0 else ()
+
+
+def rms_of(x):
+    return (sum(v * v for v in x) / max(1, len(x))) ** 0.5
+
+
+def check_home_party(fm, stderr, end, shots, audio_path, presses, ids, errs):
+    """Run K: the HOME Menu over the party menu (the settings panel, Close) and over Laser
+    Hockey in play (Close); the game resumes after each."""
+    what = "home (party menu, hockey)"
+    hv = home_values(fm)
+    sessions = home_sessions(hv)
+    party_id, hky_id = ids["ESceneID_RPPartyMainScene"], ids["ESceneID_RPHkyScene"]
+    if [hv[a][2] for a, _ in sessions] != [party_id, hky_id]:
+        errs.append("%s: menu sessions in scenes %s, expected the party menu then Laser Hockey"
+                    % (what, [hv[a][2] for a, _ in sessions]))
+        return None
+    (a1, b1), (a2, b2) = sessions
+    pressed = check_presses(hv, presses, errs, what)
+    s1 = [h for _, _, _, h in hv[a1:b1 + 1]]
+    # the settings panel: opened and closed again; volume 7 -> 6 -> 7 and rumble on -> off
+    # -> on (the WPAD backend's speaker volume and motor setting); battery level 4 (the
+    # script's remote) once read
+    seqs = [x[0] for x in itertools.groupby(h[3] for h in s1 if h[3] != "-")]
+    vols = [x[0] for x in itertools.groupby(h[9] for h in s1 if h[3] != "-" and h[4] == 2 and h[9] != 0)]
+    rumble = [x[0] for x in itertools.groupby(h[10] for h in s1 if h[3] != "-" and h[4] == 2 and h[9] != 0)]
+    battery = set(h[8] for h in s1 if h[3] != "-" and h[9] != 0)
+    if seqs != [0, 1, 0] or vols != [7, 6, 7] or rumble != [1, 0, 1] or battery != {4}:
+        errs.append("%s: sequences %s, volume %s, rumble %s, battery %s" % (what, seqs, vols, rumble, battery))
+    for (a, b) in sessions:
+        last = hv[b][3]
+        if last[5] != 0:
+            errs.append("%s: the menu closed with selection %s, expected 0 (Close)" % (what, last[5]))
+    # sounds, in the order the library asks for them (the focus / select sounds aside)
+    snd1 = home_sounds(hv, a1, min(b1 + 30, len(hv) - 1))
+    snd2 = home_sounds(hv, a2, min(b2 + 30, len(hv) - 1))
+    order1 = first_seen([x for _, x in snd1], {0, 1, 7, 8, 9, 10, 14, 15})
+    order2 = first_seen([x for _, x in snd2], {0, 1, 7, 8, 9, 10, 14, 15})
+    if order1 != [0, 7, 10, 9, 15, 14, 8, 1] or order2 != [0, 1]:
+        errs.append("%s: sounds %s / %s" % (what, order1, order2))
+    # ... and in the mixer's output: each sound after the game's own sound has faded out
+    # (90 frames) peaks over 400 within 15 frames, while the game is silent (paused: under
+    # rms 50 in the 20 frames before the pointer first moves onto a pane); the game's sound
+    # is back after the menu closes
+    with open(audio_path, "rb") as f:
+        pcm = f.read()
+    peaks, weak = [], []
+    for i, snd in snd1:
+        if i >= a1 + 90:
+            peak = max((abs(v) for v in audio_window(pcm, fm, i, i + 15)), default=0)
+            peaks.append(peak)
+            if peak < 400:
+                weak.append((hv[i][1], HOME_SOUNDS.get(snd, snd), peak))
+    first_move = script_hbm_start(presses)
+    quiet_end = next(i for i, (_, r, _, _) in enumerate(hv) if r >= first_move)
+    quiet = rms_of(audio_window(pcm, fm, quiet_end - 20, quiet_end))
+    resumed = rms_of(audio_window(pcm, fm, b1 + 30, b1 + 90))
+    if not peaks or weak or quiet > 50 or resumed < 300:
+        errs.append("%s: sounds not heard %s, game sound while open rms %.1f, after rms %.1f"
+                    % (what, weak, quiet, resumed))
+    # Laser Hockey: in play at the press, the clock stands while the menu is open and
+    # counts down again after
+    games = {f[0]: tuple(int(v) for v in f[6].split(":")[1].split(",")) for f in fm
+             if f[6] is not None and f[6].startswith("hky:")}
+    g0 = games.get(hv[a2][0])
+    held = set(games[hv[i][0]][1] for i in range(a2, b2 + 1) if hv[i][0] in games)
+    after = [games[hv[i][0]] for i in range(b2 + 1, len(hv)) if hv[i][0] in games]
+    counted = after[0][1] - after[-1][1] if after else 0
+    if g0 is None or g0[0] != 1 or len(held) != 1 or counted < 60:
+        errs.append("%s: hockey at the press %s, clock values while open %s, %d counted after"
+                    % (what, g0, sorted(held), counted))
+    # the party menu after its session: the game took the icon press (Laser Hockey started)
+    distinct = check_screens(fm, shots, HOME_PARTY_SHOTS, HOME_PARTY_SCENES, hky_id, ids, errs, what)
+    allowed, unhandled = check_log(stderr, errs, what)
+    return {"sessions": [(hv[a][1], hv[b][1]) for a, b in sessions], "presses": pressed, "order1": order1,
+            "order2": order2, "sounds": len(snd1) + len(snd2), "peaks": peaks, "quiet": quiet,
+            "resumed": resumed, "clock": (g0[1] if g0 else None, counted), "distinct": distinct,
+            "allowed": allowed, "unhandled": unhandled}
+
+
+def check_home_title(fm, fm2, stderr, presses, ids, errs):
+    """Runs T1 / T2: the HOME Menu over the title (the settings panel, Close), then Reset
+    (the game's own soft reset to the title), then A and B: Select Players, where HOME shows
+    the ban icon (the game disables the menu there). Both runs alike."""
+    what = "home (title, reset)"
+    hv = home_values(fm)
+    sessions = home_sessions(hv)
+    title_id = ids["ESceneID_RPPartyPackTitleScene"]
+    if len(sessions) != 2 or any(hv[a][2] != title_id for a, _ in sessions):
+        errs.append("%s: menu sessions %s" % (what, sessions))
+        return None
+    pressed = check_presses(hv, presses, errs, what)
+    (a1, b1), (a2, b2) = sessions
+    seqs1 = [x[0] for x in itertools.groupby(h[3] for _, _, _, h in hv[a1:b1 + 1] if h[3] != "-")]
+    if seqs1 != [0, 1, 0] or hv[b1][3][5] != 0:
+        errs.append("%s: first session sequences %s, selection %s" % (what, seqs1, hv[b1][3][5]))
+    # Reset: the dialog (sequence 2), selection 2, the manager's reset state, then the scene
+    # manager's soft reset and guard back to normal
+    seqs2 = [x[0] for x in itertools.groupby(h[3] for _, _, _, h in hv[a2:b2 + 1] if h[3] != "-")]
+    menu2 = [x[0] for x in itertools.groupby(h[0] for _, _, _, h in hv[a2:] if h is not None)]
+    sys2 = [x[0] for x in itertools.groupby(h[11] if h is not None else 0 for _, _, _, h in hv[a2:])]
+    if seqs2 != [0, 2, 0] or hv[b2][3][5] != 2 or 3 not in menu2 or sys2 != [0, 2, 1, 0]:
+        errs.append("%s: reset session sequences %s, selection %s, menu states %s, scene manager %s"
+                    % (what, seqs2, hv[b2][3][5], menu2, sys2))
+    snd = [x for _, x in home_sounds(hv, a1, len(hv) - 1)]
+    order = first_seen(snd, {0, 1, 3, 7, 8})
+    if order != [0, 7, 8, 1, 3]:
+        errs.append("%s: sounds %s" % (what, order))
+    scenes = [x[0] for x in itertools.groupby(f[3] for f in fm)]
+    want = [ids["ESceneID_RPSysBootScene"], title_id, ids["ESceneID_RPSysPlayerSelectScene"]]
+    if scenes != want:
+        errs.append("%s: scenes %s, expected %s" % (what, scenes, want))
+    # Select Players: no menu session, the ban icon fades in, shows and fades out
+    select_id = ids["ESceneID_RPSysPlayerSelectScene"]
+    ban = [x[0] for x in itertools.groupby(h[12] if h is not None else 0 for _, _, sc, h in hv if sc == select_id)]
+    if ban != [0, 1, 2, 3, 0]:
+        errs.append("%s: ban icon states on Select Players %s, expected 0 1 2 3 0" % (what, ban))
+    same = [x[5] for x in fm] == [x[5] for x in fm2] and [x[7] for x in fm] == [x[7] for x in fm2]
+    if not same:
+        errs.append("%s: the two runs differ" % what)
+    allowed, unhandled = check_log(stderr, errs, what)
+    return {"sessions": [(hv[a][1], hv[b][1]) for a, b in sessions], "presses": pressed, "order": order,
+            "sys": sys2, "scenes": scenes, "ban": ban, "same": same, "allowed": allowed, "unhandled": unhandled}
+
+
+def check_home_menu(fm, stderr, end, presses, ids, errs):
+    """Run W: HOME on the title, "Wii Menu", "Yes": the game's own shutdown, then
+    OSReturnToMenu ends the program (END with exit=menu) before the script's end."""
+    what = "home (Wii Menu)"
+    hv = home_values(fm)
+    pressed = check_presses(hv, presses, errs, what)
+    sel = [h[5] for _, _, _, h in hv if h is not None and h[5] != "-"]
+    sys_ = [x[0] for x in itertools.groupby(h[11] if h is not None else 0 for _, _, _, h in hv)]
+    snd = first_seen([x for _, x in home_sounds(hv, 0, len(hv) - 1)], {0, 2})
+    if end is None or end.get("exit") != "menu" or len(fm) >= HOME_MENU_FRAMES:
+        errs.append("%s: END %s after %d frames, expected exit=menu" % (what, end, len(fm)))
+    if not sel or sel[-1] != 1 or sys_ != [0, 3] or snd != [0, 2]:
+        errs.append("%s: selection %s, scene manager %s, sounds %s" % (what, sel[-1:] , sys_, snd))
+    allowed, unhandled = check_log(stderr, errs, what)
+    return {"frames": len(fm), "exit": end.get("exit") if end else None, "presses": pressed, "sys": sys_,
+            "allowed": allowed, "unhandled": unhandled}
+
+
 def hockey_summary(r):
     seq, play, contacts, travel, goals, final, distinct, allowed, unhandled = r
     return ("states %s; %d frames in play, the clock counting down from 7200; %d paddle-puck contacts, "
@@ -446,14 +721,20 @@ def main():
     errs = []
 
     # --- run D first, alone (real time: the other runs would load the machine) -----------
-    inputs, sd, endd, lived, errd = run_live(args.boot, args.disc, scratch, env)
-    live_result = check_live(inputs, sd, endd, lived, errd, title_id, errs)
+    inputs, sd, endd, lived, errd, homed = run_live(args.boot, args.disc, scratch, env)
+    live_result = check_live(inputs, sd, endd, lived, errd, title_id, errs, homed)
 
     # --- the deterministic runs, concurrently ---------------------------------------------
     # M: the menus from a fresh NAND, then a short Shooting Range; H: a save with every game
     # open, the menus, then a short Laser Hockey
     menus = script(scratch, "menus_shooting_smoke.txt", ["menus.txt", "shooting_smoke.txt"])
     hockey = script(scratch, "menus_hockey_smoke.txt", ["menus_saved.txt", "hockey_smoke.txt"])
+    home = script(scratch, "menus_home_party.txt", ["menus_saved.txt", "home_party.txt"])
+    home_title = os.path.join(HERE, "boot", "home_title.txt")
+    home_menu = os.path.join(HERE, "boot", "home_menu.txt")
+    home_shots = [(f, os.path.join(scratch, "home_%s.rgba" % name)) for f, name in HOME_PARTY_SHOTS]
+    home_audio = os.path.join(scratch, "home_audio.raw")
+    ban_shot = os.path.join(scratch, "home_ban.rgba")
     shots = [(f, os.path.join(scratch, "menu_%s.rgba" % name)) for f, name in MENU_SHOTS]
     shoot_shots = [(f, os.path.join(scratch, "shoot_%s.rgba" % name)) for f, name in SHOOT_SMOKE_SHOTS]
     hockey_shots = [(f, os.path.join(scratch, "hockey_%s.rgba" % name)) for f, name in HOCKEY_SMOKE_SHOTS]
@@ -473,6 +754,12 @@ def main():
         "c": ["--frames", "300"],
         "m": ["--frames", str(SMOKE_FRAMES), "--input", menus, "--audio", shoot_audio] + save_args,
         "h": ["--frames", str(HOCKEY_SMOKE_FRAMES), "--input", hockey] + hockey_args,
+        "k": ["--frames", str(HOME_PARTY_FRAMES), "--input", home, "--audio", home_audio]
+        + [a for f, path in home_shots for a in ("--save", "%d:%s" % (f, path))],
+        "t1": ["--frames", str(HOME_TITLE_FRAMES), "--input", home_title,
+               "--save", "%d:%s" % (HOME_BAN_SHOT, ban_shot)],
+        "t2": ["--frames", str(HOME_TITLE_FRAMES), "--input", home_title],
+        "w": ["--frames", str(HOME_MENU_FRAMES), "--input", home_menu],
     }
     # Three at a time, each with few lavapipe threads: oversubscribed software
     # rendering slows every run down far more than it gains.
@@ -480,8 +767,9 @@ def main():
     penv.setdefault("LP_NUM_THREADS", "4")
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         # the long runs first
-        order = ["m", "h", "a", "b", "c"]
-        futures = {k: pool.submit(run, args.boot, args.disc, scratch, k, penv, jobs[k], k == "h")
+        order = ["m", "k", "h", "t1", "t2", "a", "b", "w", "c"]
+        saved = {"h", "k", "t1", "t2", "w"}  # a NAND with a save that has every game open
+        futures = {k: pool.submit(run, args.boot, args.disc, scratch, k, penv, jobs[k], k in saved)
                    for k in order}
         results = {k: f.result() for k, f in futures.items()}
 
@@ -501,7 +789,7 @@ def main():
         errs.append("frame %d scene %d, last frame scene %d" % (HEALTH_FRAME, fa[HEALTH_FRAME][3], fa[-1][3]))
 
     # frames, time, audio frames
-    for i, (idx, retrace, time, _, audio, _, _) in enumerate(fa):
+    for i, (idx, retrace, time, _, audio, *_) in enumerate(fa):
         if idx != i:
             errs.append("frame %d numbered %d" % (i, idx))
             break
@@ -624,6 +912,24 @@ def main():
         for (f, name), (_, path) in zip(HOCKEY_SMOKE_SHOTS, hockey_shots):
             gxtex.write_png(os.path.join(args.png, "hockey_%s.png" % name), W, H, opaque(load_rgba(path)))
 
+    # --- runs K, T1 / T2, W: the HOME Menu (§34) ---------------------------------------------
+    _, fk, _, endk, errk = results["k"]
+    if endk is None or len(fk) != HOME_PARTY_FRAMES:
+        errs.append("home: run K %d frames, END %s" % (len(fk), "present" if endk else "missing"))
+    hk = check_home_party(fk, errk, endk, home_shots, home_audio,
+                          script_presses([os.path.join(HERE, "boot", "home_party.txt")]), ids, errs)
+    _, ft1, _, endt, errt = results["t1"]
+    _, ft2, _, _, _ = results["t2"]
+    if endt is None or len(ft1) != HOME_TITLE_FRAMES:
+        errs.append("home: run T1 %d frames, END %s" % (len(ft1), "present" if endt else "missing"))
+    ht = check_home_title(ft1, ft2, errt, script_presses([home_title]), ids, errs)
+    _, fw, _, endw, errw = results["w"]
+    hw = check_home_menu(fw, errw, endw, script_presses([home_menu]), ids, errs)
+    if args.png:
+        for (f, name), (_, path) in zip(HOME_PARTY_SHOTS, home_shots):
+            gxtex.write_png(os.path.join(args.png, "home_%s.png" % name), W, H, opaque(load_rgba(path)))
+        gxtex.write_png(os.path.join(args.png, "home_ban.png"), W, H, opaque(load_rgba(ban_shot)))
+
     print("test_boot: %d frames on %s; scenes -1 -> %d (boot) -> %d (title) at retrace %s, A pressed at %d"
           % (len(fa), "lavapipe" if not args.gpu else "the GPU", boot_id, title_id, title_at, PRESS_RETRACE))
     print("  health screen (frame %d) vs the strap layout model at 640/608: max diff %d, mean %.3f, %d over %d"
@@ -643,6 +949,25 @@ def main():
           "registers, all documented" % shoot)
     print("  laser hockey (short, a save with every game open): scenes %s; %s" % (
         " -> ".join(str(x) for _, x in sh), hockey_summary(hky)))
+    if hk:
+        print("  home menu over the party menu and Laser Hockey: sessions at retraces %s; %d presses on the "
+              "panes meant (the library's hit test); sounds %s then %s (%d starts), peaks %d-%d in the mix, "
+              "the game's sound while open rms %.1f, after rms %.1f; hockey clock %s at the press, %d counted "
+              "after; %d distinct screens; log: %d allowed warnings, %d unhandled registers, all documented"
+              % (hk["sessions"], hk["presses"], "/".join(HOME_SOUNDS[x] for x in hk["order1"]),
+                 "/".join(HOME_SOUNDS[x] for x in hk["order2"]), hk["sounds"], min(hk["peaks"]),
+                 max(hk["peaks"]), hk["quiet"], hk["resumed"], hk["clock"][0], hk["clock"][1],
+                 hk["distinct"], hk["allowed"], hk["unhandled"]))
+    if ht:
+        print("  home menu over the title, then Reset: sessions at retraces %s; %d presses on the panes meant; "
+              "sounds %s; scene manager %s; scenes %s; HOME on Select Players: ban icon %s; hashes identical over "
+              "two runs: %s"
+              % (ht["sessions"], ht["presses"], "/".join(HOME_SOUNDS[x] for x in ht["order"]),
+                 " -> ".join(str(x) for x in ht["sys"]), " -> ".join(str(x) for x in ht["scenes"]),
+                 " -> ".join(str(x) for x in ht["ban"]), ht["same"]))
+    if hw:
+        print("  home menu, Wii Menu: %d presses on the panes meant; scene manager %s; END exit=%s after %d frames"
+              % (hw["presses"], " -> ".join(str(x) for x in hw["sys"]), hw["exit"], hw["frames"]))
     if live_result:
         wall, want, lv = live_result
         print("  live (headless, dummy audio, synthetic SDL events): %.3f s wall for %.3f s game time; audio "
