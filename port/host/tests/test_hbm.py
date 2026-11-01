@@ -29,6 +29,7 @@ import argparse
 import collections
 import os
 import struct
+import math
 import subprocess
 import sys
 
@@ -103,7 +104,7 @@ WENC_TABLE = (0.89843750, 0.89843750, 0.89843750, 0.89843750,
               1.19921875, 1.59765625, 2.00000000, 2.39843750)
 
 
-def wenc_encode(pcm, state):
+def wenc_encode(pcm, state, recon=None):
     """WENCGetEncodeData (src/revolution/WENC/wenc.c): the Wii Remote speaker's
     4-bit ADPCM, two samples a byte, the first in the high nibble. `state` is
     [xn, dl], None for the first packet (WENC_FLAG_USER_INFO clear)."""
@@ -124,6 +125,8 @@ def wenc_encode(pcm, state):
         qn = (1 - l3 * 2) * (dl * l2 + dlh * l1 + dlq * l0 + dlq // 2)
         qn = max(-0x10000, min(0xFFFF, qn))
         xn = max(-0x8000, min(0x7FFF, xn + qn))
+        if recon is not None:
+            recon.append(xn)
         out[i // 2] |= (l3 * 8 + l2 * 4 + l1 * 2 + l0) << (4 if i % 2 == 0 else 0)
         dl = int(dl * WENC_TABLE[l2 * 4 + l1 * 2 + l0])
         dl = max(127, min(0x6000, dl))
@@ -147,11 +150,32 @@ def speaker_line(name, data):
         length -= SAMPLES_PER_PACKET * 2
     encoded = bytearray()
     state = None
+    recon = []
     for i in range(0, len(out), SAMPLES_PER_PACKET):
-        packet, state = wenc_encode(out[i:i + SAMPLES_PER_PACKET], state)
+        packet, state = wenc_encode(out[i:i + SAMPLES_PER_PACKET], state, recon)
         encoded += packet
     packets = len(out) // SAMPLES_PER_PACKET
-    return f"HS\t{name}\t{VOLUME}\t{packets}\t{len(encoded)}\t{fnv(bytes(encoded)):08x}"
+    # The remote's side (HOST_BUILD.md §37): the host decoder must give back the encoder's own
+    # reconstruction, sample for sample (HD: samples, hash of the little-endian s16)
+    decoded = struct.pack(f"<{len(recon)}h", *recon)
+    SPEAKER_ERRORS[name] = codec_error(out, recon)
+    return (f"HS\t{name}\t{VOLUME}\t{packets}\t{len(encoded)}\t{fnv(bytes(encoded)):08x}",
+            f"HD\t{name}\t{len(recon)}\t{fnv(decoded):08x}")
+
+
+SPEAKER_MIN_SNR = 10.0  # dB; a 4-bit ADPCM (the encoder's step size adapts by 0.9 / 1.2-2.4)
+# name: (SNR dB, peak error, peak signal) of the decoded speaker sound against its source
+SPEAKER_ERRORS = {}
+
+
+def codec_error(src, dec):
+    """The decoded sound against the PCM the encoder was given: the codec's error."""
+    sig = sum(v * v for v in src)
+    err = sum((a - b) ** 2 for a, b in zip(src, dec))
+    peak_err = max((abs(a - b) for a, b in zip(src, dec)), default=0)
+    peak = max((abs(v) for v in src), default=0)
+    snr = 10 * math.log10(sig / err) if err and sig else float("inf")
+    return snr, peak_err, peak
 
 
 def main():
@@ -203,9 +227,9 @@ def main():
             for i, pane in enumerate(TEXT_PANES):
                 expected.append(f"HB\t{arc}\t{region}\t{pane}\t{texts.get((region, i), '')}")
         for name, data in bwavs.items():
-            expected.append(speaker_line(name, data))
+            expected.extend(speaker_line(name, data))
 
-    kinds = ("HC", "HT", "HB", "HS")
+    kinds = ("HC", "HT", "HB", "HS", "HD")
     kinds_got = collections.Counter(line.split("\t", 1)[0] for line in got)
     kinds_exp = collections.Counter(line.split("\t", 1)[0] for line in expected)
     cg, ce = collections.Counter(got), collections.Counter(expected)
@@ -223,6 +247,12 @@ def main():
         print("  missing:", line[:200])
     for line in extra[:10]:
         print("  extra:  ", line[:200])
+    # The codec's error (§37): the decoded sound against the PCM the encoder was given
+    for name, (snr, peak_err, peak) in sorted(SPEAKER_ERRORS.items()):
+        print(f"  speaker {name}: decoded = the encoder's reconstruction; SNR {snr:.1f} dB, "
+              f"peak error {peak_err} of peak {peak}")
+        if snr < SPEAKER_MIN_SNR:
+            problems.append(f"speaker {name}: SNR {snr:.1f} dB")
     ok = run.returncode == 0 and not missing and not extra and not problems
     print("OK" if ok else "FAILED")
     return 0 if ok else 1

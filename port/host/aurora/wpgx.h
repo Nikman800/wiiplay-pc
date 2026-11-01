@@ -89,12 +89,33 @@ typedef struct {
 } wpgx_perf;
 void wpgx_get_perf(wpgx_perf* perf);
 
+/* Frames in flight: frames ended against frames whose GPU work (presentation
+   included) has completed (Dawn's queue work-done callbacks). */
+typedef struct {
+    uint64_t ended, done;
+    uint64_t last_gpu_latency_ns; /* the latest completed frame: wpgx_end_frame to its GPU work done */
+    uint64_t gpu_latency_sum_ns;
+    uint64_t gpu_latency_max_ns;
+    uint64_t in_flight_wait_ns;   /* wpgx_begin_frame waiting for the limit (part of begin_frame_ns) */
+    uint32_t max_in_flight_seen;
+    uint32_t max_frames_in_flight;
+} wpgx_frame_stats;
+void wpgx_get_frame_stats(wpgx_frame_stats* stats);
+/* wpgx_begin_frame waits until fewer than `frames` frames are in flight
+   (0: no limit beyond Aurora's frame slots and staging buffers). */
+void wpgx_set_max_frames_in_flight(uint32_t frames);
+/* Tests: a slow GPU (repeats copies of a mib MiB buffer in every frame). */
+void wpgx_test_set_gpu_load(uint32_t mib, uint32_t repeats);
+
 /* An overlay drawn over the presented picture (windowed only; Dear ImGui):
    lines of text and a bar graph of `count` values, full height at
    `graph_max`, with a mark at `graph_mark`. Call between wpgx_begin_frame and
    wpgx_end_frame; it shows in that frame. Returns 0 when nothing can be drawn
    (headless). */
 int wpgx_overlay(const char* text, const float* values, int count, float graph_max, float graph_mark);
+/* A white square over the picture's top-left corner in this frame (the
+   latency marker); windowed only. Returns 0 when nothing can be drawn. */
+int wpgx_marker(void);
 
 /* --- The port's GX command stream (milestone 2, HOST_BUILD.md §26) -------- */
 
@@ -156,6 +177,12 @@ void wpgx_window_size(float* width, float* height);
 /* A window position (points, origin top left) -> position on the presented
    picture, 0..1 across it (outside that range in the bars). */
 void wpgx_window_to_picture(float x, float y, float* u, float* v);
+/* One line describing the window's geometry and the mouse -> picture mapping
+   (logical and pixel sizes, density, display, the presented viewport). */
+int wpgx_window_info(char* buf, size_t size);
+/* Shrinks the window (keeping its aspect) if it does not fit the display's
+   usable area, and centres it. */
+void wpgx_fit_window(void);
 void wpgx_set_fullscreen(int fullscreen);
 int wpgx_is_fullscreen(void);
 /* Hides the system cursor over the window (the game draws its own). */
@@ -175,7 +202,9 @@ enum {
     WPGX_EV_GAMEPAD_BUTTON,   /* pad; code: SDL_GamepadButton; down */
     WPGX_EV_GAMEPAD_AXIS,     /* pad; code: SDL_GamepadAxis; x: -1..1 (triggers 0..1) */
     WPGX_EV_FOCUS,            /* down: 1 gained, 0 lost */
-    WPGX_EV_RESIZED,          /* x, y: new window size in points */
+    WPGX_EV_RESIZED,          /* the window's geometry changed (size, pixels, scale, position,
+                                 fullscreen); x, y: the event's data; code: the SDL event */
+    WPGX_EV_MOUSE_WHEEL,      /* x, y: wheel steps (y > 0 away from the user) */
 };
 typedef struct {
     uint32_t type;
@@ -221,6 +250,12 @@ void wpgx_test_push_key(const char* name, int down);
 void wpgx_test_push_mouse_motion(float x, float y);
 void wpgx_test_push_mouse_button(int button, int down);
 void wpgx_test_push_quit(void);
+void wpgx_test_push_mouse_wheel(float x, float y);
+/* A fake window geometry for tests without a window: logical size (points,
+   the mouse's space) and size in pixels; the picture is letterboxed into the
+   pixels as Aurora does. Zero sizes return to the real window. Queues a
+   WPGX_EV_RESIZED. */
+void wpgx_test_set_window_metrics(float lw, float lh, float pw, float ph);
 /* A virtual SDL gamepad with gyro and accelerometer (SDL's virtual joystick
    driver). Returns 0 on success; it arrives as WPGX_EV_GAMEPAD_ADDED. */
 int wpgx_test_gamepad_attach(void);

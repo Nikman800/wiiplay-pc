@@ -14,6 +14,8 @@
 #include <port/input.h>
 #include <port/live.h>
 #include <port/perf.h>
+#include <port/record.h>
+#include <port/speaker.h>
 
 #include "wpgx.h"
 
@@ -53,15 +55,62 @@ const PadName kPadNames[] = {
 };
 
 const int MAX_KEY_BINDS = 64;
+// A binding gives remote buttons (WPAD_BUTTON_*, the low 16 bits) and motion
+// actions (the gesture layer, HOST_BUILD.md §37)
+enum : u32 {
+    ACT_TWIST_LEFT = 1u << 16,
+    ACT_TWIST_RIGHT = 1u << 17,
+    ACT_TILT_FORWARD = 1u << 18,
+    ACT_TILT_BACK = 1u << 19,
+    ACT_TILT_LEFT = 1u << 20,
+    ACT_TILT_RIGHT = 1u << 21,
+    ACT_SHAKE = 1u << 22,
+    ACT_PUSH = 1u << 23,
+    ACT_PULL = 1u << 24,
+    ACT_TWIST_RESET = 1u << 25,
+};
+struct ActionName {
+    const char* name;
+    u32 bit;
+};
+const ActionName kActions[] = {
+    {"TWIST_LEFT", ACT_TWIST_LEFT}, {"TWIST_RIGHT", ACT_TWIST_RIGHT}, {"TILT_FORWARD", ACT_TILT_FORWARD},
+    {"TILT_BACK", ACT_TILT_BACK},   {"TILT_LEFT", ACT_TILT_LEFT},     {"TILT_RIGHT", ACT_TILT_RIGHT},
+    {"SHAKE", ACT_SHAKE},           {"PUSH", ACT_PUSH},               {"PULL", ACT_PULL},
+    {"TWIST_RESET", ACT_TWIST_RESET},
+};
+
 struct KeyBind {
     char name[32]; // SDL key name or MouseN
-    u16 button;
+    u32 button;
 };
 KeyBind sKeyBinds[MAX_KEY_BINDS];
 int sKeyBindCount = 0;
-u16 sPadBinds[PAD_BUTTONS + 2]; // buttons, then the two triggers
+u32 sPadBinds[PAD_BUTTONS + 2]; // buttons, then the two triggers
 
-PortLiveConfig sConfig = {1.5f, 2.0f, 1, 1, 1.0f, 0, 0, 0.2f, 0};
+PortLiveConfig sConfig = {1.5f, 2.0f, 1, 1, 1.0f, 0, 0, 0.2f, 0,
+                          /* leftStick */ 0, /* twistSpeed */ 120.0f, /* wheelTwist */ 10.0f,
+                          /* tiltAngle */ 60.0f, /* tiltSpeed */ 360.0f, /* shakeStrength */ 2.5f,
+                          /* shakeFrames */ 4, /* pullDistance */ 0.3f, /* pushDistance */ 0.3f,
+                          /* speakerVolume */ 0.5f};
+
+bool NameEq(const char* a, const char* b);
+
+// A binding's name: a remote button, a motion action or "none"; false if unknown
+bool BindFromName(const char* name, u32* out) {
+    if (NameEq(name, "none")) {
+        *out = 0;
+        return true;
+    }
+    for (const ActionName& a : kActions) {
+        if (NameEq(a.name, name)) {
+            *out = a.bit;
+            return true;
+        }
+    }
+    *out = PortInputButtonFromName(name);
+    return *out != 0;
+}
 
 bool NameEq(const char* a, const char* b) {
     for (; *a && *b; a++, b++) {
@@ -72,7 +121,7 @@ bool NameEq(const char* a, const char* b) {
     return *a == *b;
 }
 
-void AddKeyBind(const char* name, u16 button) {
+void AddKeyBind(const char* name, u32 button) {
     for (int i = 0; i < sKeyBindCount; i++) {
         if (NameEq(sKeyBinds[i].name, name)) {
             sKeyBinds[i].button = button;
@@ -93,6 +142,19 @@ void DefaultBindings() {
     AddKeyBind("Return", WPAD_BUTTON_A);
     AddKeyBind("Backspace", WPAD_BUTTON_B);
     AddKeyBind("H", WPAD_BUTTON_HOME);
+    // Motions (§37): twist, tilt, shake, pull back and thrust, push
+    AddKeyBind("Q", ACT_TWIST_LEFT);
+    AddKeyBind("E", ACT_TWIST_RIGHT);
+    AddKeyBind("W", ACT_TILT_FORWARD);
+    AddKeyBind("S", ACT_TILT_BACK);
+    AddKeyBind("A", ACT_TILT_LEFT);
+    AddKeyBind("D", ACT_TILT_RIGHT);
+    AddKeyBind("F", ACT_SHAKE);
+    AddKeyBind("R", ACT_PULL);
+    AddKeyBind("G", ACT_PUSH);
+    AddKeyBind("Mouse2", ACT_TWIST_RESET); // middle button
+    AddKeyBind("Mouse4", ACT_SHAKE);       // side buttons
+    AddKeyBind("Mouse5", ACT_PULL);
     std::memset(sPadBinds, 0, sizeof sPadBinds);
     sPadBinds[PAD_SOUTH] = WPAD_BUTTON_A;
     sPadBinds[PAD_EAST] = WPAD_BUTTON_B;
@@ -105,10 +167,12 @@ void DefaultBindings() {
     sPadBinds[PAD_DPAD_DOWN] = WPAD_BUTTON_DOWN;
     sPadBinds[PAD_DPAD_LEFT] = WPAD_BUTTON_LEFT;
     sPadBinds[PAD_DPAD_RIGHT] = WPAD_BUTTON_RIGHT;
-    sPadBinds[PAD_LEFT_SHOULDER] = WPAD_BUTTON_FS_C;
-    sPadBinds[PAD_RIGHT_SHOULDER] = WPAD_BUTTON_B;
-    sPadBinds[PAD_BUTTONS + 0] = WPAD_BUTTON_FS_Z; // left trigger
-    sPadBinds[PAD_BUTTONS + 1] = WPAD_BUTTON_B;    // right trigger
+    // Wii Play reads neither Nunchuk button: the shoulders and the left trigger make motions
+    sPadBinds[PAD_LEFT_SHOULDER] = ACT_PULL;
+    sPadBinds[PAD_RIGHT_SHOULDER] = ACT_SHAKE;
+    sPadBinds[PAD_LEFT_STICK] = ACT_TWIST_RESET;
+    sPadBinds[PAD_BUTTONS + 0] = ACT_PUSH;      // left trigger
+    sPadBinds[PAD_BUTTONS + 1] = WPAD_BUTTON_B; // right trigger
 }
 
 int PadIndex(const char* name) {
@@ -224,28 +288,44 @@ void Pace(long long units, void*) {
 struct PadState {
     bool present = false;
     bool buttons[PAD_BUTTONS] = {};
+    u32 pressPoll[PAD_BUTTONS] = {};    // the poll that saw the press
+    bool releaseNext[PAD_BUTTONS] = {}; // released in that poll: up at the next
     f32 axes[AXIS_COUNT] = {};
 };
 PadState sPads[WPAD_MAX_CONTROLLERS];
 bool sInput = false;
+bool sMerge = false; // live input over a test script's remotes
 u16 sKeyButtons = 0;   // keyboard + mouse, remote 0
 f32 sMouseX = 0.0f, sMouseY = 0.0f;
+f32 sMouseWinX = 0.0f, sMouseWinY = 0.0f; // the last position in window points
 bool sMouseSeen = false;
+char sWindowInfo[640];
+u32 sWindowInfoPoll = 0;
+f32 sWheelY = 0.0f; // wheel steps since the last poll
 f32 sPointerX[WPAD_MAX_CONTROLLERS], sPointerY[WPAD_MAX_CONTROLLERS];
 Clock::time_point sLastPoll;
 bool sPolled = false;
 bool sMotor[WPAD_MAX_CONTROLLERS];
 
-// Keys currently held, so a binding change or two keys on one button work
+// Keys currently held, so a binding change or two keys on one button work.
+// A key pressed and released between two polls (a quick click, or a remote
+// desktop delivering both at once) stays held until the next poll, so the
+// game sees at least one frame of it (3-4 WPAD reports).
 const int MAX_HELD = 32;
-char sHeld[MAX_HELD][32];
+struct Held {
+    char name[32];
+    u32 poll;         // the poll that saw the press
+    bool releaseNext; // released in that same poll: drop at the next one
+};
+Held sHeld[MAX_HELD];
 int sHeldCount = 0;
+u32 sPollCount = 0;
 
-u16 KeyButtons() {
-    u16 b = 0;
+u32 KeyButtons() {
+    u32 b = 0;
     for (int i = 0; i < sHeldCount; i++) {
         for (int k = 0; k < sKeyBindCount; k++) {
-            if (NameEq(sKeyBinds[k].name, sHeld[i])) {
+            if (NameEq(sKeyBinds[k].name, sHeld[i].name)) {
                 b |= sKeyBinds[k].button;
             }
         }
@@ -253,18 +333,71 @@ u16 KeyButtons() {
     return b;
 }
 
+void DropHeld(int i) {
+    std::memmove(&sHeld[i], &sHeld[i + 1], (sHeldCount - i - 1) * sizeof sHeld[0]);
+    sHeldCount--;
+}
+
 void SetHeld(const char* name, bool down) {
     for (int i = 0; i < sHeldCount; i++) {
-        if (NameEq(sHeld[i], name)) {
-            if (!down) {
-                std::memmove(sHeld[i], sHeld[i + 1], (sHeldCount - i - 1) * sizeof sHeld[0]);
-                sHeldCount--;
+        if (NameEq(sHeld[i].name, name)) {
+            if (down) {
+                sHeld[i].releaseNext = false;
+            } else if (sHeld[i].poll == sPollCount) {
+                sHeld[i].releaseNext = true;
+            } else {
+                DropHeld(i);
             }
             return;
         }
     }
     if (down && sHeldCount < MAX_HELD) {
-        std::snprintf(sHeld[sHeldCount++], sizeof sHeld[0], "%s", name);
+        std::snprintf(sHeld[sHeldCount].name, sizeof sHeld[0].name, "%s", name);
+        sHeld[sHeldCount].poll = sPollCount;
+        sHeld[sHeldCount].releaseNext = false;
+        sHeldCount++;
+    }
+}
+
+// Logs the window's geometry and the mouse mapping when it changed (stderr and
+// the --perf summary)
+bool NoteWindow(const char* why) {
+    char info[sizeof sWindowInfo];
+    wpgx_window_info(info, sizeof info);
+    if (std::strcmp(info, sWindowInfo) == 0) {
+        return false;
+    }
+    std::snprintf(sWindowInfo, sizeof sWindowInfo, "%s", info);
+    std::fprintf(stderr, "boot: %s: %s\n", why, info);
+    char line[sizeof sWindowInfo + 32];
+    std::snprintf(line, sizeof line, "%s: %s", why, info);
+    PortPerfNote(line);
+    return true;
+}
+
+// The mouse's last window position on the picture (again after the window changed)
+void MapMouse() {
+    f32 u, v;
+    wpgx_window_to_picture(sMouseWinX, sMouseWinY, &u, &v);
+    PortInputPointerFromWindow(u, v, 1.0f, 1.0f, &sMouseX, &sMouseY);
+    sPointerX[0] = sMouseX;
+    sPointerY[0] = sMouseY;
+}
+
+// The releases deferred from the last poll
+void ReleaseDeferred() {
+    for (int i = sHeldCount - 1; i >= 0; i--) {
+        if (sHeld[i].releaseNext) {
+            DropHeld(i);
+        }
+    }
+    for (PadState& p : sPads) {
+        for (int b = 0; b < PAD_BUTTONS; b++) {
+            if (p.releaseNext[b]) {
+                p.buttons[b] = false;
+                p.releaseNext[b] = false;
+            }
+        }
     }
 }
 
@@ -295,9 +428,103 @@ f32 Clamp(f32 v, f32 lo, f32 hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-void ApplyPad(int chan, PortInputState* st, f32 dt) {
+// --- Motions (HOST_BUILD.md §37) ---------------------------------------------------
+// The gesture layer turns buttons and a stick into the remote motions the games
+// detect: a twist (roll), a tilt (pitch, or roll for a remote held sideways), a
+// shake (an acceleration pulse along the remote's up vector), a pull back and
+// thrust (the distance from the sensor bar, with the thrust's acceleration) and
+// a push (closer to the screen while held). It adds to the remote's state.
+
+const f32 FRAME_SECONDS = 1001.0f / 60000.0f; // one poll per retrace: deterministic
+
+struct Gesture {
+    f32 twist = 0.0f;           // degrees, persistent (the keys turn it, the wheel steps it)
+    f32 fwd = 0.0f, side = 0.0f; // the tilt keys' springs (-1..1)
+    f32 stickX = 0.0f, stickY = 0.0f; // the left stick in a tilt game (this poll)
+    int shakeLeft = 0;          // polls of the shake pulse left
+    bool shakeHeld = false;
+    f32 dist = 0.0f;            // metres added to the distance
+    int pull = 0;               // 0 idle, 1 drawing back, 2 thrusting, 3 returning
+    f32 fwdDeg = 0.0f, sideDeg = 0.0f; // the tilt this poll (degrees)
+    f32 thrustSpeed = 0.0f, thrustFrac = 0.0f;
+};
+Gesture sGestures[WPAD_MAX_CONTROLLERS];
+
+int Hold(int chan) {
+    return PortInputHoldHook != nullptr ? PortInputHoldHook(chan) : 0;
+}
+
+f32 Approach(f32 v, f32 target, f32 step) {
+    return v < target ? (v + step > target ? target : v + step) : (v - step < target ? target : v - step);
+}
+
+// The gesture state from this poll's actions (the motions are added to the
+// remote's state by PortLiveApplyMotion, on the copy the WPAD backend gets: they
+// never accumulate in a script's state)
+void UpdateGestures(int chan, u32 actions, f32 wheel) {
+    Gesture& g = sGestures[chan];
+    const f32 dt = FRAME_SECONDS;
+    // Twist
+    if (actions & ACT_TWIST_RESET) {
+        g.twist = 0.0f;
+    }
+    if (actions & ACT_TWIST_LEFT) {
+        g.twist -= sConfig.twistSpeed * dt;
+    }
+    if (actions & ACT_TWIST_RIGHT) {
+        g.twist += sConfig.twistSpeed * dt;
+    }
+    g.twist = Clamp(g.twist + wheel * sConfig.wheelTwist, -90.0f, 90.0f);
+    // Tilt: springs to +-1 while held; the stick adds its deflection
+    const f32 step = sConfig.tiltAngle > 0.0f ? sConfig.tiltSpeed * dt / sConfig.tiltAngle : 1.0f;
+    g.fwd = Approach(g.fwd, ((actions & ACT_TILT_FORWARD) ? 1.0f : 0.0f) - ((actions & ACT_TILT_BACK) ? 1.0f : 0.0f), step);
+    g.side = Approach(g.side, ((actions & ACT_TILT_RIGHT) ? 1.0f : 0.0f) - ((actions & ACT_TILT_LEFT) ? 1.0f : 0.0f), step);
+    g.fwdDeg = Clamp(g.fwd + g.stickY, -1.0f, 1.0f) * sConfig.tiltAngle;
+    g.sideDeg = Clamp(g.side + g.stickX, -1.0f, 1.0f) * sConfig.tiltAngle;
+    g.stickX = g.stickY = 0.0f;
+    // Shake: one pulse per press
+    const bool shake = (actions & ACT_SHAKE) != 0;
+    if (g.shakeLeft > 0) {
+        g.shakeLeft--;
+    }
+    if (shake && !g.shakeHeld) {
+        g.shakeLeft = sConfig.shakeFrames;
+    }
+    g.shakeHeld = shake;
+    // Pull back (held), thrust forward (released): a cue stroke; push: closer while held
+    const bool pull = (actions & ACT_PULL) != 0;
+    switch (g.pull) {
+    case 0:
+    case 3:
+        if (pull) {
+            g.pull = 1;
+            break;
+        }
+        g.dist = Approach(g.dist, (actions & ACT_PUSH) ? -sConfig.pushDistance : 0.0f, 0.6f * dt);
+        if (g.pull == 3 && g.dist == 0.0f) {
+            g.pull = 0;
+        }
+        break;
+    case 1:
+        g.dist = Approach(g.dist, sConfig.pullDistance, 0.6f * dt);
+        if (!pull) {
+            g.thrustFrac = sConfig.pullDistance > 0.0f ? Clamp(g.dist / sConfig.pullDistance, 0.0f, 1.0f) : 1.0f;
+            g.thrustSpeed = 1.5f + 2.5f * g.thrustFrac;
+            g.pull = 2;
+        }
+        break;
+    case 2:
+        g.dist -= g.thrustSpeed * dt;
+        if (g.dist <= -0.1f) {
+            g.pull = 3;
+        }
+        break;
+    }
+}
+
+void ApplyPad(int chan, PortInputState* st, f32 dt, u32* actions) {
     const PadState& p = sPads[chan];
-    u16 b = 0;
+    u32 b = 0;
     for (int i = 0; i < PAD_BUTTONS; i++) {
         if (p.buttons[i]) {
             b |= sPadBinds[i];
@@ -314,6 +541,10 @@ void ApplyPad(int chan, PortInputState* st, f32 dt) {
     if (st->nunchuk) {
         st->stickX = lx;
         st->stickY = -ly;
+    } else if (sConfig.leftStick == 2 || (sConfig.leftStick == 0 && (Hold(chan) & PORT_HOLD_TILT_STICK))) {
+        // A game that reads tilt or twist: the left stick tilts the remote (§37)
+        sGestures[chan].stickX = lx;
+        sGestures[chan].stickY = -ly;
     } else {
         // Without a Nunchuk the left stick is a second D-pad
         if (lx < -0.5f) b |= WPAD_BUTTON_LEFT;
@@ -321,7 +552,8 @@ void ApplyPad(int chan, PortInputState* st, f32 dt) {
         if (ly < -0.5f) b |= WPAD_BUTTON_UP;
         if (ly > 0.5f) b |= WPAD_BUTTON_DOWN;
     }
-    st->buttons |= b;
+    st->buttons |= static_cast<u16>(b);
+    *actions |= b & 0xFFFF0000u;
 
     // Pointer: the right stick moves it; the gyro too
     f32 rx = Deadzone(p.axes[AXIS_RIGHTX]);
@@ -350,7 +582,7 @@ void ApplyPad(int chan, PortInputState* st, f32 dt) {
 
 // --- Synthetic events (tests) ------------------------------------------------------
 
-enum EvOp { EV_KEY, EV_MOUSE, EV_CLICK, EV_PAD_ATTACH, EV_PAD_BUTTON, EV_PAD_AXIS, EV_PAD_ACCEL, EV_PAD_GYRO, EV_QUIT };
+enum EvOp { EV_KEY, EV_MOUSE, EV_CLICK, EV_WHEEL, EV_WINDOW, EV_PAD_ATTACH, EV_PAD_BUTTON, EV_PAD_AXIS, EV_PAD_ACCEL, EV_PAD_GYRO, EV_QUIT };
 struct TestEvent {
     u32 retrace;
     EvOp op;
@@ -406,9 +638,11 @@ int PortLiveLoadConfig(const char* path, char* err, int errLen) {
             if (n != 3) {
                 return bad("expected: key|pad NAME BUTTON");
             }
-            u16 button = NameEq(w[2], "none") ? 0 : PortInputButtonFromName(w[2]);
-            if (button == 0 && !NameEq(w[2], "none")) {
-                return bad("unknown remote button (A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C none)");
+            u32 button = 0;
+            if (!BindFromName(w[2], &button)) {
+                return bad("unknown remote button or motion (A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C, "
+                           "TWIST_LEFT TWIST_RIGHT TWIST_RESET TILT_FORWARD TILT_BACK TILT_LEFT TILT_RIGHT SHAKE "
+                           "PULL PUSH, none)");
             }
             if (NameEq(w[0], "key")) {
                 AddKeyBind(w[1], button);
@@ -439,6 +673,30 @@ int PortLiveLoadConfig(const char* path, char* err, int errLen) {
                 sConfig.stickDeadzone = Clamp(v, 0.0f, 0.9f);
             } else if (NameEq(w[0], "pointer_stabilise")) {
                 sConfig.pointerStabilise = v != 0;
+            } else if (NameEq(w[0], "speaker_volume")) {
+                sConfig.speakerVolume = Clamp(v, 0.0f, 2.0f);
+            } else if (NameEq(w[0], "left_stick")) {
+                // auto: tilt in the games that read tilt or twist, else the D-pad
+                sConfig.leftStick = NameEq(w[1], "auto") ? 0 : NameEq(w[1], "dpad") ? 1 : NameEq(w[1], "tilt") ? 2 : -1;
+                if (sConfig.leftStick < 0) {
+                    return bad("left_stick: auto, dpad or tilt");
+                }
+            } else if (NameEq(w[0], "twist_speed")) {
+                sConfig.twistSpeed = Clamp(v, 0.0f, 1000.0f);
+            } else if (NameEq(w[0], "wheel_twist")) {
+                sConfig.wheelTwist = Clamp(v, -90.0f, 90.0f);
+            } else if (NameEq(w[0], "tilt_angle")) {
+                sConfig.tiltAngle = Clamp(v, 0.0f, 90.0f);
+            } else if (NameEq(w[0], "tilt_speed")) {
+                sConfig.tiltSpeed = Clamp(v, 1.0f, 10000.0f);
+            } else if (NameEq(w[0], "shake_strength")) {
+                sConfig.shakeStrength = Clamp(v, 0.0f, 3.4f);
+            } else if (NameEq(w[0], "shake_frames")) {
+                sConfig.shakeFrames = static_cast<int>(Clamp(v, 1.0f, 30.0f));
+            } else if (NameEq(w[0], "pull_distance")) {
+                sConfig.pullDistance = Clamp(v, 0.0f, 1.0f);
+            } else if (NameEq(w[0], "push_distance")) {
+                sConfig.pushDistance = Clamp(v, 0.0f, 1.0f);
             } else {
                 return bad("unknown setting");
             }
@@ -460,10 +718,26 @@ void PortLiveStartPacing(f32 speed) {
     PortVISetPacer(Pace, NULL);
 }
 
+void SpeakerPacket(s32 chan, const void* data, u16 len, void*) {
+    PortSpeakerPacket(chan, data, len);
+}
+
+void SpeakerControl(s32 chan, u32 command, void*) {
+    if (command == WPAD_SPEAKER_ON || command == WPAD_SPEAKER_OFF) {
+        PortSpeakerReset(chan);
+    }
+}
+
 int PortLiveStartAudio(void) {
     if (wpgx_audio_open(AUDIO_RATE, 2) != 0) {
         return -1;
     }
+    // The remote speakers' sound (§37) into the same output
+    for (s32 chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
+        PortSpeakerReset(chan);
+    }
+    PortWPADSetSpeakerCallback(SpeakerPacket, NULL);
+    PortWPADSetSpeakerControlCallback(SpeakerControl, NULL);
     wpgx_audio_set_gain(sConfig.volume);
     sAudio = true;
     int rate = 0, channels = 0, buffer = 0;
@@ -499,11 +773,17 @@ void PortLiveAudioFrame(const short* samples, u32 frames) {
         sStats.overruns++;
         queued = 0;
     }
+    // The remote speakers: the speaker volume the game set (HOME Menu settings, SC) times
+    // speaker_volume (0 mutes)
+    static short mixed[2 * 256];
+    const u32 n = frames <= 256 ? frames : 256;
+    std::memcpy(mixed, samples, n * 2 * sizeof(short));
+    PortSpeakerMix(mixed, n, sConfig.speakerVolume * static_cast<f32>(WPADGetSpeakerVolume()) / 127.0f);
     if (queued > AUDIO_HIGH) {
         // Ahead of a device slower than the correction can follow: skip 3 ms.
         sStats.skippedFrames++;
     } else {
-        wpgx_audio_queue(samples, frames);
+        wpgx_audio_queue(mixed, n);
     }
     if (sPacing && sSpeed == 1.0f) {
         SteerByAudio(queued);
@@ -526,6 +806,45 @@ void __wrap_KPADSetPosParam(s32 chan, f32 playRadius, f32 sensitivity) {
     __real_KPADSetPosParam(chan, playRadius, sensitivity);
 }
 
+void PortLiveApplyMotion(int chan, PortInputState* st) {
+    if (!sInput || chan < 0 || chan >= WPAD_MAX_CONTROLLERS) {
+        return;
+    }
+    const Gesture& g = sGestures[chan];
+    if (Hold(chan) & PORT_HOLD_SIDEWAYS) {
+        // Held sideways (Charge!): tipping it forward is the remote's roll; tilting it to the
+        // left raises its pitch (the game turns left)
+        st->roll += g.fwdDeg + g.twist;
+        st->pitch -= g.sideDeg;
+    } else {
+        // Pointing at the screen: forward is nose down; left / right is the roll
+        st->pitch -= g.fwdDeg;
+        st->roll += g.sideDeg + g.twist;
+    }
+    if (g.shakeLeft > 0) {
+        // along the remote's up: what lifting it sharply reads
+        const f32 r = st->roll * 0.017453292f, p = st->pitch * 0.017453292f;
+        const f32 k = sConfig.shakeStrength;
+        st->accel[0] += k * -std::cos(p) * std::sin(r);
+        st->accel[1] += k * -std::cos(p) * std::cos(r);
+        st->accel[2] += k * std::sin(p);
+    }
+    if (g.pull == 1) {
+        st->accel[2] += 0.2f; // drawing the remote back
+    } else if (g.pull == 2) {
+        st->accel[2] -= 1.0f + 2.5f * g.thrustFrac; // the thrust toward the screen
+    }
+    st->distance += g.dist;
+}
+
+void PortLiveSetMerge(int merge) {
+    sMerge = merge != 0;
+}
+
+void PortLiveTestKey(const char* name, int down) {
+    wpgx_test_push_key(name, down);
+}
+
 int PortLiveStartInput(void) {
     if (wpgx_input_init() != 0) {
         return -1;
@@ -537,6 +856,7 @@ int PortLiveStartInput(void) {
     PortWPADSetMotorCallback(Motor, NULL);
     wpgx_show_cursor(0);
     sInput = true;
+    NoteWindow("window at start");
     return 0;
 }
 
@@ -550,11 +870,40 @@ int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]) {
     sLastPoll = now;
 
     u64 pollStart = PortPerfNow();
+    sPollCount++;
+    ReleaseDeferred();
+    sWheelY = 0.0f;
     wpgx_pump_events();
     int quit = 0;
     wpgx_event e;
     while (wpgx_next_event(&e)) {
         sStats.events++;
+        if (PortRecordActive() || e.type == WPGX_EV_KEY || e.type == WPGX_EV_MOUSE_BUTTON ||
+            e.type == WPGX_EV_GAMEPAD_BUTTON) {
+            char what[96];
+            switch (e.type) {
+            case WPGX_EV_KEY:
+                std::snprintf(what, sizeof what, "key %s %s", e.name, e.down ? "down" : "up");
+                break;
+            case WPGX_EV_MOUSE_BUTTON:
+                std::snprintf(what, sizeof what, "click %d %s", e.code, e.down ? "down" : "up");
+                break;
+            case WPGX_EV_GAMEPAD_BUTTON:
+                std::snprintf(what, sizeof what, "pad %d button %d %s", e.pad, e.code, e.down ? "down" : "up");
+                break;
+            case WPGX_EV_MOUSE_MOTION:
+                std::snprintf(what, sizeof what, "mouse %.1f %.1f", e.x, e.y);
+                break;
+            case WPGX_EV_GAMEPAD_AXIS:
+                std::snprintf(what, sizeof what, "pad %d axis %d %.3f", e.pad, e.code, e.x);
+                break;
+            default:
+                std::snprintf(what, sizeof what, "event %u", e.type);
+                break;
+            }
+            PortRecordInput(what, (e.type == WPGX_EV_KEY || e.type == WPGX_EV_MOUSE_BUTTON ||
+                                   e.type == WPGX_EV_GAMEPAD_BUTTON) && e.down);
+        }
         switch (e.type) {
         case WPGX_EV_QUIT:
             quit = 1;
@@ -565,21 +914,26 @@ int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]) {
                 break;
             }
             if (e.down && (NameEq(e.name, "F11") || (NameEq(e.name, "Return") && sHeldCount > 0 &&
-                                                     (NameEq(sHeld[0], "Left Alt") || NameEq(sHeld[0], "Right Alt"))))) {
+                                                     (NameEq(sHeld[0].name, "Left Alt") || NameEq(sHeld[0].name, "Right Alt"))))) {
                 wpgx_set_fullscreen(!wpgx_is_fullscreen());
                 break;
             }
             SetHeld(e.name, e.down != 0);
             break;
-        case WPGX_EV_MOUSE_MOTION: {
-            f32 u, v;
-            wpgx_window_to_picture(e.x, e.y, &u, &v);
-            PortInputPointerFromWindow(u, v, 1.0f, 1.0f, &sMouseX, &sMouseY);
-            sPointerX[0] = sMouseX;
-            sPointerY[0] = sMouseY;
+        case WPGX_EV_MOUSE_MOTION:
+            sMouseWinX = e.x;
+            sMouseWinY = e.y;
             sMouseSeen = true;
+            MapMouse();
             break;
-        }
+        case WPGX_EV_MOUSE_WHEEL:
+            sWheelY += e.y;
+            break;
+        case WPGX_EV_RESIZED:
+            if (NoteWindow("window changed") && sMouseSeen) {
+                MapMouse();
+            }
+            break;
         case WPGX_EV_MOUSE_BUTTON: {
             char name[16];
             std::snprintf(name, sizeof name, "Mouse%d", e.code);
@@ -601,7 +955,16 @@ int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]) {
             break;
         case WPGX_EV_GAMEPAD_BUTTON:
             if (e.pad >= 0 && e.pad < WPAD_MAX_CONTROLLERS && e.code >= 0 && e.code < PAD_BUTTONS) {
-                sPads[e.pad].buttons[e.code] = e.down != 0;
+                PadState& p = sPads[e.pad];
+                if (e.down) {
+                    p.buttons[e.code] = true;
+                    p.pressPoll[e.code] = sPollCount;
+                    p.releaseNext[e.code] = false;
+                } else if (p.buttons[e.code] && p.pressPoll[e.code] == sPollCount) {
+                    p.releaseNext[e.code] = true; // seen for one frame first
+                } else {
+                    p.buttons[e.code] = false;
+                }
             }
             break;
         case WPGX_EV_GAMEPAD_AXIS:
@@ -623,15 +986,45 @@ int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]) {
         }
     }
 
+    // The first frames present the picture (Aurora's viewport) and may resize;
+    // then a change shows as an event. A cheap check every 2 s catches the rest.
+    if (sPollCount - sWindowInfoPoll >= (sPollCount < 300 ? 30u : 120u)) {
+        sWindowInfoPoll = sPollCount;
+        if (NoteWindow("window") && sMouseSeen) {
+            MapMouse();
+        }
+    }
+
     for (int chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
         PortInputState* st = &states[chan];
+        u32 keys = chan == 0 ? KeyButtons() : 0;
+        u32 actions = keys & 0xFFFF0000u;
+        if (sMerge) {
+            // Over a test script's remote (§37): add the buttons and motions only
+            st->buttons |= static_cast<u16>(keys);
+            if (sPads[chan].present) {
+                ApplyPad(chan, st, dt, &actions);
+            }
+            if (chan == 0 && sMouseSeen) {
+                st->pointerValid = 1;
+                st->pointerX = sPointerX[0];
+                st->pointerY = sPointerY[0];
+            }
+            UpdateGestures(chan, actions, chan == 0 ? sWheelY : 0.0f);
+            continue;
+        }
         bool wanted = chan == 0 || sPads[chan].present;
         st->connected = wanted ? 1 : 0;
         st->nunchuk = sConfig.nunchuk;
-        st->buttons = chan == 0 ? KeyButtons() : 0;
+        st->buttons = static_cast<u16>(keys);
+        // The motions start from a level remote at the default distance each poll
+        st->roll = st->pitch = 0.0f;
+        st->accel[0] = st->accel[1] = st->accel[2] = 0.0f;
+        st->distance = 2.0f;
         if (sPads[chan].present) {
-            ApplyPad(chan, st, dt);
+            ApplyPad(chan, st, dt, &actions);
         }
+        UpdateGestures(chan, actions, chan == 0 ? sWheelY : 0.0f);
         st->pointerValid = chan != 0 || sMouseSeen || sPads[0].present ? 1 : 0;
         st->pointerX = sPointerX[chan];
         st->pointerY = sPointerY[chan];
@@ -703,6 +1096,17 @@ int PortLiveLoadEvents(const char* path, char* err, int errLen) {
             t.v[0] = static_cast<f32>(std::atof(w[3]));
             t.v[1] = static_cast<f32>(std::atof(w[4]));
             t.v[2] = static_cast<f32>(std::atof(w[5]));
+        } else if (ok && NameEq(w[1], "wheel") && n == 3) {
+            // wheel STEPS (> 0 away from the user)
+            t.op = EV_WHEEL;
+            t.v[0] = static_cast<f32>(std::atof(w[2]));
+        } else if (ok && NameEq(w[1], "window") && n == 6) {
+            // window LW LH PW PH: a fake window geometry (points, pixels); 0 0 0 0 = the real one
+            t.op = EV_WINDOW;
+            t.v[0] = static_cast<f32>(std::atof(w[2]));
+            t.v[1] = static_cast<f32>(std::atof(w[3]));
+            t.v[2] = static_cast<f32>(std::atof(w[4]));
+            t.code = std::atoi(w[5]);
         } else if (ok && NameEq(w[1], "quit")) {
             t.op = EV_QUIT;
         } else {
@@ -746,6 +1150,12 @@ void PortLivePushEvents(u32 retrace) {
         case EV_PAD_ACCEL:
         case EV_PAD_GYRO:
             wpgx_test_gamepad_sensor(t.op == EV_PAD_ACCEL, t.v[0], t.v[1], t.v[2]);
+            break;
+        case EV_WHEEL:
+            wpgx_test_push_mouse_wheel(0.0f, t.v[0]);
+            break;
+        case EV_WINDOW:
+            wpgx_test_set_window_metrics(t.v[0], t.v[1], t.v[2], static_cast<f32>(t.code));
             break;
         case EV_QUIT:
             wpgx_test_push_quit();

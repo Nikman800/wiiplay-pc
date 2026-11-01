@@ -37,6 +37,8 @@
 #include <port/input.h>
 #include <port/live.h>
 #include <port/perf.h>
+#include <port/record.h>
+#include <port/speaker.h>
 #include <egg/core/eggController.h>
 
 #include "wpgx.h"
@@ -56,6 +58,7 @@ extern int PortGameMain(int argc, char** argv);
 extern "C" u8 Health_strapArchive[];
 // Minigame state for the FRAME line (host_probe.cpp)
 extern "C" int PortGameProbe(char* buf, int len);
+extern "C" int PortMotionProbe(char* buf, int len); // host_probe_games.cpp (§37)
 extern "C" int PortHomeProbe(char* buf, int len); // host_probe_hbm.cpp
 
 namespace {
@@ -101,6 +104,11 @@ struct Options {
     int blockingPipes = -1;  // -1: the mode's default
     int mailbox = -1;        // -1: with --realtime
     int writeback = -1;      // copy writeback (§28): 0 off, 1 on; -1: off with --live-gfx
+    int framesAhead = -1;    // frames the game may run ahead of the GPU / presentation (§37): -1: 0 in real
+                             // time (as on the Wii), 1 headless
+    int gpuLoadMiB = 0, gpuLoadRepeats = 0;
+    const char* record = nullptr; // --record DIR[:N] (§37)
+    bool latencyMarker = false; // --test-gpu-load MIB:REPEATS (a slow GPU, tests)
     // --dump-copies FIRST:LAST:DIR (debugging): every EFB copy of those frames
     int dumpFirst = -1, dumpLast = -1;
     const char* dumpDir = nullptr;
@@ -182,17 +190,29 @@ s32 CurrentScene() {
     if (exitReason != nullptr) {
         std::printf("\texit=%s", exitReason);
     }
+    {
+        wpgx_frame_stats fs{};
+        wpgx_get_frame_stats(&fs);
+        std::printf("\tinflight_max=%u\tinflight_limit=%u\tgpu_latency_avg_ms=%.3f\tgpu_latency_max_ms=%.3f",
+                    fs.max_in_flight_seen, fs.max_frames_in_flight,
+                    fs.done ? fs.gpu_latency_sum_ns / 1e6 / static_cast<double>(fs.done) : 0.0,
+                    fs.gpu_latency_max_ns / 1e6);
+    }
     std::printf("\n");
     if (gLive) {
         PortLiveStats st;
         PortLiveGetStats(&st);
+        u32 spkPackets = 0, spkMixed = 0;
+        PortSpeakerStats(&spkPackets, &spkMixed);
         std::printf("LIVE\twall=%.3f\tlate=%u\tunderruns=%u\toverruns=%u\tqueued=%u\tevents=%u\trumble=%u"
-                    "\ttestrumble=%u\taudiodriver=%s\n",
+                    "\ttestrumble=%u\taudiodriver=%s\tspeaker_packets=%u\tspeaker_mixed=%u\n",
                     st.wallSeconds, st.lateResets, st.underruns, st.overruns, st.queuedFrames, st.events,
-                    st.rumbleOn, st.testRumbles, gOpt.audioOut == 1 ? wpgx_audio_driver() : "none");
+                    st.rumbleOn, st.testRumbles, gOpt.audioOut == 1 ? wpgx_audio_driver() : "none", spkPackets,
+                    spkMixed);
         PortLiveShutdown();
     }
     PortPerfFinish();
+    PortRecordStop();
     std::fflush(stdout);
     if (gAudio != nullptr) {
         std::fclose(gAudio);
@@ -274,6 +294,7 @@ void FrameDone() {
         Finish();
     }
     BeginFrame();
+    PortRecordFrame(gFrame - 1, PortVIGameTimeUnits(), VIGetRetraceCount());
     if (PortPerfActive()) {
         PortPerfCursor cursor;
         CursorSample(&cursor);
@@ -291,6 +312,10 @@ void PrintFrame(s32 scene, u64 hash) {
     char game[64];
     if (PortGameProbe(game, sizeof game)) {
         std::printf("\tgame=%s", game);
+    }
+    char motion[96];
+    if (PortMotionProbe(motion, sizeof motion)) {
+        std::printf("\tmotion=%s", motion);
     }
     char home[96];
     if (PortHomeProbe(home, sizeof home)) {
@@ -343,6 +368,7 @@ void SinkSync(u32 kind, void*) {
         break;
     case PORT_GX_SYNC_DISPLAY:
         PortPerfDrawOverlay();
+        PortRecordDrawMarker();
         wpgx_end_frame();
         FrameDone();
         break;
@@ -392,7 +418,11 @@ void OnRetrace(u32 retraceCount, void*) {
     }
     for (s32 chan = 0; chan < WPAD_MAX_CONTROLLERS; chan++) {
         PortWPADRemote remote;
-        PortInputToRemote(&gInputConfig, &gInputStates[chan], &remote);
+        PortInputState st = gInputStates[chan];
+        if (gOpt.liveInput == 1) {
+            PortLiveApplyMotion(chan, &st);
+        }
+        PortInputToRemote(&gInputConfig, &st, &remote);
         PortWPADSetRemote(chan, &remote);
     }
     PortWPADRunFrame();
@@ -439,7 +469,11 @@ void Usage(const char* argv0) {
                  "                      no CPU adapter) or of the tests (default: by mode)\n"
                  "  --async-pipelines | --blocking-pipelines, --mailbox | --fifo,\n"
                  "  --writeback on|off  EFB texture copies written back to memory (default: on, off with\n"
-                 "                      --live-gfx)   (HOST_BUILD.md §35)\n",
+                 "                      --live-gfx)   (HOST_BUILD.md §35)\n"
+                 "  --frames-ahead N    0-2: frames the game may run ahead of the GPU and presentation\n"
+                 "                      (default 0 in real time: each frame waits for the last one's, else 1)\n"
+                 "  --record DIR[:N]    frame times, input events (and every Nth frame) to DIR (§37)\n"
+                 "  --latency-marker    a white square in the corner on frames where an input arrives\n",
                  argv0);
     std::exit(2);
 }
@@ -625,6 +659,19 @@ int main(int argc, char** argv) {
             if (gOpt.writeback == -2) {
                 Usage(argv[0]);
             }
+        } else if (is("--frames-ahead") && more) {
+            gOpt.framesAhead = std::atoi(argv[++i]);
+            if (gOpt.framesAhead < 0 || gOpt.framesAhead > 2) {
+                Usage(argv[0]);
+            }
+        } else if (is("--record") && more) {
+            gOpt.record = argv[++i];
+        } else if (is("--latency-marker")) {
+            gOpt.latencyMarker = true;
+        } else if (is("--test-gpu-load") && more) {
+            if (std::sscanf(argv[++i], "%d:%d", &gOpt.gpuLoadMiB, &gOpt.gpuLoadRepeats) != 2) {
+                Usage(argv[0]);
+            }
         } else if (is("--mailbox")) {
             gOpt.mailbox = 1;
         } else if (is("--fifo")) {
@@ -658,6 +705,10 @@ int main(int argc, char** argv) {
     // Texture copies stay on the GPU in the window (§35: the readback cost up to 20 ms a frame,
     // and no CPU reader of a copy changes any frame of the menus or the nine games)
     gOpt.writeback = gOpt.writeback < 0 ? (gOpt.liveGfx ? 0 : 1) : gOpt.writeback;
+    // The picture must not fall behind the game: a frame starts only when the
+    // GPU has finished all but N of the earlier ones (their presentation's GPU
+    // work included). 0 in real time: as on the Wii, the game waits for the last frame.
+    gOpt.framesAhead = gOpt.framesAhead < 0 ? (gOpt.realtime ? 0 : 1) : gOpt.framesAhead;
     if (gOpt.gpu == nullptr) {
         const char* env = std::getenv("WIIPLAY_GPU");
         gOpt.gpu = env != nullptr && env[0] != '\0' ? env : nullptr;
@@ -702,6 +753,21 @@ int main(int argc, char** argv) {
         }
         CheckWritable("the perf file", perfPath, false, discRoot);
     }
+    static std::string recordDir;
+    if (gOpt.record != nullptr) {
+        recordDir = gOpt.record;
+        size_t colon = recordDir.rfind(':');
+        if (colon != std::string::npos) {
+            recordDir = recordDir.substr(0, colon);
+        }
+        MakeDirs(recordDir);
+        CheckWritable("the record directory", recordDir, true, discRoot);
+        char err[256];
+        if (PortRecordStart(gOpt.record, err, sizeof err) != 0) {
+            Die(err);
+        }
+    }
+    PortRecordSetMarker(gOpt.latencyMarker ? 1 : 0);
     static std::string configPath;
     if (gOpt.config == nullptr) {
         configPath = UserDir("XDG_CONFIG_HOME", "/.config") + "/input.cfg";
@@ -801,6 +867,10 @@ int main(int argc, char** argv) {
         return 0;
     }
     wpgx_set_display_aspect(aspect);
+    wpgx_set_max_frames_in_flight(static_cast<uint32_t>(gOpt.framesAhead + 1));
+    if (gOpt.gpuLoadMiB > 0) {
+        wpgx_test_set_gpu_load(static_cast<uint32_t>(gOpt.gpuLoadMiB), static_cast<uint32_t>(gOpt.gpuLoadRepeats));
+    }
     if (gOpt.audioOut && PortLiveStartAudio() != 0) {
         std::fprintf(stderr, "boot: no audio device; continuing without sound\n");
         gOpt.audioOut = 0;
@@ -808,6 +878,7 @@ int main(int argc, char** argv) {
     if (gOpt.liveInput && PortLiveStartInput() != 0) {
         Die("cannot open the input devices");
     }
+    PortLiveSetMerge(gScript != nullptr ? 1 : 0);
     wpgx_set_address_resolver(Resolve, nullptr);
     wpgx_set_copy_writeback(gOpt.writeback != 0, gOpt.dumpDir != nullptr, gOpt.dumpDir != nullptr ? DumpCopy : nullptr,
                             nullptr);
@@ -817,9 +888,11 @@ int main(int argc, char** argv) {
     std::fflush(stdout);
     char gfxLabel[512];
     std::snprintf(gfxLabel, sizeof gfxLabel,
-                  "gpu: %s (%s, %s); present %s%s; pipelines %s, disk cache %s; copy writeback %s; %s, %s, audio %s",
+                  "gpu: %s (%s, %s); present %s%s; frames ahead %d; pipelines %s, disk cache %s; copy writeback "
+                  "%s; %s, %s, audio %s",
                   wpgx_adapter_name(), wpgx_adapter_type(), wpgx_backend_name(), wpgx_present_mode(),
-                  gOpt.window ? (gOpt.vsync ? " (vsync)" : " (no vsync)") : "", gOpt.blockingPipes ? "blocking" : "async",
+                  gOpt.window ? (gOpt.vsync ? " (vsync)" : " (no vsync)") : "", gOpt.framesAhead,
+                  gOpt.blockingPipes ? "blocking" : "async",
                   cfg.disk_cache ? "on" : "off",
                   gOpt.writeback ? "on" : "off", gOpt.window ? "window" : "headless",
                   gOpt.realtime ? "real time" : "virtual time", gOpt.audioOut ? wpgx_audio_driver() : "off");

@@ -432,7 +432,7 @@ HBM_SRCS := $(patsubst $(REPO)/%,%,$(sort $(wildcard $(REPO)/src/homebuttonMiniL
 # settings) and the decomp's WENC encoder.
 HBM_SRCS += src/revolution/WENC/wenc.c
 HBM_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(HBM_SRCS)) $(OUT)/tests/hbm_host.cpp.o \
-    $(OUT)/host/src/host_wpad.cpp.o $(OUT)/host/src/host_sc.cpp.o
+    $(OUT)/host/src/host_wpad.cpp.o $(OUT)/host/src/host_sc.cpp.o $(OUT)/host/src/host_speaker.cpp.o
 
 $(OUT)/tests/%.cpp.o: $(HOST)/tests/%.cpp
 	@mkdir -p $(dir $@)
@@ -764,7 +764,7 @@ BOOT_HOST_SRCS := src/host_os.cpp src/host_dvd.cpp src/host_nand.cpp src/host_sc
     src/host_thread.cpp src/host_os_clock.c src/host_snd.cpp src/host_ax.cpp src/host_wpad.cpp \
     src/host_input.cpp src/host_reslist.cpp src/host_g3d.cpp src/host_gfx_stubs.c \
     src/host_vi.cpp src/host_boot.cpp src/host_live.cpp src/host_probe.cpp src/host_probe_games.cpp \
-    src/host_probe_hbm.cpp src/host_perf.cpp src/host_main.cpp
+    src/host_probe_hbm.cpp src/host_perf.cpp src/host_record.cpp src/host_speaker.cpp src/host_main.cpp
 BOOT_OBJS := $(sort $(patsubst %,$(OUT)/decomp/%.o,$(filter-out $(GX_SDK_SRCS),$(BOOT_SRCS))) \
     $(patsubst %,$(OUT)/host/%.o,$(BOOT_HOST_SRCS))) $(OUT)/decomp/src/main.cpp.o
 # Data the decomp reaches by its CodeWarrior name (RPTextWriter: a private static; Laser
@@ -780,7 +780,7 @@ $(OUT)/boot: $(HOST)/aurora/wpgx.h $(GX_SDK_OBJS) $(BOOT_OBJS) $(WPGX_LIB) $(LIB
 	    -L$(AURORA_BUILD) -lwiiplay_gx -Wl,-rpath,$(AURORA_BUILD) -Wl,--gc-sections \
 	    $(BOOT_CW_NAMES) -Wl,--wrap=KPADSetPosParam -o $@
 $(OUT)/host/src/host_main.cpp.o $(OUT)/host/src/host_vi.cpp.o $(OUT)/host/src/host_live.cpp.o \
-    $(OUT)/host/src/host_perf.cpp.o: CXXFLAGS += -I$(HOST)/aurora
+    $(OUT)/host/src/host_perf.cpp.o $(OUT)/host/src/host_record.cpp.o: CXXFLAGS += -I$(HOST)/aurora
 
 .PHONY: gx gx-aurora-tests FORCE
 FORCE:
@@ -810,7 +810,12 @@ all: $(OUT)/boot
 BOOT_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-boot
 boot: $(OUT)/boot
 	python3 $(HOST)/tests/test_boot.py --boot $(OUT)/boot --disc $(DISC) --scratch $(BOOT_SCRATCH)
+	python3 $(HOST)/tests/test_gestures.py --boot $(OUT)/boot --disc $(DISC) --scratch $(BOOT_SCRATCH)
 test: boot
+# The motion gestures alone (§37; also run by `boot`): GESTURES_ARGS="--only hockey,charge"
+.PHONY: gestures
+gestures: $(OUT)/boot
+	python3 $(HOST)/tests/test_gestures.py --boot $(OUT)/boot --disc $(DISC) --scratch $(BOOT_SCRATCH) $(GESTURES_ARGS)
 # Whole minigames, twice each (§32): not part of `make test` (about 15 minutes); run before
 # committing a game milestone.
 .PHONY: playtest
@@ -824,14 +829,14 @@ PLAY2_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-play2
 playtest2: $(OUT)/boot
 	python3 $(HOST)/tests/test_play.py --set 2 --boot $(OUT)/boot --disc $(DISC) --scratch $(PLAY2_SCRATCH) $(PLAYTEST2_ARGS)
 else
-.PHONY: gx gx-aurora-tests boot playtest playtest2
-gx gx-aurora-tests boot playtest playtest2:
+.PHONY: gx gx-aurora-tests boot gestures playtest playtest2
+gx gx-aurora-tests boot gestures playtest playtest2:
 	@echo "$@: skipped (NO_GX=1)"
 test: gx boot
 endif
 else
-.PHONY: gx gx-aurora-tests boot playtest playtest2
-gx gx-aurora-tests boot playtest playtest2:
+.PHONY: gx gx-aurora-tests boot gestures playtest playtest2
+gx gx-aurora-tests boot gestures playtest playtest2:
 	@echo "$@: skipped (the GX layer is 64-bit only)"
 test: gx boot
 endif

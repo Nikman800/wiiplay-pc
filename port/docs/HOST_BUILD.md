@@ -4732,3 +4732,208 @@ HOME Menu shows four cursors).
   `include/Pack` beyond those fixed or already under `PORT_HOST`).
 - `make playtest2` is two hours on lavapipe; the later-level runs could share the two-player
   runs' slots if a machine with more cores runs six at a time.
+
+## 37. Phase 8 input: live-play latency, motions for keyboard / mouse and gamepad, the remote speaker
+
+Three things a player in the window needed, and two problems found in the first play-tests.
+No decomp file changed (`check_matching.py`: all identical, nothing added to TOUCHED).
+
+### Files
+
+| File | What |
+|---|---|
+| `src/host_live.cpp`, `include/port/live.h` | Bindings to motion actions as well as buttons; the gesture layer (twist, tilt, shake, pull / thrust, push); the per-game hold; merge mode over a test script; presses shorter than a frame kept for one frame; the window geometry logged; the speaker in the output; new config keys |
+| `src/host_probe_games.cpp` | `PortInputHoldHook` (how each game holds the remote), `PortMotionProbe` (the FRAME line's `motion=`), the players' `play 2` |
+| `src/host_input.cpp`, `include/port/input.h` | `play N` kept per channel (`PortInputPlayMode`); `PORT_HOLD_*`; the speaker control callback type |
+| `src/host_wpad.cpp` | `PortWPADSetSpeakerControlCallback`: the speaker commands as the remote carries them out |
+| `src/host_speaker.cpp`, `include/port/speaker.h` | **New.** The WENC decoder and the speaker mixer |
+| `src/host_ax.cpp` | The remote speaker outputs (`AXRmt*`) |
+| `src/host_record.cpp`, `include/port/record.h` | **New.** `--record DIR[:N]`, `--latency-marker` |
+| `src/host_perf.cpp`, `include/port/perf.h` | `gpu_latency_ms`, `in_flight` columns; the window notes, the pointer range and the frames-in-flight line in the summary |
+| `src/host_main.cpp` | `--frames-ahead`, `--record`, `--latency-marker`, `--test-gpu-load`; motions applied on the remote's copy; `motion=`; END `inflight_*`, `gpu_latency_*`; LIVE `speaker_*` |
+| `aurora/wpgx.cpp`, `wpgx.h`, `wpgx_platform.cpp` | The mouse mapping from the window's current geometry and Aurora's last viewport; `wpgx_window_info`, `wpgx_fit_window`; the frames-in-flight limit and statistics; the latency marker; wheel events; test helpers (window geometry, wheel) |
+| `port/extern/aurora` | Two generic patches (below) |
+| `tests/test_gestures.py`, `tests/boot/gestures_hockey.txt` | **New.** The motion tests (run by `make boot` and `make test`; `make gestures` alone) |
+| `tests/test_boot.py`, `tests/boot/live.txt` | Run D: the mouse mapping across window geometries, a click shorter than a frame; run L: the frames-in-flight limit with a slowed GPU |
+| `tests/hbm_harness.cpp`, `tests/test_hbm.py` | The HOME Menu's speaker sounds decoded (`HD` lines) and compared |
+
+### Play-test findings: what "the game plays in the background" was
+
+The user's reports: the picture lagging seconds behind the game and the inputs (about 10 s with
+the default mailbox presentation, 4-5 s and 23 fps with `--fifo`), sound feeling late at
+times, a hard-to-reach pointer and lost clicks. What the session data showed:
+
+- **The display was a remote desktop.** The session (`loginctl`: `Remote=yes`, `Type=wayland`)
+  is GNOME Remote Desktop over RDP (port 3389) from another machine; Mutter's only monitor is
+  `Meta-0`, "Virtual remote monitor", 1920x1080. Everything the user sees and hears is encoded
+  and streamed: a 1280x912 window changing 60 times a second is far more than the stream
+  carries, and its queue grows to seconds. The game itself kept real time: the perf files show
+  59.9 fps, `present_ms` 0.04 ms (mailbox never waited), no audio underruns, the cursor one
+  frame behind the mouse. With FIFO the compositor paces the window by the stream's frame
+  callbacks: presents of 0.5-3.7 s and 198 pacer re-anchors. The audio goes through the same
+  RDP connection. Nothing in the port can make an RDP stream carry full-motion video in real
+  time; play on the machine's own display (or use a streaming tool made for games).
+- **Frames in flight were unbounded on the GPU side.** Aurora's two frame slots bound the CPU
+  only up to the render worker's submission; its five staging buffers let the GPU fall up to
+  about five frames behind (measured headless on lavapipe with a slowed GPU: 5 frames in
+  flight, 95 ms average from a frame's end to its GPU work done). Not the cause of seconds of
+  lag, but the picture could trail the game. Now limited (below).
+- **Clicks shorter than a frame were lost.** Keys and buttons were sampled once per frame: a
+  press and release between two polls (a quick click; a remote desktop delivers them together)
+  never reached the game. Now a press is held for at least one frame (3-4 WPAD reports).
+- **The pointer range.** The perf CSV's pointer never went left of -0.42 or below 0.59: the
+  mouse could not reach part of the window, consistent with the RDP client showing only part
+  of the session. The mapping itself was right for the window the game saw; it now follows the
+  window's current geometry and Aurora's last viewport, logs them, and a window larger than the
+  display's usable area is shrunk at start.
+
+### Frames ahead: the picture never falls behind the game
+
+`aurora_set_max_frames_in_flight(N)` (Aurora patch 0002): `aurora_begin_frame` waits until
+fewer than N ended frames have GPU work outstanding, their presentation's included (Dawn's
+`Queue::OnSubmittedWorkDone` after the frame's submissions). `--frames-ahead K` sets N = K + 1;
+the default in real time is 0 (as on the Wii, each frame starts when the last one's GPU work and
+presentation are done: the CPU frame is about 2 ms, overlap buys nothing), headless 1;
+`--frames-ahead 1` or `2` for a slow machine. The pacer still sleeps to the next retrace and
+re-anchors when late, so the game never runs ahead of the display.
+
+Measured (`--perf` columns `gpu_latency_ms`, `in_flight`; END `inflight_max`,
+`gpu_latency_avg_ms`):
+
+| Setup | Frames in flight (max) | Frame end -> GPU work and presentation done |
+|---|---|---|
+| lavapipe, headless real time, no limit | 3 | 17.1 ms avg |
+| the same, `--frames-ahead 0` | 1 | 6.3 ms avg |
+| lavapipe, GPU slowed (`--test-gpu-load 64:4`), no limit | 5 | 94.5 ms avg, 120 max |
+| the same, `--frames-ahead 0` / `2` | 1 / 2 | 20.2 / 37.8 ms avg |
+| RTX 3070, a real Wayland window (private headless gnome-shell), mailbox, `--frames-ahead 0` | 1 | 4.5 ms avg; input applied -> its frame done 5.7 ms avg, 9.2 max |
+| Intel UHD, the same | 1 | 3.4 ms avg; input -> frame done 3.6 ms avg, 5.4 max |
+
+Input-to-present here is from the poll that applies an input to the end of that frame's GPU
+work (`--record`: `input.csv` against `frames.csv`); the compositor's scan-out adds about a
+refresh. In the private compositor `--fifo` stalled for up to 60 s and hung once the
+compositor stopped sending frame callbacks, on both GPUs: FIFO on Wayland depends on the
+compositor repainting the window (hidden, on another workspace, or behind a remote stream it
+waits). Mailbox with the limit has the lowest latency and stays the default.
+
+The surface's present modes are logged at configure (Aurora's log: `surface configured: ...,
+present mode ..., (surface supports: ...)`); Dawn does not expose the swapchain's image count.
+
+### Recording a run: `--record`, `--latency-marker`
+
+`--record DIR[:N]`: `frames.csv` (frame, wall ns, game time, retrace, GPU latency, frames in
+flight, marker shown), `input.csv` (every window-system event as applied: wall ns, frame,
+event), and every Nth frame as a half-size PPM. `--latency-marker`: a white square in the
+picture's top-left corner on each frame where a key, mouse button or gamepad button is pressed:
+a phone filming the screen and the keyboard measures input-to-photon latency. The window's
+geometry (logical and pixel size, density, display, usable area, video driver, the presented
+viewport and the mouse mapping) is printed at start and on every change, and kept in the
+`--perf` summary with the pointer's range.
+
+### Motions: twist, tilt, shake, pull and thrust, push
+
+How each game reads the remote's motion (the decomp):
+
+| Game | Reads | Detector |
+|---|---|---|
+| Laser Hockey | `horizon` (`RPHkyPaddle::UpdateControl`) | paddle angle = 3 x atan2(horizon), at most 8 degrees a frame (`LimitTilt`) |
+| Pose Mii | `horizon` (`RPBomCursor`) | the Mii turns by 4 x the remote's roll |
+| Charge! | acc, averaged over the frame's samples (`RPCowPlayer::CalcInput`), the remote on its side | run: the angle of acc.x (the roll) below -0.2 (about 18 degrees); steer: acc.z (the pitch); jump: \|acc.xy\|^2 >= 6.25 (2.5 g) with \|acc.z\| <= 3; a z flick (+-1 g then the other way within 10 frames) swerves |
+| Fishing | acc.y (`RPFshPlayer::IsRemoteSteady` in the fight state) | acc.y < -1.4 g, none of the 20 samples before above -0.5 g: the lift hooks the fish |
+| Billiards | `dist` and acc while B is held (`RPBilPlayer::AddressCalc`, `StrokeCalc`) | the remote 0.1 m farther than at B: the stroke starts; back nearer than at B: the shot, its power from the distance's speed and the acc along -z |
+| Find Mii | `dist` (`RPWlyCursor::Calculate`, mode 0) | the distance ratio over a 0.3 m window moves the camera (closer: in) |
+| Shooting Range, Table Tennis, Tanks! | the pointer, buttons, the D-pad / Nunchuk stick | none (Table Tennis swings from the pointer's motion; Shooting Range's acc history is debug drawing only) |
+
+The gesture layer (`host_live.cpp`) keeps per remote: a **twist** (degrees, persistent: the
+twist keys turn it at `twist_speed`, the wheel steps it by `wheel_twist`, `TWIST_RESET` levels
+it; within +-90), the **tilt** keys as springs to +-`tilt_angle` (at `tilt_speed`) plus the
+left stick's deflection, a **shake** pulse of `shake_strength` g along the remote's up vector
+(what lifting it sharply reads, whatever its roll and pitch) for `shake_frames` frames per
+press, a **pull** (held: the remote draws back to `pull_distance` at 0.6 m/s with a little +z
+acceleration; released: a thrust toward the screen at 1.5-4 m/s by how far it was drawn, to
+0.1 m nearer than the start, with -z acceleration of 1-3.5 g, then back) and a **push** (held:
+`push_distance` nearer at 0.6 m/s). `PortLiveApplyMotion` adds them to a copy of the remote's
+state just before the WPAD backend gets it, so they never accumulate in a script's state.
+
+The meaning of tilt follows how the game holds the remote (`PortInputHoldHook`, from the scene):
+pointing at the screen, forward / back is the pitch (nose down / up) and left / right the roll;
+held sideways (Charge!), forward / back is the roll (the game's run / slow) and left / right the
+pitch (left turns left). In the games that read tilt or twist (Laser Hockey, Pose Mii, Charge!)
+a gamepad's left stick tilts the remote (`left_stick auto`); elsewhere it stays a D-pad (Tanks!,
+Billiards' camera). Default bindings: RUNNING.md.
+
+Gamepad buttons the game never reads changed meaning: the shoulders were Nunchuk C and a second
+B; now the right shoulder shakes, the left shoulder pulls (hold) and thrusts (release), the left
+trigger pushes and the left stick's click levels the twist. B stays on east and the right
+trigger.
+
+### The test (`tests/test_gestures.py`)
+
+The live layer on top of a test script (`--input` with `--live-input`: merge mode, the live
+layer adds its buttons and motions); the game-side players in `play 2` navigate and aim as in
+the playtests but press the default motion keys through SDL's queue (`PortLiveTestKey`) instead
+of setting the motion themselves; Laser Hockey uses an events file. The FRAME line's `motion=`
+shows what each game's own detector made of it. Six runs, three at a time, about 10 minutes on
+lavapipe:
+
+```
+  hockey     paddle twist +30 / -0 / -30 / -1 / +30 degrees (E, wheel, Q, middle button, left stick)
+  posemii    twist keys: KPAD roll over 49 degrees; 129 bubbles matched
+  charge     W: KPAD roll 60 degrees, top speed 1.19; A / D: yaw over 3.50 rad; F: 2 jumps
+  fishing    F on a bite: 4 fish hooked by the lift, 4 caught
+  billiards  R held and released (B held): 5 shots
+  findmii    G held: the cursor's distance ratio 0.00..1.00
+```
+
+### The Wii Remote speaker
+
+The games and the HOME Menu encode the speaker's sound with WENC (`wenc.c`, a 4-bit adaptive
+ADPCM: 40 samples of 6 kHz in 20 bytes a packet, every 6.67 ms) and send it with
+`WPADSendStreamData`. `PortWencDecode` (`host_speaker.cpp`) is its decoder: from the nibble it
+redoes the encoder's own reconstruction step (`qn` from `dl`, `dl/2`, `dl/4`, `dl/8`, the
+clamps, `dl *= table[index]` truncated), so it gives back exactly the `xn` the encoder tracked.
+The decoder starts from xn 0, dl 127 when the speaker is turned on (`WPAD_SPEAKER_ON`, through
+the new speaker control callback), as both encoders do (`RemoteSpk::SpeakerOnCallback`,
+`RemoteSpeaker::SpeakerOnCallback`). The rate: WPAD's speaker set-up byte pair `0xD0 0x07` is
+the divider 2000 of 12 MHz (6000 Hz; the decomp's comment says 3000).
+
+The games' remote sound comes from the AX mixer's remote outputs, which the host AX had left
+empty: now each voice with `remote` on mixes into four remote buses with its `rmtMix` main
+volumes (ramped like the main mix, after the voice's volume envelope, before the main filters),
+and each 3 ms frame goes down to 18 samples at 6 kHz (box average) into a ring that
+`AXRmtGetSamples` / `AXRmtAdvancePtr` read. Not modelled: the remote aux sends and the remote
+IIR. The main mix is unchanged (every audio test's output is identical).
+
+The live mixer queues each remote's decoded samples (20 ms of prefill), resamples them to
+32 kHz (linear) and adds them to both channels of the main output, times `speaker_volume`
+(config; default 0.5, 0 mutes) times the remote speaker volume the game set (HOME Menu
+settings, SC; 85 of 127 by default). A Shooting Range smoke run sends 827 packets (the
+gunshots); the HOME Menu's connect and volume sounds play through the same path. Not mixed
+into `--audio` files (the tests' main mix).
+
+The test: `hbm_harness` decodes each of the HOME Menu's five speaker sounds (`HD`: samples and
+hash of the decoded PCM); `test_hbm.py` models the encoder, takes its reconstruction and requires
+the harness's decoded sound to equal it sample for sample, then reports the codec's error
+against the PCM the encoder was given (SNR 15.0-18.7 dB, peak errors 1046-2425 of peaks
+5771-10375; the test requires 10 dB).
+
+### Aurora patches (submodule working tree, not committed; series in the job's scratch)
+
+- 0001 `gfx: query the last presentation viewport`: `aurora_get_present_viewport` (the
+  viewport, the surface in pixels, the window in points of the last presentation).
+- 0002 `gfx: frames-in-flight limit, GPU latency statistics, present mode log`:
+  `aurora_set_max_frames_in_flight`, `aurora_get_frame_stats`, `aurora_test_set_gpu_load`; the
+  configured present mode and the surface's modes in the log.
+
+### Verified headless vs. to try by hand
+
+Verified: the mouse mapping across window geometries (logical / pixel sizes, density 1.25 and
+2, letterbox and pillarbox, a change under a still mouse), a click within one frame, the
+frames-in-flight limit with a slowed GPU on lavapipe, real Wayland windows on both GPUs in a
+private headless compositor (latency, present modes), every motion through SDL events to the
+game's own detector in the six games that read motion, the speaker decoder bit-exact against
+the encoder, the game's speaker packets reaching the mixer. By hand: the feel of the default
+twist / tilt speeds, Charge!'s steering direction on a real pad's stick, the gyro-pad shakes
+(not mapped: the pad's accelerometer still gives only the tilt), how loud the speaker sound
+should be against the main mix, the latency marker on a real display, and any of it outside a
+remote desktop session.

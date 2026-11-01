@@ -394,6 +394,13 @@ int sPlayGoal[WPAD_MAX_CONTROLLERS];
 
 } // namespace
 
+// `play N` per channel (PortInputPlayMode)
+int sPlayMode[WPAD_MAX_CONTROLLERS];
+
+int PortInputPlayMode(int chan) {
+    return chan >= 0 && chan < WPAD_MAX_CONTROLLERS ? sPlayMode[chan] : 0;
+}
+
 int PortInputPlayGoal(int chan) {
     return chan >= 0 && chan < WPAD_MAX_CONTROLLERS ? sPlayGoal[chan] : 0;
 }
@@ -606,7 +613,8 @@ void PortInputScriptApply(PortInputScript* script, int frame, PortInputState sta
             script->aim[c.chan] = c.args[0] != 0.0f;
             break;
         case OP_PLAY:
-            script->play[c.chan] = c.args[0] != 0.0f;
+            script->play[c.chan] = static_cast<int>(c.args[0]);
+            sPlayMode[c.chan] = script->play[c.chan];
             break;
         case OP_GOAL:
             sPlayGoal[c.chan] = static_cast<int>(c.args[0]);

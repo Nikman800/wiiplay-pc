@@ -177,6 +177,9 @@ WPGX_API int wpgx_init(const wpgx_config* config) {
         aurora_enable_vsync(config->vsync != 0);
     }
     wpgx_platform_init(config->headless != 0, width, height);
+    if (!config->headless) {
+        wpgx_fit_window();
+    }
     gAdapterName = std::string(aurora::webgpu::g_adapterInfo.device.data, aurora::webgpu::g_adapterInfo.device.length);
     const auto& info = aurora::webgpu::g_adapterInfo;
     switch (info.adapterType) {
@@ -226,6 +229,23 @@ WPGX_API void wpgx_shutdown(void) {
         gInitialized = false;
     }
 }
+
+WPGX_API void wpgx_get_frame_stats(wpgx_frame_stats* stats) {
+    AuroraFrameStats a{};
+    aurora_get_frame_stats(&a);
+    stats->ended = a.framesEnded;
+    stats->done = a.framesDone;
+    stats->last_gpu_latency_ns = a.lastGpuLatencyNs;
+    stats->gpu_latency_sum_ns = a.gpuLatencySumNs;
+    stats->gpu_latency_max_ns = a.gpuLatencyMaxNs;
+    stats->in_flight_wait_ns = a.inFlightWaitNs;
+    stats->max_in_flight_seen = a.maxInFlightSeen;
+    stats->max_frames_in_flight = a.maxFramesInFlight;
+}
+
+WPGX_API void wpgx_set_max_frames_in_flight(uint32_t frames) { aurora_set_max_frames_in_flight(frames); }
+
+WPGX_API void wpgx_test_set_gpu_load(uint32_t mib, uint32_t repeats) { aurora_test_set_gpu_load(mib, repeats); }
 
 WPGX_API int wpgx_begin_frame(void) {
     wpgx_platform_take_events(aurora_update());
@@ -299,6 +319,24 @@ WPGX_API int wpgx_overlay(const char* text, const float* values, int count, floa
         }
     }
     ImGui::End();
+    return 1;
+}
+
+WPGX_API int wpgx_marker(void) {
+    ImGuiContext* ctx = ImGui::GetCurrentContext();
+    if (ctx == nullptr || !ctx->WithinFrameScope) {
+        return 0;
+    }
+    AuroraPresentViewport vp{};
+    float x = 0.f, y = 0.f, side = 48.f;
+    if (aurora_get_present_viewport(&vp) && vp.valid && vp.windowWidth > 0 && vp.surfaceWidth > 0) {
+        // ImGui draws in window points
+        const float k = static_cast<float>(vp.windowWidth) / static_cast<float>(vp.surfaceWidth);
+        x = vp.left * k;
+        y = vp.top * k;
+        side = vp.width * k / 12.f;
+    }
+    ImGui::GetForegroundDrawList()->AddRectFilled(ImVec2(x, y), ImVec2(x + side, y + side), IM_COL32(255, 255, 255, 255));
     return 1;
 }
 

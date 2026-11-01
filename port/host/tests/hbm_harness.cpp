@@ -52,6 +52,7 @@
 #include <port/arena.h>
 #include <port/be.h>
 #include <port/input.h>
+#include <port/speaker.h>
 
 #include "disc_walk.h"
 
@@ -93,6 +94,8 @@ HBM_PRIVATE(scFuncTextPaneName, const char* (*)[homebutton::res::eFuncTextPane_M
 extern "C" OSAlarmHandler gHbmHostPeriodicHandler;
 // What the host speaker callback receives (channel 0).
 static std::vector<u8> sSpeakerBytes;
+// --decoded DIR: the decoded speaker sounds as raw little-endian s16 at 6 kHz (§37)
+static const char* sDecodedDir = nullptr;
 static int sSpeakerPackets = 0;
 
 static void OnSpeaker(s32 chan, const void* pData, u16 len, void* pUser) {
@@ -219,6 +222,25 @@ void TestSpeaker(const std::string& name, void* pSpkSeBuf) {
         u32 h = Fnv(sSpeakerBytes.data(), sSpeakerBytes.size(), 0x811C9DC5);
         std::printf("HS\t%s\t%d\t%d\t%zu\t%08x\n", entry.name, vol, sSpeakerPackets,
                     sSpeakerBytes.size(), h);
+        // The remote's side (§37): the packets decoded by the host decoder, from a fresh
+        // state (the speaker was turned on); hash of the samples (little-endian s16)
+        PortWencDecoder dec;
+        PortWencDecoderReset(&dec);
+        std::vector<s16> pcm(sSpeakerBytes.size() * 2);
+        PortWencDecode(&dec, sSpeakerBytes.data(), static_cast<s32>(pcm.size()), pcm.data());
+        std::vector<u8> le(pcm.size() * 2);
+        for (size_t i = 0; i < pcm.size(); i++) {
+            le[2 * i] = static_cast<u8>(pcm[i] & 0xFF);
+            le[2 * i + 1] = static_cast<u8>((static_cast<u16>(pcm[i]) >> 8) & 0xFF);
+        }
+        std::printf("HD\t%s\t%zu\t%08x\n", entry.name, pcm.size(), Fnv(le.data(), le.size(), 0x811C9DC5));
+        if (sDecodedDir != nullptr) {
+            std::string path = std::string(sDecodedDir) + "/" + entry.name + ".s16";
+            if (FILE* f = std::fopen(path.c_str(), "wb")) {
+                std::fwrite(le.data(), 1, le.size(), f);
+                std::fclose(f);
+            }
+        }
         sSounds++;
     }
     ARCCloseDir(&dir);
@@ -314,6 +336,9 @@ int main(int argc, char** argv) {
     }
 
     PortHostSetDiscRoot(argv[1]);
+    if (argc > 2) {
+        sDecodedDir = argv[2];
+    }
     EGG::DvdFile::initialize();
 
     // RPSysResourceManager's static common and local archives (USA disc).

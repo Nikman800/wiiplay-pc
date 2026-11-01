@@ -42,11 +42,14 @@ enum Col {
     C_PIPE_MS, // pipeline compilation (any thread)
     C_PIPE_WAIT_MS,
     C_AUDIO_MS, // audio queued at the frame's end
+    C_GPU_LAT,  // the latest completed frame: end of its recording to its GPU work (presentation included) done
+    C_IN_FLIGHT, // frames ended whose GPU work is not done, at the frame's boundary
     C_COUNT
 };
 const char* const kColNames[C_COUNT] = {"wall_ms",   "calc_ms",  "gx_ms",       "end_ms",
                                         "gpu_ms",    "present_ms", "sleep_ms",  "input_ms",
-                                        "pipe_compile_ms", "pipe_wait_ms", "audio_queue_ms"};
+                                        "pipe_compile_ms", "pipe_wait_ms", "audio_queue_ms",
+                                        "gpu_latency_ms", "in_flight"};
 
 struct Row {
     int frame, scene;
@@ -62,6 +65,11 @@ bool sActive = false;
 bool sOverlay = false;
 char* sCsvPath = nullptr;
 char sLabel[512];
+// Notes for the summary (the window's geometry at start and at each change)
+const int MAX_NOTES = 32;
+char* sNotes[MAX_NOTES];
+size_t sNoteFrames[MAX_NOTES];
+int sNoteCount = 0, sNotesDropped = 0;
 Row* sRows = nullptr;
 size_t sCount = 0, sCap = 0;
 u64 sHost[PORT_PERF_HOST_PHASES];
@@ -249,6 +257,45 @@ void WriteSummary(FILE* f) {
     } else {
         std::fprintf(f, "cursor: no mouse movement recorded\n");
     }
+    {
+        wpgx_frame_stats fs{};
+        wpgx_get_frame_stats(&fs);
+        std::fprintf(f,
+                     "frames in flight: limit %u%s, most seen %u; GPU latency (frame end to its GPU work and "
+                     "presentation done) avg %.2f ms over %llu frames; begin_frame waited %.1f ms in all for the limit\n",
+                     fs.max_frames_in_flight, fs.max_frames_in_flight ? "" : " (none)", fs.max_in_flight_seen,
+                     fs.done ? Ms(fs.gpu_latency_sum_ns) / fs.done : 0.0, static_cast<unsigned long long>(fs.done),
+                     Ms(fs.in_flight_wait_ns));
+    }
+    // Where the pointer went (-1..1 across the picture): a part of the picture
+    // the mouse never reached shows here
+    {
+        float x0 = 9, x1 = -9, y0 = 9, y1 = -9;
+        size_t n = 0;
+        for (size_t i = 0; i < sCount; i++) {
+            if (!sRows[i].targetValid) {
+                continue;
+            }
+            n++;
+            x0 = std::min(x0, sRows[i].targetX);
+            x1 = std::max(x1, sRows[i].targetX);
+            y0 = std::min(y0, sRows[i].targetY);
+            y1 = std::max(y1, sRows[i].targetY);
+        }
+        if (n > 0) {
+            std::fprintf(f, "pointer range (picture -1..1): x %.3f..%.3f, y %.3f..%.3f over %zu frames\n", x0, x1, y0,
+                         y1, n);
+        }
+    }
+    if (sNoteCount > 0) {
+        std::fprintf(f, "window (at start and at each change):\n");
+        for (int i = 0; i < sNoteCount; i++) {
+            std::fprintf(f, "  frame %zu: %s\n", sNoteFrames[i], sNotes[i]);
+        }
+        if (sNotesDropped > 0) {
+            std::fprintf(f, "  (%d later changes not kept)\n", sNotesDropped);
+        }
+    }
     // The worst frames
     size_t* idx = static_cast<size_t*>(std::malloc(sizeof(size_t) * (sCount ? sCount : 1)));
     if (idx != nullptr) {
@@ -319,12 +366,13 @@ void UpdateOverlayText(const Row& r) {
                   "%s\n"
                   "%.1f fps  frame %.2f ms (worst %.1f)  scene %d\n"
                   "calc %.2f  gx %.2f  end %.2f  gpu %.2f  present %.2f  sleep %.2f\n"
+                  "gpu latency %.2f ms  in flight %.0f\n"
                   "audio %.0f ms queued  underruns %u  skipped %u  corr %+.2f %%\n"
                   "pipelines +%u (%.1f ms)  waits %u  skipped draws %u  draws %u\n"
                   "cursor %s target %.3f,%.3f  kpad %.3f,%.3f\n"
                   "F3 hides",
                   sLabel, avg(C_WALL) > 0 ? 1000.0 / avg(C_WALL) : 0.0, avg(C_WALL), worst, r.scene, avg(C_CALC),
-                  avg(C_GX), avg(C_END), avg(C_GPU), avg(C_PRESENT), avg(C_SLEEP), r.v[C_AUDIO_MS], r.underruns,
+                  avg(C_GX), avg(C_END), avg(C_GPU), avg(C_PRESENT), avg(C_SLEEP), avg(C_GPU_LAT), r.v[C_IN_FLIGHT], r.v[C_AUDIO_MS], r.underruns,
                   r.skippedAudio, 100.0 * r.correction, r.pipelines, r.v[C_PIPE_MS], r.pipelineWaits, r.skippedDraws,
                   r.drawCalls, r.targetValid ? "" : "(no target)", r.targetX, r.targetY, r.kpadX, r.kpadY);
 }
@@ -364,6 +412,21 @@ void PortPerfAdd(int phase, u64 ns) {
     }
 }
 
+void PortPerfNote(const char* line) {
+    if (line == NULL) {
+        return;
+    }
+    if (sNoteCount == MAX_NOTES) {
+        sNotesDropped++;
+        return;
+    }
+    sNotes[sNoteCount] = strdup(line);
+    sNoteFrames[sNoteCount] = sCount;
+    if (sNotes[sNoteCount] != nullptr) {
+        sNoteCount++;
+    }
+}
+
 void PortPerfFrame(int frame, int scene, const PortPerfCursor* cursor) {
     if (!sActive) {
         return;
@@ -389,6 +452,10 @@ void PortPerfFrame(int frame, int scene, const PortPerfCursor* cursor) {
     r.v[C_PIPE_MS] = static_cast<float>(Ms(p.pipeline_compile_ns - sLastPerf.pipeline_compile_ns));
     r.v[C_PIPE_WAIT_MS] = static_cast<float>(Ms(p.pipeline_wait_ns - sLastPerf.pipeline_wait_ns));
     r.v[C_AUDIO_MS] = static_cast<float>(live.queuedFrames / 32.0);
+    wpgx_frame_stats fs{};
+    wpgx_get_frame_stats(&fs);
+    r.v[C_GPU_LAT] = static_cast<float>(Ms(fs.last_gpu_latency_ns));
+    r.v[C_IN_FLIGHT] = static_cast<float>(fs.ended - fs.done);
     r.pipelines = p.pipelines_created - sLastPerf.pipelines_created;
     r.pipelineWaits = p.pipeline_waits - sLastPerf.pipeline_waits;
     r.skippedDraws = p.skipped_draws - sLastPerf.skipped_draws;

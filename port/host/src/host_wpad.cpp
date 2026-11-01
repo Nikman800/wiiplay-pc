@@ -74,6 +74,8 @@ u32 sFrameAccum = 0;
 PortWPADMotorFunc sMotorFunc = NULL;
 void* sMotorUser = NULL;
 PortWPADSpeakerFunc sSpeakerFunc = NULL;
+PortWPADSpeakerControlFunc sSpeakerControlFunc = NULL;
+void* sSpeakerControlUser = NULL;
 void* sSpeakerUser = NULL;
 
 bool validChan(s32 chan) {
@@ -153,6 +155,9 @@ void finishPending(s32 chan) {
             default:
                 break;
             }
+            if (sSpeakerControlFunc != NULL) {
+                sSpeakerControlFunc(chan, p.arg, sSpeakerControlUser);
+            }
             break;
         default:
             break;
@@ -216,6 +221,11 @@ void PortWPADSetMotorCallback(PortWPADMotorFunc func, void* user) {
 void PortWPADSetSpeakerCallback(PortWPADSpeakerFunc func, void* user) {
     sSpeakerFunc = func;
     sSpeakerUser = user;
+}
+
+void PortWPADSetSpeakerControlCallback(PortWPADSpeakerControlFunc func, void* user) {
+    sSpeakerControlFunc = func;
+    sSpeakerControlUser = user;
 }
 
 u32 PortWPADSampleCount(void) {

@@ -1,0 +1,18 @@
+# Laser Hockey's twist through the live input layer (port/docs/HOST_BUILD.md §37), over
+# tests/boot/hockey_smoke.txt (the pointer on the puck): RETRACE EVENT. The paddle turns
+# with the remote's roll (RPHkyPaddle::UpdateControl: three times the horizon's angle).
+# E held 15 frames: +30 degrees (twist_speed 120 a second)
+4040 key E down
+4055 key E up
+# the mouse wheel, 3 steps toward the user: -10 degrees each
+4095 wheel -3
+# Q held 15 frames: -30
+4135 key Q down
+4150 key Q up
+# the middle button: the twist back to 0
+4175 click 2 down
+4177 click 2 up
+# a gamepad's left stick (a tilt game: the stick tilts the remote) at 0.6: past the 0.2 dead
+# zone, half way: 30 degrees of roll (tilt_angle 60)
+4215 pad attach
+4220 pad axis 0 0.6

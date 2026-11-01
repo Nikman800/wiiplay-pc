@@ -19,6 +19,7 @@
 #include <cstring>
 
 #include <port/input.h>
+#include <port/live.h>
 
 #define private public
 #define protected public
@@ -54,6 +55,8 @@
 #include <Pack/RPParty/RPFshScene/RPFshScoreLayout.h>
 #include <Pack/RPParty/RPFshScene/RPFshStartLayout.h>
 #include <Pack/RPParty/RPFshScene/RPFshTimer.h>
+#include <Pack/RPParty/RPHkyScene/RPHkyGame.h>
+#include <Pack/RPParty/RPHkyScene/RPHkyPaddle.h>
 #include <Pack/RPParty/RPPnpScene/RPPnpBall.h>
 #include <Pack/RPParty/RPPnpScene/RPPnpField.h>
 #include <Pack/RPParty/RPPnpScene/RPPnpGame.h>
@@ -169,7 +172,44 @@ struct Player {
     int target = -1;
     int timer = 0;
     f32 vals[8] = {};
+    u32 keys = 0;      // `play 2`: the motion keys held (kMotionKeys)
+    bool keysSet = false;
 };
+
+// `play 2` (§37): the player leaves the motions to the live input layer and presses the
+// default motion keys instead (through SDL's queue: the bindings, the gesture layer)
+const char* const kMotionKeys[] = {"Q", "E", "W", "S", "A", "D", "F", "R", "G"};
+enum { K_Q = 1, K_E = 2, K_W = 4, K_S = 8, K_A = 16, K_D = 32, K_F = 64, K_R = 128, K_G = 256 };
+
+void MotionKeys(Player& p, u32 want) {
+    for (int i = 0; i < 9; i++) {
+        u32 bit = 1u << i;
+        if ((p.keys ^ want) & bit) {
+            PortLiveTestKey(kMotionKeys[i], (want & bit) != 0);
+        }
+    }
+    p.keys = want;
+    p.keysSet = true;
+}
+
+bool Motions2(const Player& p) {
+    return p.idx == 0 && PortInputPlayMode(0) == 2;
+}
+
+// The remote's roll as KPAD reports it (degrees, from the horizon)
+f32 KpadRoll(int chan) {
+    EGG::CoreControllerMgr* mgr = EGG::CoreControllerMgr::instance();
+    EGG::CoreController* c = mgr != nullptr ? mgr->getNthController(chan) : nullptr;
+    if (c == nullptr) {
+        return 0.0f;
+    }
+    const EGG::CoreStatus* s = c->getCoreStatus();
+    if (s->getDPDValidFlag() <= 0) {
+        // not pointing at the screen: the roll gravity gives (acc = (-sin r, -cos r, ...) level)
+        return std::atan2(-s->acc.x, -s->acc.y) * 57.29578f;
+    }
+    return std::atan2(s->horizon.y, s->horizon.x) * 57.29578f;
+}
 
 // One per remote: `play 1` on channel n plays player n (the players take the remotes in
 // order: RPSysPlayerMgr::setRemoteNum)
@@ -180,6 +220,7 @@ Player& Begin(int chan, int frame) {
     Player& p = sPlayers[chan];
     s32 scene = CurrentScene();
     if (scene != sPlayerScene[chan] || frame != p.lastFrame + 1) {
+        MotionKeys(p, 0);
         p = Player();
         p.idx = chan;
         sPlayerScene[chan] = scene;
@@ -427,6 +468,12 @@ void BomPlay(Player& p, PortInputState* st) {
     PointAt(p, st, (best->mPos.x + best->mVel.x) / range, (best->mPos.z + best->mVel.z) / range, true);
     // twist: the Mii turns by four times the remote's roll
     st->roll = Wrap180(best->mAngle + best->mRotSpeed) / 4.0f;
+    if (Motions2(p)) {
+        // the twist keys (Q / E) turn the remote until KPAD reads the roll wanted
+        f32 err = st->roll - KpadRoll(p.idx);
+        MotionKeys(p, err > 1.0f ? K_E : err < -1.0f ? K_Q : 0);
+        st->roll = 0.0f;
+    }
     int want = BomPoseIndex(best->mPose), have = BomPoseIndex(pl->mPose);
     if (want != have && pl->mPoseCooldown == 0 && !pl->mInBubble) {
         Tap(p, want > have ? WPAD_BUTTON_A : WPAD_BUTTON_B, 2, 10);
@@ -952,7 +999,10 @@ void FshPlay(Player& p, PortInputState* st) {
         // "suka"
         PointAt(p, st, p.vals[2], p.vals[3], false);
         s32 type = pl->mHookedFish >= 0 ? RPFshFishMgr::sInstance->GetFish(pl->mHookedFish)->mType : 3;
-        if (type != 3 && p.timer < 3) {
+        if (Motions2(p)) {
+            // the shake key: the game's own lift detector (RPFshPlayer::IsRemoteSteady)
+            MotionKeys(p, type != 3 && p.timer < 3 ? K_F : 0);
+        } else if (type != 3 && p.timer < 3) {
             st->accel[1] = -1.2f;
         }
         p.timer++;
@@ -1096,7 +1146,15 @@ void CowPlay(Player& p, PortInputState* st) {
             p.step = 3;
         }
     }
-    if (p.step > 0) {
+    if (Motions2(p)) {
+        // W tips the remote (held sideways) forward: run; A / D steer; F jumps
+        u32 want = K_W;
+        want |= st->pitch > 8.0f ? K_A : st->pitch < -8.0f ? K_D : 0;
+        want |= p.step >= 2 ? K_F : 0;
+        MotionKeys(p, want);
+        st->roll = st->pitch = 0.0f;
+        p.step = p.step > 0 ? p.step - 1 : 0;
+    } else if (p.step > 0) {
         st->accel[1] = -2.5f;
         p.step--;
     }
@@ -1258,6 +1316,16 @@ void BilPlay(Player& p, PortInputState* st) {
         int f = static_cast<int>(p.vals[5]);
         p.vals[5] += 1.0f;
         st->buttons = WPAD_BUTTON_B;
+        if (Motions2(p)) {
+            // B held, the pull key (R) held for 25 frames (the cue draws back), released: the
+            // thrust; the game's stroke detector reads the distance and the acceleration
+            MotionKeys(p, f < 25 ? K_R : 0);
+            if (f > 120) {
+                p.vals[5] = 0.0f;
+                st->buttons = 0; // no shot: let go of B and start again
+            }
+            break;
+        }
         st->distance = 1.35f;
         if (ps == RPBilPlayer::STATE_STROKE && f > 4) {
             f32 k = pl->mShotCount <= 1 ? 3.8f : 2.0f;
@@ -1306,13 +1374,36 @@ extern "C" int PortGameProbeMore(char* buf, int len) {
     return 0;
 }
 
+namespace {
+int PlayScene(Player& p, PortInputState* state);
+}
+
 extern "C" int PortInputPlayHook(int chan, int frame, PortInputState* state) {
     if (chan >= PlayerNum() || chan >= WPAD_MAX_CONTROLLERS) {
         return 0;
     }
     Player& p = Begin(chan, frame);
+    p.keysSet = false;
+    int handled = PlayScene(p, state);
+    if (!p.keysSet && p.keys != 0) {
+        MotionKeys(p, 0);
+    }
+    return handled;
+}
+
+namespace {
+int PlayScene(Player& p, PortInputState* state) {
     if (WlyLive()) {
         WlyPlay(p, state);
+        if (Motions2(p) && RPWlyGameMgr::sInstance->mState == 2) {
+            // the push key (G) held for a second at the start of each stage: the remote closer
+            // to the screen, which the game's cursor reads as its distance ratio
+            int t = static_cast<int>(p.vals[7]);
+            p.vals[7] += 1.0f;
+            MotionKeys(p, t >= 30 && t < 90 ? K_G : 0);
+        } else {
+            p.vals[7] = 0.0f;
+        }
     } else if (BomLive()) {
         BomPlay(p, state);
     } else if (PnpLive()) {
@@ -1329,4 +1420,69 @@ extern "C" int PortInputPlayHook(int chan, int frame, PortInputState* state) {
         return 0;
     }
     return 1;
+}
+} // namespace
+
+/* How the game running holds the remote (input.h, §37): Charge! on its side; Laser Hockey,
+ * Pose Mii and Charge! read the tilt or twist (the left stick tilts the remote there). */
+extern "C" int PortInputHoldHook(int chan) {
+    (void)chan;
+    switch (CurrentScene()) {
+    case RPSysSceneCreator::ESceneID_RPCowScene:
+        return PORT_HOLD_SIDEWAYS | PORT_HOLD_TILT_STICK;
+    case RPSysSceneCreator::ESceneID_RPHkyScene:
+    case RPSysSceneCreator::ESceneID_RPBomScene:
+        return PORT_HOLD_TILT_STICK;
+    default:
+        return 0;
+    }
+}
+
+/* The FRAME line's `motion=` field (gesture tests, §37): what each game's motion detector
+ * made of remote 0. hky: paddle 0's twist (KPAD roll it read, 0.1 degrees); bom: the cursor's
+ * angle (0.1 degrees); cow: yaw (milliradians), speed (x100), jump height (x100); fsh: player
+ * state, catching player, caught; bil: player state, shots; wly: the cursor's distance ratio
+ * (x1000). Each with the KPAD roll of remote 0 (0.1 degrees). */
+extern "C" int PortMotionProbe(char* buf, int len) {
+    int roll = static_cast<int>(std::floor(KpadRoll(0) * 10.0f + 0.5f));
+    if (CurrentScene() == RPSysSceneCreator::ESceneID_RPHkyScene && RPHkyGame::sInstance != nullptr &&
+        RPHkyGame::sInstance->mpPaddles[0] != nullptr) {
+        RPHkyPaddle* pd = RPHkyGame::sInstance->mpPaddles[0];
+        std::snprintf(buf, len, "hky:%d,%d", static_cast<int>(std::floor(pd->mAngle * 572.9578f + 0.5f)), roll);
+        return 1;
+    }
+    if (BomLive()) {
+        RPBomCursor* cur = RPBomCursorManager::sInstance->mpCursors[0];
+        std::snprintf(buf, len, "bom:%d,%d", cur != nullptr ? static_cast<int>(std::floor(cur->mAngle * 10.0f + 0.5f)) : 0,
+                      roll);
+        return 1;
+    }
+    if (CowLive()) {
+        RPCowPlayer* c = CowPlayer(0);
+        if (c == nullptr) {
+            return 0;
+        }
+        std::snprintf(buf, len, "cow:%d,%d,%d,%d", static_cast<int>(std::floor(c->unk71C8 * 1000.0f)),
+                      static_cast<int>(std::floor(c->mSpeed * 100.0f)), static_cast<int>(std::floor(c->unk71E4 * 100.0f)),
+                      roll);
+        return 1;
+    }
+    if (FshLive()) {
+        RPFshPlayer* pl = RPFshPlayerMgr::sInstance->GetPlayer(0);
+        std::snprintf(buf, len, "fsh:%d,%d,%d,%d", static_cast<int>(pl->mState),
+                      static_cast<int>(RPFshPlayerMgr::sInstance->GetCatchingPlayer()), static_cast<int>(pl->mCaughtNum),
+                      roll);
+        return 1;
+    }
+    if (BilLive()) {
+        RPBilPlayer* pl = RPBilPlayerMgr::sInstance->mpPlayers[0];
+        std::snprintf(buf, len, "bil:%d,%d,%d", static_cast<int>(pl->GetState()), static_cast<int>(pl->mShotCount), roll);
+        return 1;
+    }
+    if (WlyLive()) {
+        std::snprintf(buf, len, "wly:%d,%d", static_cast<int>(std::floor(RPWlyGameMgr::sInstance->mpCursors[0]->mDistRatio * 1000.0f + 0.5f)),
+                      roll);
+        return 1;
+    }
+    return 0;
 }

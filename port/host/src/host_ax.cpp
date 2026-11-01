@@ -59,7 +59,7 @@
  * AXAux.c ring); the output is sat((main * masterVolume) >> 15) to +-32767,
  * stereo s16. Not emulated: the compressor (a limiter at full scale, table not
  * in the decomp), DPL2 / surround encoding (mixed as stereo), the remote
- * speaker outputs (AXRmt* report no samples), the ITD (initial time delay)
+ * speaker outputs' aux sends and IIR (§37), the ITD (initial time delay)
  * phase shift and the DSP cycle budget's timing (the budget itself is: voices
  * over it are dropped by __AXSyncPBs as on the Wii).
  */
@@ -111,6 +111,19 @@ bool sCoefReady = false;
 enum { BUS_L, BUS_R, BUS_S, BUS_AL, BUS_AR, BUS_AS, BUS_BL, BUS_BR, BUS_BS,
        BUS_CL, BUS_CR, BUS_CS, BUS_MAX };
 s32 sBus[BUS_MAX][FRAME];
+
+/* The Wii Remote speaker outputs (HOST_BUILD.md §37): each voice with `remote` on
+ * mixes into four remote buses (rmtMix vMain0-3, ramped as the main mix), taken
+ * from the voice after its volume envelope; each frame's 96 samples go down to the
+ * remote's 6 kHz (18 samples, averaging 5-6 inputs each) into a ring that
+ * AXRmtGetSamples / AXRmtAdvancePtr read (nw4r's RemoteSpeakerManager alarm: 40
+ * samples a packet, every 6.67 ms). Not modelled: the remote aux sends and the
+ * remote IIR filter. */
+const int RMT_FRAME = 18;
+const int RMT_RING = 2048;
+s32 sRmtBus[AX_RMT_MAX][FRAME];
+s16 sRmtRing[AX_RMT_MAX][RMT_RING];
+u64 sRmtWrite = 0, sRmtRead = 0;
 s32 sSurroundPrev[FRAME];
 
 PortAXVoiceTap sTap = NULL;
@@ -347,6 +360,8 @@ void ProcessVoice(u32 index, AXPB* pb) {
         vol = static_cast<u16>(vol + pb->ve.currentDelta);
     }
     pb->ve.currentVolume = vol;
+    s16 xRmt[FRAME];
+    std::memcpy(xRmt, x, sizeof xRmt);
 
     if (pb->lpf.on) {
         s16 y = static_cast<s16>(pb->lpf.yn1);
@@ -379,6 +394,19 @@ void ProcessVoice(u32 index, AXPB* pb) {
         b.xn2 = static_cast<u16>(x2);
         b.yn1 = static_cast<u16>(y1);
         b.yn2 = static_cast<u16>(y2);
+    }
+
+    if (pb->remote) {
+        // the remote speakers (before the main filters: the remote has its own IIR)
+        u16* rv[AX_RMT_MAX] = {&pb->rmtMix.vMain0, &pb->rmtMix.vMain1, &pb->rmtMix.vMain2, &pb->rmtMix.vMain3};
+        const u16 rd[AX_RMT_MAX] = {pb->rmtMix.vDeltaMain0, pb->rmtMix.vDeltaMain1, pb->rmtMix.vDeltaMain2,
+                                    pb->rmtMix.vDeltaMain3};
+        s16* rp[AX_RMT_MAX] = {&pb->rmtDpop.aMain0, &pb->rmtDpop.aMain1, &pb->rmtDpop.aMain2, &pb->rmtDpop.aMain3};
+        for (int c = 0; c < AX_RMT_MAX; c++) {
+            if (pb->rmtMixerCtrl & (1u << (4 * c))) {
+                MixBus(sRmtBus[c], xRmt, rv[c], rd[c], (pb->rmtMixerCtrl & (2u << (4 * c))) != 0, rp[c]);
+            }
+        }
     }
 
     u32 ctrl = pb->mixerCtrl;
@@ -452,6 +480,8 @@ void RunDsp(s16* out) {
     StartBus(BUS_CR, st->AuxCR, st->dAuxCR);
     StartBus(BUS_CS, st->AuxCS, st->dAuxCS);
 
+    std::memset(sRmtBus, 0, sizeof sRmtBus);
+
     // ADD_TO_LR: last frame's surround into L and R.
     for (int i = 0; i < FRAME; i++) {
         sBus[BUS_L][i] += sSurroundPrev[i];
@@ -483,6 +513,22 @@ void RunDsp(s16* out) {
                     static_cast<s32>((static_cast<s64>(ret[c * FRAME + i]) * sList.auxVolume[a]) >> 15);
             }
         }
+    }
+
+    // The remote outputs at 6 kHz
+    for (int c = 0; c < AX_RMT_MAX; c++) {
+        for (int j = 0; j < RMT_FRAME; j++) {
+            const int a = j * FRAME / RMT_FRAME, b = (j + 1) * FRAME / RMT_FRAME;
+            s64 sum = 0;
+            for (int i = a; i < b; i++) {
+                sum += sRmtBus[c][i];
+            }
+            sRmtRing[c][(sRmtWrite + j) % RMT_RING] = Sat16(sum / (b - a));
+        }
+    }
+    sRmtWrite += RMT_FRAME;
+    if (sRmtWrite - sRmtRead > RMT_RING - RMT_FRAME) {
+        sRmtRead = sRmtWrite - (RMT_RING - RMT_FRAME); // nobody reads: keep the newest
     }
 
     // OUTPUT: surround kept for the next frame, L/R through the master volume.
@@ -563,17 +609,25 @@ AXOutCallback AXRegisterCallback(AXOutCallback callback) {
 }
 
 s32 AXRmtGetSamplesLeft(void) {
-    return 0;
+    return static_cast<s32>(sRmtWrite - sRmtRead);
 }
 s32 AXRmtGetSamples(s32 chan, s16* out, s32 num) {
-    (void)chan;
-    (void)out;
-    (void)num;
-    return 0;
+    const s32 left = static_cast<s32>(sRmtWrite - sRmtRead);
+    if (num > left) {
+        num = left;
+    }
+    for (s32 i = 0; i < num; i++) {
+        out[i] = chan >= 0 && chan < AX_RMT_MAX ? sRmtRing[chan][(sRmtRead + i) % RMT_RING] : 0;
+    }
+    return num;
 }
 s32 AXRmtAdvancePtr(s32 num) {
-    (void)num;
-    return 0;
+    const s32 left = static_cast<s32>(sRmtWrite - sRmtRead);
+    if (num > left) {
+        num = left;
+    }
+    sRmtRead += static_cast<u64>(num);
+    return num;
 }
 
 /* AXCL */

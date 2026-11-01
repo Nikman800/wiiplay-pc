@@ -10,12 +10,37 @@
 # a mouse click (left = A) and the gamepad's south button (A): no effect yet
 200 click 1 down
 206 click 1 up
+# a click shorter than a frame (down and up between two polls): still one frame of A
+212 click 1 down
+212 click 1 up
 # tilt: the pad rolled 30 degrees clockwise
 240 pad accel -4.9 8.4870 0
 260 pad accel 0 9.80665 0
 # the right stick moves the pointer right for 10 frames
 270 pad axis 2 1.0
 280 pad axis 2 0
+# The window -> picture mapping across window geometries (fake ones: no window here):
+# window LOGICAL_W LOGICAL_H PIXEL_W PIXEL_H; the mouse is in logical points
+300 window 1280 912 1280 912
+302 mouse 0 0
+306 mouse 1280 912
+# pixel density 2 (a HiDPI display): the mouse stays in points
+310 window 1280 912 2560 1824
+312 mouse 1280 912
+316 mouse 640 456
+# maximised: the picture pillarboxed in the middle
+320 window 1920 1048 1920 1048
+322 mouse 224 0
+326 mouse 1695 1048
+# fractional scaling (density 1.25), letterboxed
+330 window 1536 1200 1920 1500
+332 mouse 0 160
+336 mouse 1536 1040
+# the window changes under a mouse that does not move: the pointer follows the picture
+340 window 1280 912 1280 912
+# back to the real geometry (headless: the 640x456 picture)
+350 window 0 0 0 0
+352 mouse 320 228
 # A and B on the title (the gamepad's south and east buttons): the save check
 520 pad button south down
 520 pad button east down

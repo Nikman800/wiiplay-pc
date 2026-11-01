@@ -28,6 +28,17 @@ typedef struct PortLiveConfig {
     int nunchuk;          /* report a Nunchuk on every connected remote */
     f32 stickDeadzone;
     int pointerStabilise; /* keep KPAD's pointer stabilisation for remote 0 (the mouse); default off */
+    /* Motions (HOST_BUILD.md §37) */
+    int leftStick;        /* 0 auto (tilt in the games that read tilt / twist), 1 D-pad, 2 tilt */
+    f32 twistSpeed;       /* degrees per second while a twist key is held */
+    f32 wheelTwist;       /* degrees per mouse wheel step */
+    f32 tiltAngle;        /* degrees of a tilt key held / the stick at full deflection */
+    f32 tiltSpeed;        /* degrees per second the tilt keys move the remote */
+    f32 shakeStrength;    /* g of the shake pulse along the remote's up */
+    int shakeFrames;      /* its length in frames */
+    f32 pullDistance;     /* metres the remote draws back while PULL is held */
+    f32 pushDistance;     /* metres closer while PUSH is held */
+    f32 speakerVolume;    /* the Wii Remote speaker's sound in the output (0 mutes; §37) */
 } PortLiveConfig;
 
 /* Reads the config file (NULL: defaults only). Returns 0, or -1 with a
@@ -51,6 +62,14 @@ int PortLiveStartInput(void);
 /* Each retrace: polls the window system, applies the events to the input
  * states. Returns 1 when the user asked to quit. */
 int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]);
+/* With a test script (--input) as well: the live layer adds its buttons and
+ * motions to the script's remotes instead of replacing them (§37). */
+void PortLiveSetMerge(int merge);
+/* The motions (twist, tilt, shake, pull / thrust, push: §37) added to a copy of
+ * remote CHAN's state before it goes to the WPAD backend. */
+void PortLiveApplyMotion(int chan, PortInputState* st);
+/* Tests: a key event through SDL's queue (the game-side players' `play 2`). */
+void PortLiveTestKey(const char* name, int down);
 
 /* Synthetic events for tests (the --events script): pushes the commands of
  * retrace `retrace` into SDL's queue before PortLivePoll reads it. */

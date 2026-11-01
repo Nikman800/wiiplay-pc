@@ -8,7 +8,7 @@ players reading the game's state); for example Shooting Range (aim with the mous
 gamepad's right stick or gyro; fire with B: the right mouse button, a gamepad's right
 shoulder or trigger) and Laser Hockey (the paddle follows the pointer). As on the Wii, the
 games open one at a time: finishing one opens the next. The HOME Menu works as on the Wii
-(below). Technical notes: [HOST_BUILD.md](HOST_BUILD.md) §29-§34.
+(below). Technical notes: [HOST_BUILD.md](HOST_BUILD.md) §29-§37.
 
 ## What you need
 
@@ -54,6 +54,17 @@ port/host/build/host64/boot --disc /path/to/extracted-disc --window
   refuses the CPU (software) adapter unless asked for with `--gpu cpu`. The adapter in use is
   printed at start (`boot: gpu: ...`).
 - `--perf`: performance tracking (below).
+- `--frames-ahead N`: how many frames the game may run ahead of the GPU and the display
+  (default 0: each frame waits until the last one is drawn and presented, as on the Wii; 1 or
+  2 can smooth a slow GPU at the cost of latency).
+- `--record DIR[:N]`: write frame times, the input events (and every Nth frame as a picture)
+  to DIR, for a bug report about lag. `--latency-marker`: a white square in the top-left
+  corner on every frame where a key or button is pressed (film the screen to measure
+  input-to-picture latency).
+
+Play on the computer's own display. Through a remote desktop (GNOME Remote Desktop, RDP, VNC)
+the picture and the sound arrive seconds late: the stream cannot carry a full-motion window at
+60 frames a second (HOST_BUILD.md §37).
 
 Closing the window ends the game (the save file is written by the game whenever it saves,
 as on the Wii).
@@ -125,15 +136,34 @@ Remote 1 is the keyboard and mouse, and also the first gamepad. Gamepads 2-4 are
 |---|---|---|
 | Pointer | mouse position over the picture | right stick; gyro (if the pad has one) |
 | A | left button, Space, Enter | south (A / cross) |
-| B | right button, Left Shift, Backspace | east (B / circle), right shoulder, right trigger |
+| B | right button, Left Shift, Backspace | east (B / circle), right trigger |
 | 1 / 2 | 1 / 2 | west / north |
 | + / - | = or keypad + / - or keypad - | Start / Back |
 | HOME | Escape, H | Guide |
-| D-pad | arrow keys | D-pad, left stick (without a Nunchuk) |
+| D-pad | arrow keys | D-pad; left stick in the games without tilt |
 | Nunchuk stick | - | left stick (with `nunchuk 1`) |
-| Nunchuk Z / C | Z / C | left trigger / left shoulder |
-| Tilt | - | the pad's accelerometer: lay the pad flat = remote pointing at the screen |
+| Nunchuk Z / C | Z / C | - (Wii Play does not use them) |
+| Twist (turn the remote like a key) | Q / E (turns while held, stays), mouse wheel, middle button: level again | left stick left / right in Laser Hockey, Pose Mii; left stick click: level |
+| Tilt | W / S forward / back, A / D left / right (while held) | left stick in Laser Hockey, Pose Mii, Charge!; the pad's accelerometer (pad flat = remote pointing at the screen) |
+| Shake (lift, jerk) | F, mouse side button (back) | right shoulder |
+| Pull back and thrust | R or mouse side button (forward): hold to draw the remote back, release to thrust | left shoulder |
+| Push (move closer) | G (while held) | left trigger |
 | Rumble | - | gamepad rumble |
+| Remote speaker | the main sound output, quieter (`speaker_volume`) | the same |
+
+Per game:
+
+| Game | What to do | Mouse / keyboard | Gamepad |
+|---|---|---|---|
+| Shooting Range | aim, shoot | mouse, right button | right stick or gyro, east / right trigger |
+| Find Mii | point, pick; zoom in (some stages): move the remote closer | mouse, left button; hold G | right stick, south; hold left trigger |
+| Table Tennis | the racket follows the pointer | mouse | right stick or gyro |
+| Pose Mii | move the Mii, A / B change the pose, twist to turn it | mouse, left / right button, Q / E or the wheel | right stick, south / east, left stick left / right |
+| Laser Hockey | the paddle follows the pointer; twist it | mouse, Q / E or the wheel (middle button: straight) | right stick, left stick left / right |
+| Billiards | aim with the D-pad, point at the cue ball; hold B, pull back, thrust | arrows, mouse; hold Left Shift or the right button, hold R, release R | D-pad, right stick; hold east or right trigger, hold left shoulder, release it |
+| Fishing | move the rod, lift when a fish bites | mouse; F | right stick; right shoulder |
+| Charge! (remote on its side) | tip forward to run, back to slow, tilt left / right to steer, lift to jump | W / S, A / D, F | left stick up / down / left / right, right shoulder |
+| Tanks! | move, aim, shoot, mines | arrows, mouse, right button, left button | D-pad or left stick, right stick, east, south |
 
 The title screen asks for A and B together: left and right mouse buttons, or Space and Left
 Shift, or the gamepad's south and east buttons.
@@ -161,27 +191,44 @@ mute_unfocused 0         # 1: silence while the window has no focus
 nunchuk 0                # 1: every remote has a Nunchuk (left stick = its stick)
 stick_deadzone 0.2
 pointer_stabilise 0      # 1: keep the game's pointer stabilisation for the mouse (a real remote's)
+# motions (HOST_BUILD.md §37)
+key Q TWIST_LEFT         # bind any key or gamepad button to a motion
+pad rightshoulder SHAKE
+left_stick auto          # auto: tilt in the games that read tilt, else the D-pad; or dpad / tilt
+twist_speed 120          # degrees per second while Q / E is held
+wheel_twist 10           # degrees per mouse wheel step
+tilt_angle 60            # degrees of a tilt key held, or the stick pushed all the way
+tilt_speed 360           # degrees per second the tilt keys move
+shake_strength 2.5       # g
+shake_frames 4
+pull_distance 0.3        # metres the remote draws back while PULL is held
+push_distance 0.3        # metres closer while PUSH is held
+speaker_volume 0.5       # the Wii Remote speaker's sound in the output; 0 mutes it
 ```
 
-Buttons: `A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C none`.
+Buttons: `A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C none`. Motions: `TWIST_LEFT
+TWIST_RIGHT TWIST_RESET TILT_FORWARD TILT_BACK TILT_LEFT TILT_RIGHT SHAKE PULL PUSH`.
+Mouse buttons are `Mouse1` (left), `Mouse2` (middle), `Mouse3` (right), `Mouse4` / `Mouse5`
+(side); the wheel always twists (`wheel_twist 0` turns it off).
 
 ## Known limits
 
-- Minigames: Charge! needs tilt (a gamepad's accelerometer), Tanks! the Nunchuk stick or the
-  D-pad. Two players: connect a second gamepad (remote 2) before Select Players, choose "2",
+- Minigames: every motion has a key and a gamepad button (above); a real swing or shake of a
+  gamepad is not read yet (its accelerometer gives the tilt only). Two players: connect a second gamepad (remote 2) before Select Players, choose "2",
   and each player picks a Mii with their own remote; all nine games' two-player modes run in
   the tests (HOST_BUILD.md §36), not yet tried by hand with two people.
 - Miis: see HOST_BUILD.md §30 for the state of Mii drawing.
 - The Wii's ROM font is not on the disc; the game uses it only for debug text and for a
   font-size query in Table Tennis and Laser Hockey (HOST_BUILD.md §30).
-- WiiConnect24 and the remote speaker are not available. The remote speaker's sounds (the game's
-  and the HOME Menu's) are muted.
+- WiiConnect24 is not available. The remote speaker's sounds (the game's and the HOME Menu's)
+  play through the computer's sound output, mixed in at `speaker_volume`.
 
 ## Tests
 
 - `make -C port/host test`: every harness, then the boot headless on lavapipe: the title, the
   menus, a short Shooting Range, a short Laser Hockey, and the HOME Menu over the title, the
-  party menu and Laser Hockey with Close, Reset and Wii Menu (about 8 minutes).
+  party menu and Laser Hockey with Close, Reset and Wii Menu, then the motions in the six
+  games that read them (about 20 minutes; `make -C port/host gestures` runs those alone).
 - `make -C port/host playtest`: whole games, twice each for determinism: all nine minigames
   from the party menu to the results and back, played by game-side players (HOST_BUILD.md
   §31-§33; about 105 minutes). Run it before committing a game milestone. A subset:

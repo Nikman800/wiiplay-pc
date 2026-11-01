@@ -265,6 +265,38 @@ def run_live(boot, disc, scratch, env):
     return inputs, scenes, end, live, p.stderr, home
 
 
+def run_latency(boot, disc, scratch, env, errs):
+    """Run L (§37): real time with a slowed GPU (--test-gpu-load): the frames in flight stay
+    within the --frames-ahead limit (the picture cannot fall behind the game)."""
+    env = dict(env)
+    for var in ("DISPLAY", "WAYLAND_DISPLAY"):
+        env.pop(var, None)
+    env["SDL_AUDIO_DRIVER"] = "dummy"
+    env["SDL_VIDEO_DRIVER"] = "dummy"
+    out = []
+    for ahead in (0, 2):
+        d = os.path.join(scratch, "l%d" % ahead)
+        for sub in ("nand", "data"):
+            os.makedirs(os.path.join(d, sub), exist_ok=True)
+        cmd = [boot, "--disc", disc, "--nand", os.path.join(d, "nand"), "--data-dir", os.path.join(d, "data"),
+               "--headless", "--realtime", "--audio-out", "--frames", "300", "--frames-ahead", str(ahead),
+               "--test-gpu-load", "64:4"]
+        p = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)
+        end = None
+        for line in p.stdout.splitlines():
+            f = line.split("\t")
+            if f[0] == "END":
+                end = dict(x.split("=", 1) for x in f[1:] if "=" in x)
+        if p.returncode != 0 or end is None or end.get("frames") != "300":
+            errs.append("latency: --frames-ahead %d: exit %d, END %s" % (ahead, p.returncode, end))
+            continue
+        most = int(end["inflight_max"])
+        if most > ahead + 1 or int(end["inflight_limit"]) != ahead + 1:
+            errs.append("latency: --frames-ahead %d: %d frames in flight (limit %s)" % (ahead, most, end["inflight_limit"]))
+        out.append((ahead, most, float(end["gpu_latency_avg_ms"]), float(end["gpu_latency_max_ms"])))
+    return out
+
+
 def check_live(inputs, scenes, end, live, stderr, title_id, errs, home):
     if end is None or live is None:
         errs.append("live: no END / LIVE line")
@@ -294,6 +326,45 @@ def check_live(inputs, scenes, end, live, stderr, title_id, errs, home):
     click = state_at(202)
     if click is None or click[1] != 0x0800 or state_at(208)[1] != 0:
         errs.append("live: the left mouse button did not press A")
+    quick = state_at(212)
+    if quick is None or quick[0] != 212 or quick[1] != 0x0800 or state_at(213)[1] != 0:
+        errs.append("live: a click shorter than a frame gave %s then %s, expected one frame of A"
+                    % (quick, state_at(213)))
+    # the window -> picture mapping (fake geometries; Aurora's letterbox computed as it does)
+    def letterbox(pw, ph):
+        aspect = 640.0 / 456.0
+        vw, vh = pw, min(ph, max(1, round(pw / aspect)))
+        if vh == ph:
+            vw = min(pw, max(1, round(vh * aspect)))
+        return (pw - vw) // 2, (ph - vh) // 2, vw, vh
+
+    def mapped(geom, mx, my):
+        lw, lh, pw, ph = geom
+        left, top, vw, vh = letterbox(pw, ph)
+        u = (mx * pw / lw - left) / vw
+        v = (my * ph / lh - top) / vh
+        # the live layer keeps the pointer within +-1.2 (a gamepad is attached)
+        return max(-1.2, min(1.2, 2 * u - 1)), max(-1.2, min(1.2, 2 * v - 1))
+    for r, geom, mouse, want_xy in (
+            (304, (1280, 912, 1280, 912), (0, 0), (-1, -1)),
+            (308, (1280, 912, 1280, 912), (1280, 912), (1, 1)),
+            (314, (1280, 912, 2560, 1824), (1280, 912), (1, 1)),
+            (318, (1280, 912, 2560, 1824), (640, 456), (0, 0)),
+            (324, (1920, 1048, 1920, 1048), (224, 0), (-1, -1)),
+            (328, (1920, 1048, 1920, 1048), (1695, 1048), (1, 1)),
+            (334, (1536, 1200, 1920, 1500), (0, 160), None),
+            (338, (1536, 1200, 1920, 1500), (1536, 1040), None),
+            (344, (1280, 912, 1280, 912), (1536, 1040), None),
+            (354, (640, 456, 640, 456), (320, 228), (0, 0))):
+        model = mapped(geom, *mouse)
+        corner = want_xy
+        x = state_at(r)
+        # the corners land within a pixel of +-1
+        if corner is not None and (abs(model[0] - corner[0]) > 3e-3 or abs(model[1] - corner[1]) > 3e-3):
+            errs.append("live: test model %s for %s at %s, expected %s" % (model, geom, mouse, corner))
+        if x is None or abs(x[2] - model[0]) > 1e-3 or abs(x[3] - model[1]) > 1e-3:
+            errs.append("live: window %s, mouse %s gave pointer %s, expected %.4f, %.4f"
+                        % (geom, mouse, x and x[2:4], model[0], model[1]))
     p = state_at(100)
     if p is None or abs(p[2]) > 1e-3 or abs(p[3]) > 1e-3:
         errs.append("live: mouse at the window centre gave pointer %s" % (p,))
@@ -723,6 +794,7 @@ def main():
     # --- run D first, alone (real time: the other runs would load the machine) -----------
     inputs, sd, endd, lived, errd, homed = run_live(args.boot, args.disc, scratch, env)
     live_result = check_live(inputs, sd, endd, lived, errd, title_id, errs, homed)
+    lat_result = run_latency(args.boot, args.disc, scratch, env, errs)
 
     # --- the deterministic runs, concurrently ---------------------------------------------
     # M: the menus from a fresh NAND, then a short Shooting Range; H: a save with every game
@@ -974,6 +1046,9 @@ def main():
               "underruns %s, overruns %s, %s frames queued, %s re-anchors; %s events; rumble %s on the virtual gamepad"
               % (wall, want, lv["underruns"], lv["overruns"], lv["queued"], lv["late"], lv["events"],
                  lv["testrumble"]))
+    for ahead, most, avg, mx in lat_result:
+        print("  latency (real time, GPU slowed): --frames-ahead %d: at most %d frames in flight, GPU latency avg "
+              "%.1f ms, max %.1f ms" % (ahead, most, avg, mx))
     for e in errs:
         print("  ERROR: " + e)
     print("errors: %d" % len(errs))

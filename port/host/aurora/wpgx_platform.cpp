@@ -10,6 +10,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -157,10 +158,27 @@ void Translate(const SDL_Event& ev) {
         e.down = ev.type == SDL_EVENT_WINDOW_FOCUS_GAINED;
         break;
     case SDL_EVENT_WINDOW_RESIZED:
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+    case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+    case SDL_EVENT_WINDOW_MOVED:
+    case SDL_EVENT_WINDOW_MAXIMIZED:
+    case SDL_EVENT_WINDOW_RESTORED:
+    case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+    case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+        // Any change of the window's geometry: the mapping reads the current
+        // metrics (wpgx_window_to_picture); the event lets the caller log them
         e.type = WPGX_EV_RESIZED;
+        e.code = static_cast<int32_t>(ev.type);
         e.x = static_cast<float>(ev.window.data1);
         e.y = static_cast<float>(ev.window.data2);
         break;
+    case SDL_EVENT_MOUSE_WHEEL: {
+        e.type = WPGX_EV_MOUSE_WHEEL;
+        const float dir = ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.f : 1.f;
+        e.x = ev.wheel.x * dir;
+        e.y = ev.wheel.y * dir;
+        break;
+    }
     case SDL_EVENT_QUIT:
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
         e.type = WPGX_EV_QUIT;
@@ -222,35 +240,164 @@ WPGX_API void wpgx_set_display_aspect(float aspect) {
 
 WPGX_API float wpgx_display_aspect(void) { return gAspect; }
 
-WPGX_API void wpgx_window_size(float* width, float* height) {
-    int w = 0;
-    int h = 0;
-    SDL_Window* window = Window();
-    if (window == nullptr || !SDL_GetWindowSize(window, &w, &h) || w <= 0 || h <= 0) {
-        *width = gEfbWidth;
-        *height = gEfbHeight;
-        return;
+namespace {
+
+// The window's geometry. Tests (headless: no window) can set a fake one.
+struct Metrics {
+    float lw = 0.f, lh = 0.f; // logical size (points): the mouse's coordinate space
+    float pw = 0.f, ph = 0.f; // size in pixels: the surface Aurora presents to
+    float density = 1.f;      // pixels per point
+    float displayScale = 1.f; // the display's content scale
+    AuroraPresentViewport vp{}; // where the picture is, in surface pixels
+    bool fromAurora = false;    // vp is Aurora's last presentation (else computed here)
+};
+bool gTestMetrics = false;
+float gTestLw = 0.f, gTestLh = 0.f, gTestPw = 0.f, gTestPh = 0.f;
+
+// Aurora's letterbox (webgpu::calculate_present_viewport) for a surface
+AuroraPresentViewport Letterbox(float sw, float sh) {
+    AuroraPresentViewport vp{};
+    const double aspect = gAspect > 0.f ? gAspect : static_cast<double>(gEfbWidth) / gEfbHeight;
+    const uint32_t w = static_cast<uint32_t>(sw), h = static_cast<uint32_t>(sh);
+    if (w == 0 || h == 0) {
+        return vp;
     }
-    *width = static_cast<float>(w);
-    *height = static_cast<float>(h);
+    uint32_t vw = w;
+    uint32_t vh = std::min<uint32_t>(h, std::max<uint32_t>(1u, static_cast<uint32_t>(std::lround(vw / aspect))));
+    if (vh == h) {
+        vw = std::min<uint32_t>(w, std::max<uint32_t>(1u, static_cast<uint32_t>(std::lround(vh * aspect))));
+    }
+    vp.left = static_cast<float>((w - vw) / 2);
+    vp.top = static_cast<float>((h - vh) / 2);
+    vp.width = static_cast<float>(vw);
+    vp.height = static_cast<float>(vh);
+    vp.surfaceWidth = w;
+    vp.surfaceHeight = h;
+    vp.valid = true;
+    return vp;
+}
+
+Metrics GetMetrics() {
+    Metrics m;
+    if (gTestMetrics) {
+        m.lw = gTestLw;
+        m.lh = gTestLh;
+        m.pw = gTestPw;
+        m.ph = gTestPh;
+        m.density = m.lw > 0.f ? m.pw / m.lw : 1.f;
+        m.vp = Letterbox(m.pw, m.ph);
+        return m;
+    }
+    SDL_Window* window = Window();
+    int w = 0, h = 0, pw = 0, ph = 0;
+    if (window == nullptr || !SDL_GetWindowSize(window, &w, &h) || w <= 0 || h <= 0 ||
+        !SDL_GetWindowSizeInPixels(window, &pw, &ph) || pw <= 0 || ph <= 0) {
+        m.lw = m.pw = gEfbWidth;
+        m.lh = m.ph = gEfbHeight;
+        m.vp = Letterbox(m.pw, m.ph);
+        return m;
+    }
+    m.lw = static_cast<float>(w);
+    m.lh = static_cast<float>(h);
+    m.pw = static_cast<float>(pw);
+    m.ph = static_cast<float>(ph);
+    m.density = m.pw / m.lw;
+    m.displayScale = SDL_GetWindowDisplayScale(window);
+    // The picture is where Aurora last presented it (its surface may lag a
+    // resize by a frame: the compositor shows that buffer from the top left)
+    if (aurora_get_present_viewport(&m.vp) && m.vp.surfaceWidth > 0 && m.vp.surfaceHeight > 0) {
+        m.fromAurora = true;
+    } else {
+        m.vp = Letterbox(m.pw, m.ph);
+    }
+    return m;
+}
+
+} // namespace
+
+WPGX_API void wpgx_window_size(float* width, float* height) {
+    const Metrics m = GetMetrics();
+    *width = m.lw;
+    *height = m.lh;
 }
 
 WPGX_API void wpgx_window_to_picture(float x, float y, float* u, float* v) {
-    // The letterbox Aurora presents with (webgpu::calculate_present_viewport)
-    float w = 0.f;
-    float h = 0.f;
-    wpgx_window_size(&w, &h);
-    const float aspect = gAspect > 0.f ? gAspect : gEfbWidth / gEfbHeight;
-    float pw = w;
-    float ph = w / aspect;
-    if (ph > h) {
-        ph = h;
-        pw = h * aspect;
+    // Mouse positions are in points; the surface and the viewport in pixels.
+    // Pixels per point from the current window; the viewport is Aurora's.
+    const Metrics m = GetMetrics();
+    const float sx = m.lw > 0.f ? m.pw / m.lw : 1.f;
+    const float sy = m.lh > 0.f ? m.ph / m.lh : 1.f;
+    const float px = x * sx, py = y * sy;
+    *u = m.vp.width > 0.f ? (px - m.vp.left) / m.vp.width : x / gEfbWidth;
+    *v = m.vp.height > 0.f ? (py - m.vp.top) / m.vp.height : y / gEfbHeight;
+}
+
+WPGX_API int wpgx_window_info(char* buf, size_t size) {
+    const Metrics m = GetMetrics();
+    SDL_Window* window = Window();
+    int x = 0, y = 0;
+    SDL_Rect bounds{}, usable{};
+    const char* driver = gTestMetrics ? "test" : (window != nullptr ? SDL_GetCurrentVideoDriver() : "headless");
+    if (window != nullptr) {
+        SDL_GetWindowPosition(window, &x, &y);
+        const SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+        SDL_GetDisplayBounds(display, &bounds);
+        SDL_GetDisplayUsableBounds(display, &usable);
     }
-    const float left = (w - pw) / 2.f;
-    const float top = (h - ph) / 2.f;
-    *u = (x - left) / pw;
-    *v = (y - top) / ph;
+    // The mapping: picture u = (x * pw / lw - left) / width (points -> 0..1)
+    return std::snprintf(
+        buf, size,
+        "window %.0fx%.0f pt at %d,%d, %.0fx%.0f px (density %.3f, display scale %.3f%s), display %dx%d at %d,%d "
+        "usable %dx%d at %d,%d, video %s; picture viewport %.0f,%.0f %.0fx%.0f px of surface %ux%u (%s); "
+        "mouse -> picture: u = (x * %.4f - %.1f) / %.1f, v = (y * %.4f - %.1f) / %.1f",
+        m.lw, m.lh, x, y, m.pw, m.ph, m.density, m.displayScale,
+        window != nullptr && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) ? ", fullscreen" : "",
+        bounds.w, bounds.h, bounds.x, bounds.y, usable.w, usable.h, usable.x, usable.y, driver ? driver : "?",
+        m.vp.left, m.vp.top, m.vp.width, m.vp.height, m.vp.surfaceWidth, m.vp.surfaceHeight,
+        m.fromAurora ? "Aurora's last present" : "computed", m.lw > 0.f ? m.pw / m.lw : 1.f, m.vp.left, m.vp.width,
+        m.lh > 0.f ? m.ph / m.lh : 1.f, m.vp.top, m.vp.height);
+}
+
+WPGX_API void wpgx_fit_window(void) {
+    SDL_Window* window = Window();
+    if (window == nullptr || (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN)) {
+        return;
+    }
+    SDL_Rect usable{};
+    int w = 0, h = 0, top = 0, left = 0, bottom = 0, right = 0;
+    if (!SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(window), &usable) || usable.w <= 0 || usable.h <= 0 ||
+        !SDL_GetWindowSize(window, &w, &h) || w <= 0 || h <= 0) {
+        return;
+    }
+    // Leave room for the decorations (a title bar) where they are not known yet
+    // (Wayland's client-side decorations are not counted in either)
+    SDL_GetWindowBordersSize(window, &top, &left, &bottom, &right);
+    top = std::max(top, 40);
+    const int maxW = usable.w - left - right;
+    const int maxH = usable.h - top - bottom;
+    if (w <= maxW && h <= maxH) {
+        return;
+    }
+    const float k = std::min(static_cast<float>(maxW) / w, static_cast<float>(maxH) / h);
+    const int nw = std::max(1, static_cast<int>(w * k)), nh = std::max(1, static_cast<int>(h * k));
+    std::fprintf(stderr, "wpgx: window %dx%d does not fit the display's usable %dx%d: %dx%d\n", w, h, usable.w,
+                 usable.h, nw, nh);
+    SDL_SetWindowSize(window, nw, nh);
+    SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED_DISPLAY(SDL_GetDisplayForWindow(window)),
+                          SDL_WINDOWPOS_CENTERED_DISPLAY(SDL_GetDisplayForWindow(window)));
+}
+
+WPGX_API void wpgx_test_set_window_metrics(float lw, float lh, float pw, float ph) {
+    gTestMetrics = lw > 0.f && lh > 0.f && pw > 0.f && ph > 0.f;
+    gTestLw = lw;
+    gTestLh = lh;
+    gTestPw = pw;
+    gTestPh = ph;
+    wpgx_event e{};
+    e.type = WPGX_EV_RESIZED;
+    e.x = lw;
+    e.y = lh;
+    Push(e);
 }
 
 WPGX_API void wpgx_set_fullscreen(int fullscreen) {
@@ -416,6 +563,15 @@ WPGX_API void wpgx_test_push_mouse_button(int button, int down) {
     ev.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
     ev.button.button = static_cast<Uint8>(button);
     ev.button.down = down != 0;
+    SDL_PushEvent(&ev);
+}
+
+WPGX_API void wpgx_test_push_mouse_wheel(float x, float y) {
+    SDL_Event ev{};
+    ev.type = SDL_EVENT_MOUSE_WHEEL;
+    ev.wheel.x = x;
+    ev.wheel.y = y;
+    ev.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
     SDL_PushEvent(&ev);
 }
 

@@ -50,6 +50,10 @@ typedef struct PortPerfCursor {
 /* At each displayed frame's boundary (the next Aurora frame begun). */
 void PortPerfFrame(int frame, int scene, const PortPerfCursor* cursor);
 
+/* A line for the summary, kept in order with the frame it came at (the
+ * window's geometry at start and at each change; at most 32). */
+void PortPerfNote(const char* line);
+
 /* F3. */
 void PortPerfToggleOverlay(void);
 /* Inside the Aurora frame, before it ends: the overlay, if shown. */

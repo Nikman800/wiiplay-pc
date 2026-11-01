@@ -79,6 +79,10 @@ void PortWPADSetMotorCallback(PortWPADMotorFunc func, void* user);
 /* Speaker: every packet WPADSendStreamData accepts (4-bit ADPCM bytes). */
 typedef void (*PortWPADSpeakerFunc)(s32 chan, const void* data, u16 len, void* user);
 void PortWPADSetSpeakerCallback(PortWPADSpeakerFunc func, void* user);
+/* Speaker commands as the remote carries them out (WPAD_SPEAKER_OFF / ON / PLAY ...):
+ * WPAD_SPEAKER_ON resets the remote's ADPCM decoder (§37). */
+typedef void (*PortWPADSpeakerControlFunc)(s32 chan, u32 command, void* user);
+void PortWPADSetSpeakerControlCallback(PortWPADSpeakerControlFunc func, void* user);
 
 /* ------------------------------------------------------------------------
  * Mapping layer
@@ -176,6 +180,17 @@ int PortInputPlayHook(int chan, int frame, PortInputState* state) __attribute__(
  * (stages, missions, rallies or levels, per game; 0, the default, keeps each player's own
  * limit). Read by the play hook; set by the script. */
 int PortInputPlayGoal(int chan);
+
+/* "FRAME play N": 1 the player works the whole remote; 2 (gesture tests, §37) the player
+ * leaves the motions to the live input layer's bindings: it presses the bound keys
+ * (PortLiveTestKey) instead of setting the tilt, twist, acceleration or distance itself. */
+int PortInputPlayMode(int chan);
+
+/* How the game running holds remote CHAN (weak; the boot's host_probe_games.cpp): bits of
+ * PORT_HOLD_*. Absent or 0: pointing at the screen, the left stick a D-pad. */
+#define PORT_HOLD_SIDEWAYS 1   /* held sideways (Charge!): forward / back is the roll */
+#define PORT_HOLD_TILT_STICK 2 /* the game reads tilt or twist: the left stick tilts the remote */
+int PortInputHoldHook(int chan) __attribute__((weak));
 
 /* "FRAME hbm PANE" ("hbm none" stops): while set, each retrace (after `aim`,
  * before `play`) this hook (weak; the boot's host_probe_hbm.cpp) gives where
