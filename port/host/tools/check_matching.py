@@ -321,6 +321,11 @@ TOUCHED = [
     "src/Pack/RPParty/RPTnkScene/RPTnkTank.cpp",
     "src/Pack/RPParty/RPTnkScene/RPTnkPlayerController.cpp",
     "src/Pack/RPParty/RPWlyScene/RPWlySound.cpp",
+    # §36 (two players, later levels)
+    "include/Pack/RPParty/RPPartyCommon/RPMedalResult_5.h",
+    "include/Pack/RPParty/RPPartyCommon/RPMedalResult.h",
+    "src/Pack/RPParty/RPPartyCommon/RPMedalResult_2.cpp",
+    "include/Pack/RPParty/RPBomScene/RPBomPanel_3.h",
 ]
 
 

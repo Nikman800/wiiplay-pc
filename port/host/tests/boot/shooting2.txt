@@ -1,0 +1,30 @@
+# Shooting Range, two players (port/docs/HOST_BUILD.md §36): test_play.py appends this to
+# tests/boot/menus_saved2.txt (two players on the party menu), without its `end`.
+# The Shooting Range icon -> the explanation screen; "A: Start" (player 1)
+3400 mouse 177 300
+3430 press A
+3436 release A
+3800 mouse 320 228
+3830 press A
+3836 release A
+# Five rounds, both players: each remote's pointer follows a live target its player has not
+# hit (player 1 the first found, player 2 the last; host_probe.cpp); B every 6 retraces
+3900 aim 1
+3900 chan 1
+3900 aim 1
+4200 fire 6
+4200 chan 0
+4200 fire 6
+13600 fire 0
+13600 aim 0
+13600 chan 1
+13600 fire 0
+13600 aim 0
+13600 mouse 320 348
+13600 chan 0
+# "Finished!", the scores and the winner, then the results menu with the players' wins:
+# "Play a different game" (player 1)
+14250 mouse 320 348
+14300 press A
+14306 release A
+end 100000

@@ -817,15 +817,21 @@ test: boot
 PLAY_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-play
 playtest: $(OUT)/boot
 	python3 $(HOST)/tests/test_play.py --boot $(OUT)/boot --disc $(DISC) --scratch $(PLAY_SCRATCH) $(PLAYTEST_ARGS)
+# The two-player games and the later levels (§36): not part of `make playtest`; run before
+# committing a game milestone, with it.
+.PHONY: playtest2
+PLAY2_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-play2
+playtest2: $(OUT)/boot
+	python3 $(HOST)/tests/test_play.py --set 2 --boot $(OUT)/boot --disc $(DISC) --scratch $(PLAY2_SCRATCH) $(PLAYTEST2_ARGS)
 else
-.PHONY: gx gx-aurora-tests boot playtest
-gx gx-aurora-tests boot playtest:
+.PHONY: gx gx-aurora-tests boot playtest playtest2
+gx gx-aurora-tests boot playtest playtest2:
 	@echo "$@: skipped (NO_GX=1)"
 test: gx boot
 endif
 else
-.PHONY: gx gx-aurora-tests boot playtest
-gx gx-aurora-tests boot playtest:
+.PHONY: gx gx-aurora-tests boot playtest playtest2
+gx gx-aurora-tests boot playtest playtest2:
 	@echo "$@: skipped (the GX layer is 64-bit only)"
 test: gx boot
 endif

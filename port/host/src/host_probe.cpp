@@ -32,6 +32,7 @@
 #include <Pack/RPParty/RPHkyScene/RPHkyPaddle.h>
 #include <Pack/RPParty/RPHkyScene/RPHkyPuck.h>
 #include <Pack/RPGraphics/RPGrpRenderer.h>
+#include <Pack/RPSystem/RPSysPlayerMgr.h>
 #include <Pack/RPSystem/RPSysSceneCreator.h>
 #include <Pack/RPSystem/RPSysSceneMgr.h>
 #include <egg/gfxe/eggScreen.h>
@@ -43,11 +44,12 @@ extern "C" int PortGameProbeMore(char* buf, int len); // host_probe_games.cpp
 
 namespace {
 
-// The target being aimed at, kept until it goes (no jumping between targets)
-const RPDucTarget* sAimTarget = nullptr;
+// The target each remote aims at, kept until it goes (no jumping between targets)
+const RPDucTarget* sAimTarget[4] = {nullptr, nullptr, nullptr, nullptr};
 
-bool Aimable(const RPDucTarget* t) {
-    return t->mAge >= 0 && t->unkA4 && t->mHitOrder[0] < 0;
+// Live and not yet hit by this player
+bool Aimable(const RPDucTarget* t, int player) {
+    return t->mAge >= 0 && t->unkA4 && t->mHitOrder[player] < 0;
 }
 
 bool ScreenPos(const RPDucTarget* t, f32* x, f32* y) {
@@ -77,8 +79,9 @@ bool HkyLive() {
            game->mpPuck != nullptr && game->mpPaddles[0] != nullptr && game->mpCamera != nullptr;
 }
 
-// Player 0's paddle target for a pointer position: RPHkyPaddle::UpdateControl's mapping
-bool HkyPointerToRink(f32 px, f32 py, nw4r::math::VEC3* out) {
+// A paddle's target for a pointer position: RPHkyPaddle::UpdateControl's mapping (paddle 1,
+// player 2 in a two-player game, takes the +x half)
+bool HkyPointerToRink(int paddle, f32 px, f32 py, nw4r::math::VEC3* out) {
     const RPGrpScreen* screen = RPGrpRenderer::GetCurrent()->GetView(0)->GetScreen();
     f32 x = px * static_cast<f32>(static_cast<u16>(EGG::Screen::GetSizeXMax() / 2));
     f32 y = -py * static_cast<f32>(static_cast<u16>(EGG::Screen::GetSizeYMax() / 2));
@@ -88,22 +91,23 @@ bool HkyPointerToRink(f32 px, f32 py, nw4r::math::VEC3* out) {
     if (!RPHkyGame::sInstance->mpCamera->GetScreenToPlane(&t, planePoint, planeNormal, screen, x, y)) {
         return false;
     }
-    t.x = t.x * 0.5f - (RPHkyField::sWidth / 2.0f - (RPHkyField::cCorner - RPHkyField::cGoalInset));
+    f32 offset = RPHkyField::sWidth / 2.0f - (RPHkyField::cCorner - RPHkyField::cGoalInset);
+    t.x = paddle == 0 ? t.x * 0.5f - offset : t.x * 0.5f + offset;
     t.z *= RPHkyPaddle::sPointerDepthScale[0];
     *out = t;
     return true;
 }
 
 // The pointer position whose rink target is (gx, gz): Newton's method on the game's mapping
-f32 sHkyPx = 0.0f, sHkyPy = 0.0f;
+f32 sHkyPx[2] = {0.0f, 0.0f}, sHkyPy[2] = {0.0f, 0.0f};
 
-bool HkyAim(f32 gx, f32 gz, f32* x, f32* y) {
-    f32 px = sHkyPx, py = sHkyPy;
+bool HkyAim(int paddle, f32 gx, f32 gz, f32* x, f32* y) {
+    f32 px = sHkyPx[paddle], py = sHkyPy[paddle];
     for (int it = 0; it < 8; it++) {
         nw4r::math::VEC3 a, bx, by;
         const f32 h = 0.01f;
-        if (!HkyPointerToRink(px, py, &a) || !HkyPointerToRink(px + h, py, &bx) ||
-            !HkyPointerToRink(px, py + h, &by)) {
+        if (!HkyPointerToRink(paddle, px, py, &a) || !HkyPointerToRink(paddle, px + h, py, &bx) ||
+            !HkyPointerToRink(paddle, px, py + h, &by)) {
             return false;
         }
         f32 ex = gx - a.x, ez = gz - a.z;
@@ -121,29 +125,49 @@ bool HkyAim(f32 gx, f32 gz, f32* x, f32* y) {
         px = px < -1.5f ? -1.5f : px > 1.5f ? 1.5f : px;
         py = py < -1.5f ? -1.5f : py > 1.5f ? 1.5f : py;
     }
-    sHkyPx = px;
-    sHkyPy = py;
+    sHkyPx[paddle] = px;
+    sHkyPy[paddle] = py;
     *x = px;
     *y = py;
     return true;
 }
 
-int HkyAimHook(f32* x, f32* y) {
+int HkyAimHook(int chan, f32* x, f32* y) {
     RPHkyGame* game = RPHkyGame::sInstance;
-    if (game->mState != 1) {  // play
+    if (game->mState != 1 || game->mpPaddles[chan] == nullptr) {  // play
         return 0;
     }
-    // Strike through the puck: aim a little past its centre, away from player 0's goal
+    // Strike through the puck: aim a little past its centre, away from the paddle's own goal
     const nw4r::math::VEC3& puck = game->mpPuck->GetPos();
-    nw4r::math::VEC3 paddle = game->mpPaddles[0]->GetPos();
+    nw4r::math::VEC3 paddle = game->mpPaddles[chan]->GetPos();
     f32 dx = puck.x - paddle.x, dz = puck.z - paddle.z;
     f32 d = std::sqrt(dx * dx + dz * dz);
     f32 gx = puck.x, gz = puck.z;
+    if (game->mIsMultiPlayer) {
+        // two players (each paddle stays on its own half): each goal is given away on purpose by
+        // one side (player 2 two times in three), which knocks the puck into its own goal when it
+        // is on its half and otherwise waits by the side wall; the other side strikes the puck at
+        // the other goal from behind it (going round it) and otherwise waits in front of its goal.
+        // So the first-to-8 game ends, both paddles playing the puck
+        int goals = game->mpPaddles[0]->mScore + game->mpPaddles[1]->mScore;
+        bool giver = chan == (goals % 3 == 2 ? 0 : 1);
+        f32 sgn = chan == 0 ? 1.0f : -1.0f, r = RPHkyPuck::sRadius;
+        if (giver) {
+            sgn = -sgn;  // toward its own goal
+        }
+        if ((chan == 0 ? puck.x > 0.0f : puck.x < 0.0f)) {
+            return giver ? HkyAim(chan, chan == 0 ? -200.0f : 200.0f, 170.0f, x, y)
+                         : HkyAim(chan, chan == 0 ? -150.0f : 150.0f, puck.z * 0.5f, x, y);
+        }
+        if ((paddle.x - puck.x) * sgn > -r) {
+            return HkyAim(chan, puck.x - sgn * 3.0f * r, puck.z + (paddle.z > puck.z ? 3.0f : -3.0f) * r, x, y);
+        }
+    }
     if (d > 1.0f) {
         gx += dx / d * RPHkyPuck::sRadius;
         gz += dz / d * RPHkyPuck::sRadius;
     }
-    return HkyAim(gx, gz, x, y);
+    return HkyAim(chan, gx, gz, x, y);
 }
 
 int HkyProbe(char* buf, int len) {
@@ -156,6 +180,14 @@ int HkyProbe(char* buf, int len) {
                   static_cast<int>(game->mpPaddles[1] != nullptr ? game->mpPaddles[1]->mScore : 0),
                   static_cast<int>(std::floor(puck.x)), static_cast<int>(std::floor(puck.z)),
                   static_cast<int>(std::floor(std::sqrt(dx * dx + dz * dz))));
+    if (game->mIsMultiPlayer && game->mpPaddles[1] != nullptr) {
+        // two players: paddle 1's position and its distance from the puck
+        int n = static_cast<int>(std::strlen(buf));
+        nw4r::math::VEC3 p1 = game->mpPaddles[1]->GetPos();
+        f32 ex = puck.x - p1.x, ez = puck.z - p1.z;
+        std::snprintf(buf + n, len - n, ",%d,%d,%d", static_cast<int>(std::floor(p1.x)),
+                      static_cast<int>(std::floor(p1.z)), static_cast<int>(std::floor(std::sqrt(ex * ex + ez * ez))));
+    }
     return 1;
 }
 
@@ -173,39 +205,53 @@ extern "C" int PortGameProbe(char* buf, int len) {
     if (game == nullptr || score == nullptr) {
         return 0;
     }
-    std::snprintf(buf, len, "duc:%d,%d,%d,%d", static_cast<int>(game->mState),
-                  static_cast<int>(game->mRound), static_cast<int>(score->mScores[0]),
-                  static_cast<int>(score->mHits[0]));
+    int n = std::snprintf(buf, len, "duc:%d,%d,%d,%d", static_cast<int>(game->mState),
+                          static_cast<int>(game->mRound), static_cast<int>(score->mScores[0]),
+                          static_cast<int>(score->mHits[0]));
+    if (RPSysPlayerMgr::instance() != nullptr && RPSysPlayerMgr::instance()->getPlayerNum() >= 2 && n > 0 &&
+        n < len) {
+        // two players: player 2's score and hits
+        std::snprintf(buf + n, len - n, ",%d,%d", static_cast<int>(score->mScores[1]),
+                      static_cast<int>(score->mHits[1]));
+    }
     return 1;
 }
 
 extern "C" int PortInputAimHook(int chan, f32* x, f32* y) {
-    if (chan == 0 && HkyLive()) {
-        return HkyAimHook(x, y);
+    if (HkyLive()) {
+        // remote 2 drives paddle 1 only in a two-player game (else it is the CPU's)
+        return chan == 0 || (chan == 1 && RPHkyGame::sInstance->mIsMultiPlayer) ? HkyAimHook(chan, x, y) : 0;
+    }
+    if (chan < 0 || chan >= 4) {
+        return 0;
     }
     if (CurrentScene() != RPSysSceneCreator::ESceneID_RPDucScene) {
-        sAimTarget = nullptr;
+        sAimTarget[chan] = nullptr;
         return 0;
     }
     RPDucTargetRegistry* reg = RPDucTargetRegistry::sInstance;
-    if (chan != 0 || reg == nullptr || RPDucCamera::sInstance == nullptr ||
-        RPDucGame::sInstance == nullptr || !RPDucGame::sInstance->mInPlay) {
-        sAimTarget = nullptr;
+    if (reg == nullptr || RPDucCamera::sInstance == nullptr || RPDucGame::sInstance == nullptr ||
+        !RPDucGame::sInstance->mInPlay) {
+        sAimTarget[chan] = nullptr;
         return 0;
     }
+    // Remote n plays player n. Player 1 takes the first live target it finds, player 2 the
+    // last (so that two players do not chase the same one)
     const RPDucTarget* best = nullptr;
-    for (u32 i = 0; i < reg->mMgrNum; i++) {
+    for (u32 k = 0; k < reg->mMgrNum; k++) {
+        u32 i = chan == 0 ? k : reg->mMgrNum - 1 - k;
         RPDucTargetMgr* mgr = reg->mpMgrs[i];
         if (mgr->mType == 6) {  // the Miis of the last round: not targets
             continue;
         }
-        for (s32 j = 0; j < mgr->mPoolNum; j++) {
+        for (s32 m = 0; m < mgr->mPoolNum; m++) {
+            s32 j = chan == 0 ? m : mgr->mPoolNum - 1 - m;
             const RPDucTarget* t = mgr->mppPool[j];
             f32 tx, ty;
-            if (!Aimable(t) || !ScreenPos(t, &tx, &ty)) {
+            if (!Aimable(t, chan) || !ScreenPos(t, &tx, &ty)) {
                 continue;
             }
-            if (t == sAimTarget) {
+            if (t == sAimTarget[chan]) {
                 *x = tx;
                 *y = ty;
                 return 1;
@@ -215,6 +261,6 @@ extern "C" int PortInputAimHook(int chan, f32* x, f32* y) {
             }
         }
     }
-    sAimTarget = best;
+    sAimTarget[chan] = best;
     return best != nullptr && ScreenPos(best, x, y);
 }

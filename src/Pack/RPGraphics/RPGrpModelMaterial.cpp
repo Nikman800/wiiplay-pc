@@ -274,7 +274,8 @@ inline void RPGrpModelMaterial::SyncChanColor() {
                                            pColor->amb);
             EndEditMatChan();
         }
-        pObj = reinterpret_cast<RPGrpModelMaterial*>(reinterpret_cast<char*>(pObj) + 4);
+        // one ChanColor* further (4 bytes on the Wii; pointer-sized on the host)
+        pObj = reinterpret_cast<RPGrpModelMaterial*>(reinterpret_cast<char*>(pObj) + sizeof(ChanColor*));
     }
 }
 

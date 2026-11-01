@@ -57,6 +57,7 @@
 #include <Pack/RPParty/RPPnpScene/RPPnpBall.h>
 #include <Pack/RPParty/RPPnpScene/RPPnpField.h>
 #include <Pack/RPParty/RPPnpScene/RPPnpGame.h>
+#include <Pack/RPParty/RPPnpScene/RPPnpPhase.h>
 #include <Pack/RPParty/RPPnpScene/RPPnpPlayer.h>
 #include <Pack/RPParty/RPWlyScene/RPWlyAvatar.h>
 #include <Pack/RPParty/RPWlyScene/RPWlyAvatarMgr.h>
@@ -71,6 +72,7 @@
 #include <Pack/RPParty/RPTnkScene/RPTnkGameManager.h>
 #include <Pack/RPParty/RPTnkScene/RPTnkTank.h>
 #include <Pack/RPParty/RPTnkScene/RPTnkTankManager.h>
+#include <Pack/RPSystem/RPSysPlayerMgr.h>
 #include <Pack/RPSystem/RPSysSceneCreator.h>
 #include <Pack/RPSystem/RPSysSceneMgr.h>
 #include <egg/core/eggController.h>
@@ -110,13 +112,33 @@ f32 HalfH() {
     return static_cast<f32>(static_cast<u16>(EGG::Screen::GetSizeYMax() / 2));
 }
 
-// The pointer position KPAD reported last frame (what the game read)
-bool KpadPos(f32* x, f32* y) {
+// The number of players chosen on Select Players
+s32 PlayerNum() {
+    RPSysPlayerMgr* mgr = RPSysPlayerMgr::instance();
+    return mgr != nullptr ? mgr->getPlayerNum() : 1;
+}
+
+// How far a player goes: the script's `goal N` for its remote, else the player's default
+s32 Goal(int idx, s32 dflt) {
+    int g = PortInputPlayGoal(idx);
+    return g > 0 ? g : dflt;
+}
+
+// Appends ",a,b,..." to a probe line (two-player fields)
+void Append(char* buf, int len, const int* v, int n) {
+    int at = static_cast<int>(std::strlen(buf));
+    for (int i = 0; i < n && at < len; i++) {
+        at += std::snprintf(buf + at, len - at, ",%d", v[i]);
+    }
+}
+
+// The pointer position KPAD reported last frame on a channel (what the game read)
+bool KpadPos(int chan, f32* x, f32* y) {
     EGG::CoreControllerMgr* mgr = EGG::CoreControllerMgr::instance();
     if (mgr == nullptr) {
         return false;
     }
-    EGG::CoreController* c = mgr->getNthController(0);
+    EGG::CoreController* c = mgr->getNthController(chan);
     if (c == nullptr) {
         return false;
     }
@@ -136,6 +158,7 @@ bool KpadPos(f32* x, f32* y) {
  * the servo adds the remaining error, as a player's hand would.
  */
 struct Player {
+    int idx = 0;       // the player (Select Players order); also the remote's channel
     int lastFrame = -10;
     int frame = 0;
     u16 held = 0;      // buttons held this frame
@@ -148,21 +171,25 @@ struct Player {
     f32 vals[8] = {};
 };
 
-Player sPlayer;
-s32 sPlayerScene = -1;
+// One per remote: `play 1` on channel n plays player n (the players take the remotes in
+// order: RPSysPlayerMgr::setRemoteNum)
+Player sPlayers[WPAD_MAX_CONTROLLERS];
+s32 sPlayerScene[WPAD_MAX_CONTROLLERS] = {-1, -1, -1, -1};
 
-Player& Begin(int frame) {
+Player& Begin(int chan, int frame) {
+    Player& p = sPlayers[chan];
     s32 scene = CurrentScene();
-    if (scene != sPlayerScene || frame != sPlayer.lastFrame + 1) {
-        sPlayer = Player();
-        sPlayerScene = scene;
+    if (scene != sPlayerScene[chan] || frame != p.lastFrame + 1) {
+        p = Player();
+        p.idx = chan;
+        sPlayerScene[chan] = scene;
     }
-    sPlayer.lastFrame = frame;
-    sPlayer.frame = frame;
-    if (frame >= sPlayer.holdUntil) {
-        sPlayer.held = 0;
+    p.lastFrame = frame;
+    p.frame = frame;
+    if (frame >= p.holdUntil) {
+        p.held = 0;
     }
-    return sPlayer;
+    return p;
 }
 
 // Press `bit` for `frames` frames, then nothing new for `gap` frames after the press
@@ -179,7 +206,7 @@ bool Tap(Player& p, u16 bit, int frames = 2, int gap = 6) {
 void PointAt(Player& p, PortInputState* st, f32 x, f32 y, bool servo) {
     if (servo) {
         f32 ax, ay;
-        if (KpadPos(&ax, &ay) && st->pointerValid) {
+        if (KpadPos(p.idx, &ax, &ay) && st->pointerValid) {
             // the error of the position commanded last frame
             p.biasX = Clamp(p.biasX + 0.5f * (st->pointerX - p.biasX - ax), -0.08f, 0.08f);
             p.biasY = Clamp(p.biasY + 0.5f * (st->pointerY - p.biasY - ay), -0.08f, 0.08f);
@@ -200,13 +227,16 @@ void Neutral(PortInputState* st) {
 }
 
 // The shared results (RPMedalResult, RPResultMenu): the pointer on "Play a different game"
-// (window 320, 348 of 608 x 456, as the Laser Hockey script), A every 150 frames
+// (window 320, 348 of 608 x 456, as the Laser Hockey script), A every 150 frames; in a
+// two-player game player 2 points there too and leaves the choice to player 1
 void Results(Player& p, PortInputState* st) {
     Neutral(st);
     f32 x, y;
     PortInputPointerFromWindow(320.0f, 348.0f, 608.0f, 456.0f, &x, &y);
     PointAt(p, st, x, y, false);
-    Tap(p, WPAD_BUTTON_A, 3, 147);
+    if (p.idx == 0) {
+        Tap(p, WPAD_BUTTON_A, 3, 147);
+    }
     st->buttons = p.held;
 }
 
@@ -232,6 +262,12 @@ int WlyProbe(char* buf, int len) {
                   static_cast<int>(g->mStageNo), static_cast<int>(g->mTimer), static_cast<int>(s->mTargetNum),
                   static_cast<int>(s->mFoundNum), static_cast<int>(static_cast<s32>(WlyLevel()->mQuestionType)),
                   static_cast<int>(g->mPenaltyTimers[0]));
+    if (PlayerNum() >= 2) {
+        // two players: both scores, player 2's penalty
+        int v[3] = {static_cast<int>(g->mScores[0]), static_cast<int>(g->mScores[1]),
+                    static_cast<int>(g->mPenaltyTimers[1])};
+        Append(buf, len, v, 3);
+    }
     return 1;
 }
 
@@ -259,7 +295,14 @@ void WlyPlay(Player& p, PortInputState* st) {
     }
     s32 num = WlyLevel()->mAvatarNum;
     s32 qtype = WlyLevel()->mQuestionType;
-    bool wrong = g->mStageNo > WLY_STAGES && qtype != 6;
+    // past the stages to play it picks wrong Miis until the time is up; two players (the clock
+    // alone ends their game, 2 minutes): player 2 picks wrong ones (its penalty), player 1 waits.
+    // Player 2 looks from the end of the list
+    bool wrong = g->mStageNo > Goal(p.idx, WLY_STAGES) && qtype != 6;
+    if (wrong && p.idx == 0 && PlayerNum() >= 2) {
+        p.target = -1;
+        return;
+    }
     f32 x, y;
     // keep the avatar being picked until its pick is made (it is then hovered or found)
     if (p.target >= 0) {
@@ -269,7 +312,9 @@ void WlyPlay(Player& p, PortInputState* st) {
         }
     }
     if (p.target < 0) {
-        for (s32 i = wrong ? s->mTargetNum : 0; i < num && i < 100; i++) {
+        s32 lo = wrong ? s->mTargetNum : 0, hi = num < 100 ? num : 100;
+        for (s32 k = 0; k < hi - lo; k++) {
+            s32 i = p.idx == 0 ? lo + k : hi - 1 - k;
             bool want = wrong || qtype == 6 || (i < s->mTargetNum && !s->mFound[i]);
             if (want && !s->mHover[i].mHovered && am->mpAvatars[i]->mReaction == 0 &&
                 WlyOnScreen(am->mpAvatars[i], &x, &y)) {
@@ -283,7 +328,7 @@ void WlyPlay(Player& p, PortInputState* st) {
         return;
     }
     PointAt(p, st, x, y, false);
-    if (am->mHoverIdx[0] == p.target && g->mPenaltyTimers[0] == 0) {
+    if (am->mHoverIdx[p.idx] == p.target && g->mPenaltyTimers[p.idx] == 0) {
         Tap(p, WPAD_BUTTON_A, 2, 38);
     }
     st->buttons = p.held;
@@ -325,6 +370,10 @@ int BomProbe(char* buf, int len) {
                   static_cast<int>(g->mLevel), static_cast<int>(sc->mScores[0]), static_cast<int>(sc->mHits[0]),
                   static_cast<int>(sc->mCombos[0]), static_cast<int>(g->mMissCount),
                   static_cast<int>(g->mMissMax), static_cast<int>(g->mLevelTimer), z[0], z[1], z[2]);
+    if (PlayerNum() >= 2) {
+        int v[2] = {static_cast<int>(sc->mScores[1]), static_cast<int>(sc->mHits[1])};
+        Append(buf, len, v, 2);
+    }
     return 1;
 }
 
@@ -335,8 +384,9 @@ int BomPoseIndex(s32 pose) {
 
 void BomPlay(Player& p, PortInputState* st) {
     RPBomGameManager* g = RPBomGameManager::sInstance;
-    RPBomPlayer* pl = RPBomPlayerManager::sInstance->mpPlayers[0];
-    RPBomCursor* cur = RPBomCursorManager::sInstance->mpCursors[0];
+    RPBomPlayer* pl = RPBomPlayerManager::sInstance->mpPlayers[p.idx];
+    RPBomCursor* cur = RPBomCursorManager::sInstance->mpCursors[p.idx];
+    bool two = PlayerNum() >= 2;
     Neutral(st);
     if (g->mState >= 9) {
         Results(p, st);
@@ -355,6 +405,10 @@ void BomPlay(Player& p, PortInputState* st) {
             b->mIsStartBubble != wantStart) {
             continue;
         }
+        // two players: each its own colour (0 player 1, 1 player 2); player 1 also the specials (2)
+        if (two && b->mColorType != p.idx && !(p.idx == 0 && b->mColorType == 2)) {
+            continue;
+        }
         if (best == nullptr || b->mPos.z > best->mPos.z) {
             best = b;
         }
@@ -364,7 +418,7 @@ void BomPlay(Player& p, PortInputState* st) {
         return;
     }
     f32 range = cur->mRange;
-    if (g->mLevel >= BOM_LEVELS && !wantStart) {
+    if (g->mLevel >= Goal(p.idx, BOM_LEVELS) && !wantStart) {
         // away from the bubble and turned from it
         PointAt(p, st, best->mPos.x > 0.0f ? -0.9f : 0.9f, -0.5f, true);
         st->roll = Wrap180(Wrap180(best->mAngle) / 4.0f + 30.0f);
@@ -396,17 +450,26 @@ int PnpProbe(char* buf, int len) {
     RPPnpGame* g = RPPnpGame::sInstance;
     RPPnpBall* b = g->GetBall();
     RPPnpPlayer* pl = g->GetPlayer(0);
-    std::snprintf(buf, len, "pnp:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", static_cast<int>(g->GetState()),
+    int n0 = std::snprintf(buf, len, "pnp:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", static_cast<int>(g->GetState()),
                   static_cast<int>(b->mState), static_cast<int>(b->mHitCount), static_cast<int>(g->mRallyCount),
                   static_cast<int>(std::floor(b->mPos.x)), static_cast<int>(std::floor(b->mPos.y)),
                   static_cast<int>(std::floor(b->mPos.z)), static_cast<int>(std::floor(pl->mTarget.x)),
                   static_cast<int>(std::floor(pl->mTarget.z)), static_cast<int>(b->mHitterSide),
                   static_cast<int>(std::floor(sPnpGoal[0])), static_cast<int>(std::floor(sPnpGoal[1])), sPnpHow);
+    (void)n0;
+    if (g->mIsMultiPlayer && g->GetPointPhase() != nullptr && g->GetPlayer(1) != nullptr) {
+        // two players: the points, player 2's racket target
+        int v[4] = {static_cast<int>(g->GetPointPhase()->GetScore(0)), static_cast<int>(g->GetPointPhase()->GetScore(1)),
+                    static_cast<int>(std::floor(g->GetPlayer(1)->mTarget.x)),
+                    static_cast<int>(std::floor(g->GetPlayer(1)->mTarget.z))};
+        Append(buf, len, v, 4);
+    }
     return 1;
 }
 
-// Player 0's racket target for a pointer position: RPPnpPlayer::UpdateHuman's mapping
-bool PnpPointerToTable(f32 px, f32 py, f32* x, f32* z) {
+// A player's racket target for a pointer position: RPPnpPlayer::UpdateHuman's mapping (side 1,
+// player 2, plays the -z end: its base is sHumanMinX)
+bool PnpPointerToTable(int side, f32 px, f32 py, f32* x, f32* z) {
     RPPnpGame* g = RPPnpGame::sInstance;
     const RPGrpScreen* screen = RPGrpRenderer::GetCurrent()->GetView(0)->GetScreen();
     nw4r::math::VEC3 planePos(0.0f, g->GetTable()->GetHeight() + RPPnpPlayer::sPlayerHeight, 0.0f);
@@ -417,7 +480,7 @@ bool PnpPointerToTable(f32 px, f32 py, f32* x, f32* z) {
     }
     t.z *= RPPnpPlayer::sHumanFollowRate;
     nw4r::math::VEC3 camTarget = g->GetCamera()->GetTarget();
-    f32 base = RPPnpPlayer::sHumanMaxX -
+    f32 base = (side == 0 ? RPPnpPlayer::sHumanMaxX : RPPnpPlayer::sHumanMinX) -
                ((RPPnpPlayer::sHumanMaxX + RPPnpPlayer::sHumanMinX) * (camTarget.z + RPPnpGame::sCameraOffsetFar)) /
                    (RPPnpGame::sCameraOffsetFar - RPPnpGame::sCameraOffsetNear);
     *x = t.x;
@@ -431,8 +494,8 @@ bool PnpAim(Player& p, f32 gx, f32 gz, f32* outx, f32* outy) {
     for (int it = 0; it < 8; it++) {
         f32 ax, az, bxx, bxz, byx, byz;
         const f32 h = 0.01f;
-        if (!PnpPointerToTable(px, py, &ax, &az) || !PnpPointerToTable(px + h, py, &bxx, &bxz) ||
-            !PnpPointerToTable(px, py + h, &byx, &byz)) {
+        if (!PnpPointerToTable(p.idx, px, py, &ax, &az) || !PnpPointerToTable(p.idx, px + h, py, &bxx, &bxz) ||
+            !PnpPointerToTable(p.idx, px, py + h, &byx, &byz)) {
             return false;
         }
         f32 ex = gx - ax, ez = gz - az;
@@ -461,13 +524,15 @@ const f32 PNP_RACKET_Z = 165.0f;
 // Rallies played; then the racket stays away and the next ball ends the game
 const s32 PNP_RALLIES = 30;
 
-bool PnpPredict(f32* tx, f32* tz) {
+bool PnpPredict(int side, f32* tx, f32* tz) {
     RPPnpBall* b = RPPnpGame::sInstance->GetBall();
-    if (b->mVelocity.z <= 0.0f || b->mPos.z >= PNP_RACKET_Z) {
+    // side 1 (player 2) meets the ball on the plane z = -PNP_RACKET_Z
+    f32 sign = side == 0 ? 1.0f : -1.0f;
+    if (b->mVelocity.z * sign <= 0.0f || b->mPos.z * sign >= PNP_RACKET_Z) {
         return false;
     }
-    *tx = Clamp(b->mPos.x + b->mVelocity.x / b->mVelocity.z * (PNP_RACKET_Z - b->mPos.z), -140.0f, 140.0f);
-    *tz = PNP_RACKET_Z;
+    *tx = Clamp(b->mPos.x + b->mVelocity.x / b->mVelocity.z * (sign * PNP_RACKET_Z - b->mPos.z), -140.0f, 140.0f);
+    *tz = sign * PNP_RACKET_Z;
     return true;
 }
 
@@ -479,30 +544,54 @@ void PnpPlay(Player& p, PortInputState* st) {
         Results(p, st);
         return;
     }
-    // the racket waits in the middle of player 0's end (also where the game wants it held)
-    f32 gx = 0.0f, gz = 160.0f;
-    if (b->mHitCount / 2 >= PNP_RALLIES) {
-        gx = 120.0f;
-    } else if (g->GetState() == RPPnpGame::STATE_RALLY && b->mHitterSide == 1) {
+    // the racket waits in the middle of its end (also where the game wants it held); player 2
+    // plays the -z end
+    bool two = g->mIsMultiPlayer;
+    f32 home = p.idx == 0 ? 160.0f : -160.0f;
+    f32 gx = 0.0f, gz = home;
+    bool away;
+    if (two) {
+        // two players: the receiver lets a rally go after 3 to 6 strokes (so that the points
+        // fall to both sides; the game is to 11 points)
+        s32 pts = g->GetPointPhase() != nullptr ? g->GetPointPhase()->GetScore(0) + g->GetPointPhase()->GetScore(1) : 0;
+        away = b->mHitCount >= 3 + (pts * 7 + p.idx) % 4;
+    } else {
+        away = b->mHitCount / 2 >= Goal(p.idx, PNP_RALLIES);
+    }
+    if (g->GetState() == RPPnpGame::STATE_RALLY && b->mHitterSide == 1 - p.idx) {
         f32 tx, tz;
-        if (PnpPredict(&tx, &tz)) {
+        if (away) {
+            gx = 120.0f;
+        } else if (PnpPredict(p.idx, &tx, &tz)) {
             gx = tx;
             gz = tz;
         }
+    } else if (!two && away) {
+        gx = 120.0f;
     }
-    sPnpGoal[0] = gx;
-    sPnpGoal[1] = gz;
-    sPnpHow = gz != 160.0f || gx != 0.0f ? 1 : 0;
+    if (p.idx == 0) {
+        sPnpGoal[0] = gx;
+        sPnpGoal[1] = gz;
+        sPnpHow = gz != home || gx != 0.0f ? 1 : 0;
+    }
     f32 x, y;
     if (PnpAim(p, gx, gz, &x, &y)) {
         PointAt(p, st, x, y, true);
-        sPnpHow += 2;
+        if (p.idx == 0) {
+            sPnpHow += 2;
+        }
     } else {
-        PointAt(p, st, 0.0f, 0.3f, false);
+        PointAt(p, st, 0.0f, p.idx == 0 ? 0.3f : -0.3f, false);
     }
-    // the CPU serves when player 0 presses A with the racket held
-    if (g->GetState() == RPPnpGame::STATE_SERVE && b->mState == 1 && g->GetPlayer(0)->unk98) {
-        Tap(p, WPAD_BUTTON_A, 2, 60);
+    if (g->GetState() == RPPnpGame::STATE_SERVE && b->mState == 1) {
+        if (!two && g->GetPlayer(0)->unk98) {
+            // the CPU serves when player 0 presses A with the racket held
+            Tap(p, WPAD_BUTTON_A, 2, 60);
+        } else if (two && b->mTargetSide == p.idx && g->GetPlayer(0)->unk98 && g->GetPlayer(1)->unk98) {
+            // the server tosses (A on its own remote) and keeps the racket still: the ball falls
+            // through it (RPPnpPlayer::CheckServeHit)
+            Tap(p, WPAD_BUTTON_A, 2, 60);
+        }
     }
     st->buttons = p.held;
 }
@@ -510,8 +599,11 @@ void PnpPlay(Player& p, PortInputState* st) {
 
 /* ---- Tanks! (RPTnkScene) ---- */
 
-// Missions the player tries to clear; after these it stops (the enemies end the game)
-const s32 TNK_MISSIONS = 2;
+// Missions the player tries to clear; after these it stops (the enemies end the game). In
+// practice its lives run out first (mission 4 or so, alone; mission 3 for two players)
+const s32 TNK_MISSIONS = 20;
+// Two players (co-op, one shared life): three missions, then they sit still
+const s32 TNK_MISSIONS_2P = 3;
 const int TNK_ROWS = 17;
 const f32 TNK_CELL = 35.0f;
 
@@ -532,6 +624,11 @@ int TnkProbe(char* buf, int len) {
                   static_cast<int>(RPTnkTankManager::sInstance->mEnemyAliveNum),
                   static_cast<int>(std::floor(t->GetPos().x)), static_cast<int>(std::floor(t->GetPos().z)),
                   static_cast<int>(t->mAlive));
+    RPTnkTank* t2 = PlayerNum() >= 2 ? RPTnkTankManager::sInstance->GetPlayerTank(1) : nullptr;
+    if (t2 != nullptr) {
+        int v[3] = {static_cast<int>(st->mKills[1]), static_cast<int>(st->mLives[1]), static_cast<int>(t2->mAlive)};
+        Append(buf, len, v, 3);
+    }
     return 1;
 }
 
@@ -670,14 +767,15 @@ bool TnkPath(const nw4r::math::VEC3& from, const nw4r::math::VEC3& to, nw4r::mat
 
 void TnkPlay(Player& p, PortInputState* st) {
     RPTnkGameManager* g = RPTnkGameManager::sInstance;
-    RPTnkTank* me = RPTnkTankManager::sInstance->GetPlayerTank(0);
-    RPTnkCursor* cur = RPTnkCursorManager::sInstance->GetCursor(0);
+    RPTnkTank* me = RPTnkTankManager::sInstance->GetPlayerTank(p.idx);
+    RPTnkCursor* cur = RPTnkCursorManager::sInstance->GetCursor(p.idx);
+    RPTnkTank* mate = PlayerNum() >= 2 ? RPTnkTankManager::sInstance->GetPlayerTank(1 - p.idx) : nullptr;
     Neutral(st);
     if (g->mState >= 9) {
         Results(p, st);
         return;
     }
-    if (g->mState != 4 || me->GetAlive() <= 0 || cur == nullptr) {
+    if (g->mState != 4 || me == nullptr || me->GetAlive() <= 0 || cur == nullptr) {
         p.target = -1;
         PointAt(p, st, 0.0f, 0.0f, false);
         return;
@@ -698,10 +796,18 @@ void TnkPlay(Player& p, PortInputState* st) {
     nw4r::math::VEC2 v;
     RPTnkCamera::sInstance->ProjectToScreen(&v, &aim);
     PointAt(p, st, v.x / cur->mScreenHalfWidth, -v.y / cur->mScreenHalfWidth, true);
-    if (g->mStage >= TNK_MISSIONS) {
+    if (g->mStage >= Goal(p.idx, mate != nullptr ? TNK_MISSIONS_2P : TNK_MISSIONS)) {
         return;  // done: sit still and hold fire
     }
     bool clear = !TnkBlocked(pos.x, pos.z, ep.x, ep.z, 7.0f, false);
+    if (clear && mate != nullptr && mate->GetAlive() > 0) {
+        // two players: not through the other player's tank (within 30 of the line, before the enemy)
+        f32 mx = mate->GetPos().x - pos.x, mz = mate->GetPos().z - pos.z;
+        f32 along = (mx * dx + mz * dz) / d;
+        if (along > 0.0f && along < d && std::fabs(mx * dz - mz * dx) / d < 30.0f) {
+            clear = false;
+        }
+    }
     if (clear) {
         // fire when the turret points at the enemy (to within the tank's half width)
         const nw4r::math::VEC3& tz = me->mTurretRot.z;
@@ -750,6 +856,12 @@ int FshProbe(char* buf, int len) {
                   static_cast<int>(pl->mState), static_cast<int>(t->mFrame), static_cast<int>(t->mTotalFrame),
                   static_cast<int>(pl->mCaughtNum), static_cast<int>(RPFshScoreLayout::sInstance->CalcTotalPoints(0)),
                   static_cast<int>(hooked), static_cast<int>(RPFshResultLayout::sInstance->mState));
+    RPFshPlayer* pl2 = PlayerNum() >= 2 ? RPFshPlayerMgr::sInstance->GetPlayer(1) : nullptr;
+    if (pl2 != nullptr) {
+        int v[3] = {static_cast<int>(pl2->mState), static_cast<int>(pl2->mCaughtNum),
+                    static_cast<int>(RPFshScoreLayout::sInstance->CalcTotalPoints(1))};
+        Append(buf, len, v, 3);
+    }
     return 1;
 }
 
@@ -764,7 +876,7 @@ bool FshToPointer(const nw4r::math::VEC3& w, f32* x, f32* y) {
 }
 
 void FshPlay(Player& p, PortInputState* st) {
-    RPFshPlayer* pl = RPFshPlayerMgr::sInstance->GetPlayer(0);
+    RPFshPlayer* pl = RPFshPlayerMgr::sInstance->GetPlayer(p.idx);
     Neutral(st);
     if (RPFshResultLayout::sInstance->mState >= RPFshResultLayout::STATE_INTRO) {
         Results(p, st);
@@ -772,7 +884,7 @@ void FshPlay(Player& p, PortInputState* st) {
     }
     s32 start = RPFshStartLayout::sInstance->GetState();
     f32 x, y;
-    if (start < RPFshStartLayout::STATE_WAIT_READY || pl->mState == RPFshPlayer::STATE_NONE) {
+    if (pl == nullptr || start < RPFshStartLayout::STATE_WAIT_READY || pl->mState == RPFshPlayer::STATE_NONE) {
         PointAt(p, st, 0.0f, 0.0f, false);
         return;
     }
@@ -858,10 +970,12 @@ void FshPlay(Player& p, PortInputState* st) {
 // RPCowGame's actor slots (RPCowScene's creation order)
 const int COW_SLOT_KAKASI = 2, COW_SLOT_HURDLE = 5, COW_SLOT_PLAYER = 7, COW_SLOT_GOAL = 15;
 
-RPCowPlayer* CowPlayer() {
+// Player n's cow: element n of the slot's array (RPCowScene creates `new RPCowPlayer[players]`)
+RPCowPlayer* CowPlayer(int n = 0) {
     RPCowGame* g = RPCowGame::GetInstance();
-    return g != nullptr && g->GetSlotNum(COW_SLOT_PLAYER) > 0 ? static_cast<RPCowPlayer*>(g->GetSlotActor(COW_SLOT_PLAYER))
-                                                             : nullptr;
+    return g != nullptr && g->GetSlotNum(COW_SLOT_PLAYER) > n
+               ? &static_cast<RPCowPlayer*>(g->GetSlotActor(COW_SLOT_PLAYER))[n]
+               : nullptr;
 }
 
 bool CowLive() {
@@ -877,15 +991,24 @@ int CowProbe(char* buf, int len) {
                   static_cast<int>(c->mBonusScore), static_cast<int>(c->mTime), static_cast<int>(std::floor(pos.x)),
                   static_cast<int>(std::floor(pos.z)), static_cast<int>(g->mKnockedGroups),
                   static_cast<int>(std::floor(c->mSpeed * 100.0f)));
+    RPCowPlayer* c2 = PlayerNum() >= 2 ? CowPlayer(1) : nullptr;
+    if (c2 != nullptr && c2->mpCollision != nullptr) {
+        int v[4] = {static_cast<int>(c2->mScore), static_cast<int>(c2->mTime),
+                    static_cast<int>(std::floor(c2->mpCollision->GetPos().z)), static_cast<int>(g->unk48)};
+        Append(buf, len, v, 4);
+    }
     return 1;
 }
 
 void CowPlay(Player& p, PortInputState* st) {
     RPCowGame* g = RPCowGame::GetInstance();
-    RPCowPlayer* c = CowPlayer();
+    RPCowPlayer* c = CowPlayer(p.idx);
     Neutral(st);
     st->pointerValid = 0;  // held on its side: not at the screen
-    if (g->mState >= 22) {
+    if (c == nullptr || c->mpCollision == nullptr) {
+        return;
+    }
+    if (g->mState >= 22 || (PlayerNum() >= 2 && g->mState >= 19)) {
         Results(p, st);  // the medal (22), the results menu (24)
         return;
     }
@@ -907,7 +1030,9 @@ void CowPlay(Player& p, PortInputState* st) {
     f32 nextZ = 0.0f;
     for (s32 i = 0; gs != nullptr && i < gn; i++) {
         EGG::Vector3f gp = gs[i].GetPos();
-        if (gs[i].mState == 2 || (gs[i].mNum != 0 && gs[i].mHits >= gs[i].mNum) || gp.z > pos.z - 15.0f) {
+        // (two players: not a group the other player has claimed; only its first player's hits count)
+        if (gs[i].mState == 2 || (gs[i].mNum != 0 && gs[i].mHits >= gs[i].mNum) || gp.z > pos.z - 15.0f ||
+            (gs[i].mPlayer < 2 && gs[i].mPlayer != p.idx)) {
             continue;
         }
         if (next == nullptr || gp.z > nextZ) {
@@ -1002,11 +1127,19 @@ int BilOff() {
 
 int BilProbe(char* buf, int len) {
     RPBilPlayer* pl = RPBilPlayerMgr::sInstance->mpPlayers[0];
+    RPBilPlayer* pl2 = PlayerNum() >= 2 ? RPBilPlayerMgr::sInstance->mpPlayers[1] : nullptr;
     const nw4r::math::VEC3& cue = RPBilBallMgr::sInstance->GetBall(0)->GetPos();
     std::snprintf(buf, len, "bil:%d,%d,%d,%d,%d,%d,%d,%d", static_cast<int>(RPBilGameMgr::sInstance->mpStateMachine->GetState()),
                   static_cast<int>(pl->GetState()), static_cast<int>(pl->mShotCount), static_cast<int>(pl->mFoulCount),
                   BilOff(), static_cast<int>(std::floor(cue.x)), static_cast<int>(std::floor(cue.z)),
                   static_cast<int>(RPBilBallMgr::sInstance->GetLowestBall()));
+    if (pl2 != nullptr) {
+        // two players: whose turn, player 2's state, shots, fouls, both scores
+        int v[6] = {static_cast<int>(RPBilPlayerMgr::sInstance->GetCurrentPlayer()), static_cast<int>(pl2->GetState()),
+                    static_cast<int>(pl2->mShotCount), static_cast<int>(pl2->mFoulCount), static_cast<int>(pl->mScore),
+                    static_cast<int>(pl2->mScore)};
+        Append(buf, len, v, 6);
+    }
     return 1;
 }
 
@@ -1056,13 +1189,20 @@ f32 BilAim() {
 }
 
 void BilPlay(Player& p, PortInputState* st) {
-    RPBilPlayer* pl = RPBilPlayerMgr::sInstance->mpPlayers[0];
+    RPBilPlayer* pl = RPBilPlayerMgr::sInstance->mpPlayers[p.idx];
     RPBilCamera* cam = RPBilCameraMgr::sInstance->GetCamera();
     s32 gs = RPBilGameMgr::sInstance->mpStateMachine->GetState();
     Neutral(st);
     st->distance = 1.2f;
     if (gs == RPBilGameMgr::STATE_GAME_OVER) {
         Results(p, st);
+        return;
+    }
+    if (pl == nullptr || (PlayerNum() >= 2 && RPBilPlayerMgr::sInstance->GetCurrentPlayer() != p.idx)) {
+        // two players: the other player's turn (the game reads only the current player's remote)
+        p.vals[4] = p.vals[5] = 0.0f;
+        p.timer = 0;
+        PointAt(p, st, 0.0f, 0.6f, false);
         return;
     }
     s32 ps = pl->GetState();
@@ -1167,10 +1307,10 @@ extern "C" int PortGameProbeMore(char* buf, int len) {
 }
 
 extern "C" int PortInputPlayHook(int chan, int frame, PortInputState* state) {
-    if (chan != 0) {
+    if (chan >= PlayerNum() || chan >= WPAD_MAX_CONTROLLERS) {
         return 0;
     }
-    Player& p = Begin(frame);
+    Player& p = Begin(chan, frame);
     if (WlyLive()) {
         WlyPlay(p, state);
     } else if (BomLive()) {

@@ -168,7 +168,9 @@ Buttons: `A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C none`.
 ## Known limits
 
 - Minigames: Charge! needs tilt (a gamepad's accelerometer), Tanks! the Nunchuk stick or the
-  D-pad; two-player modes have not been tried (HOST_BUILD.md §33).
+  D-pad. Two players: connect a second gamepad (remote 2) before Select Players, choose "2",
+  and each player picks a Mii with their own remote; all nine games' two-player modes run in
+  the tests (HOST_BUILD.md §36), not yet tried by hand with two people.
 - Miis: see HOST_BUILD.md §30 for the state of Mii drawing.
 - The Wii's ROM font is not on the disc; the game uses it only for debug text and for a
   font-size query in Table Tennis and Laser Hockey (HOST_BUILD.md §30).
@@ -182,9 +184,14 @@ Buttons: `A B 1 2 PLUS MINUS HOME UP DOWN LEFT RIGHT Z C none`.
   party menu and Laser Hockey with Close, Reset and Wii Menu (about 8 minutes).
 - `make -C port/host playtest`: whole games, twice each for determinism: all nine minigames
   from the party menu to the results and back, played by game-side players (HOST_BUILD.md
-  §31-§33; about 95 minutes). Run it before committing a game milestone. A subset:
+  §31-§33; about 105 minutes). Run it before committing a game milestone. A subset:
   `make -C port/host playtest PLAYTEST_ARGS="--only tanks,fishing"` (names: shooting, hockey,
   findmii, posemii, tabletennis, billiards, fishing, charge, tanks); `--png DIR` saves the
   screens checked.
+- `make -C port/host playtest2`: the two-player modes of all nine games (two remotes, both
+  played; twice each) and three later-level runs (Find Mii to stage 13, Pose Mii to level 5,
+  Table Tennis to its 100 rallies; HOST_BUILD.md §36; about 120 minutes). Keys for
+  `PLAYTEST2_ARGS="--only ..."`: shooting2, hockey2, findmii2, posemii2, tabletennis2,
+  billiards2, fishing2, charge2, tanks2, findmii_long, posemii_long, tabletennis_long.
 
 Both need the extracted disc (`DISC=/path/to/files`, default `~/wii-play/extracted/files`).

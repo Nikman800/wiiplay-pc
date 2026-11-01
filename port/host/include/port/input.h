@@ -172,6 +172,11 @@ int PortInputAimHook(int chan, f32* x, f32* y) __attribute__((weak));
  * left the state alone. */
 int PortInputPlayHook(int chan, int frame, PortInputState* state) __attribute__((weak));
 
+/* "FRAME goal N": how far remote CHAN's game-side player goes before it lets the game end
+ * (stages, missions, rallies or levels, per game; 0, the default, keeps each player's own
+ * limit). Read by the play hook; set by the script. */
+int PortInputPlayGoal(int chan);
+
 /* "FRAME hbm PANE" ("hbm none" stops): while set, each retrace (after `aim`,
  * before `play`) this hook (weak; the boot's host_probe_hbm.cpp) gives where
  * remote CHAN must point to be on the centre of the HOME Menu's pane PANE

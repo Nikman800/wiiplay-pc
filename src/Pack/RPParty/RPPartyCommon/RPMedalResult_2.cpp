@@ -17,10 +17,28 @@
 #include <Pack/RPParty/RPPartyCommon/RPPauseText.h>
 #include <Pack/RPParty/RPPartyCommon/RPScreenFade.h>
 
+#if defined(PORT_HOST)
+// On the Wii these are RPSceneInfo_2.cpp's functions of the same names, written for Laser
+// Hockey's RPHkyGame: the object's word at 0x1C / 0x20 (here the player and rank position
+// panes), then that pane's global translation at 0x90 / 0xA0 (mGlbMtx._03, _13). Those are
+// offsets of the 32-bit layout; on the host the call read other members and their bytes, so
+// the result's Mii and medal were placed from garbage. The host reads the panes themselves.
+static void RP_getPairFromField1C(EGG::Vector2f* pOut, const RPRankGetLyt* pLyt) {
+    const nw4r::math::MTX34& rMtx = pLyt->GetPlayerPosPane()->GetGlobalMtx();
+    pOut->x = rMtx._03;
+    pOut->y = rMtx._13;
+}
+static void RP_getPairFromField20(EGG::Vector2f* pOut, const RPRankGetLyt* pLyt) {
+    const nw4r::math::MTX34& rMtx = pLyt->GetRankPosPane()->GetGlobalMtx();
+    pOut->x = rMtx._03;
+    pOut->y = rMtx._13;
+}
+#else
 extern "C" {
 void RP_getPairFromField1C(EGG::Vector2f* pOut, const RPRankGetLyt* pLyt);
 void RP_getPairFromField20(EGG::Vector2f* pOut, const RPRankGetLyt* pLyt);
 }
+#endif
 
 f32 RPMedalResult::sActorScale[2] = {16.0f, 16.0f};
 f32 RPMedalResult::sAngleA[2] = {-16.0f, -16.0f};

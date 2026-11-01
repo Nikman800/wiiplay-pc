@@ -40,18 +40,26 @@ public:
     static void DestroyInstance();
 
 private:
+#if defined(PORT_HOST)
+    // The offsets below are RPModelObj's 32-bit layout (a 4-byte vtable pointer first); the
+    // host's 8-byte vtable pointer moves every member by 4
+    static const u32 MODEL_OBJ_SHIFT = sizeof(void*) - 4;
+#else
+    static const u32 MODEL_OBJ_SHIFT = 0;
+#endif
+
     // RPModelObj's protected members, read by value as the original does
     static nw4r::math::VEC3 GetPos(const RPBomPoolObj* pObj) {
         return *reinterpret_cast<const nw4r::math::VEC3*>(
-            reinterpret_cast<const u8*>(pObj) + 0x4);
+            reinterpret_cast<const u8*>(pObj) + MODEL_OBJ_SHIFT + 0x4);
     }
 
     static RPAxes GetRot(const RPBomPoolObj* pObj) {
-        return *reinterpret_cast<const RPAxes*>(reinterpret_cast<const u8*>(pObj) + 0x1C);
+        return *reinterpret_cast<const RPAxes*>(reinterpret_cast<const u8*>(pObj) + MODEL_OBJ_SHIFT + 0x1C);
     }
 
     static u8 GetUnk40(const RPBomPoolObj* pObj) {
-        return *(reinterpret_cast<const u8*>(pObj) + 0x40);
+        return *(reinterpret_cast<const u8*>(pObj) + MODEL_OBJ_SHIFT + 0x40);
     }
 };
 

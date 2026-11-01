@@ -324,6 +324,7 @@ enum ScriptOp {
     OP_AIM,
     OP_FIRE,
     OP_PLAY,
+    OP_GOAL,
     OP_SHAKE,
     OP_HBM,
 };
@@ -367,7 +368,7 @@ const OpName sOps[] = {
     {"pitch", OP_PITCH, 1},     {"accel", OP_ACCEL, 3},     {"stick", OP_STICK, 2},
     {"fsroll", OP_FSROLL, 1},   {"fspitch", OP_FSPITCH, 1}, {"fsaccel", OP_FSACCEL, 3},
     {"aim", OP_AIM, 1},         {"fire", OP_FIRE, 1},       {"play", OP_PLAY, 1},
-    {"shake", OP_SHAKE, 4},     {"hbm", OP_HBM, -2},
+    {"shake", OP_SHAKE, 4},     {"hbm", OP_HBM, -2},        {"goal", OP_GOAL, 1},
 };
 
 int tokenize(char* line, char** tok, int max) {
@@ -388,7 +389,14 @@ bool parseNumber(const char* s, f32* out) {
     return true;
 }
 
+// `goal N` per channel (PortInputPlayGoal)
+int sPlayGoal[WPAD_MAX_CONTROLLERS];
+
 } // namespace
+
+int PortInputPlayGoal(int chan) {
+    return chan >= 0 && chan < WPAD_MAX_CONTROLLERS ? sPlayGoal[chan] : 0;
+}
 
 PortInputScript* PortInputScriptLoad(const char* path, char* err, int errLen) {
     FILE* fp = std::fopen(path, "r");
@@ -599,6 +607,9 @@ void PortInputScriptApply(PortInputScript* script, int frame, PortInputState sta
             break;
         case OP_PLAY:
             script->play[c.chan] = c.args[0] != 0.0f;
+            break;
+        case OP_GOAL:
+            sPlayGoal[c.chan] = static_cast<int>(c.args[0]);
             break;
         case OP_HBM:
             std::strcpy(script->hbmPane[c.chan], c.name);

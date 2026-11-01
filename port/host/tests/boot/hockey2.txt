@@ -1,0 +1,26 @@
+# Laser Hockey, two players (port/docs/HOST_BUILD.md §36): test_play.py appends this to
+# tests/boot/menus_saved2.txt (two players on the party menu), without its `end`.
+# The Laser Hockey icon -> the explanation screen; "A: Start"
+3400 mouse 318 75
+3430 press A
+3436 release A
+3800 mouse 320 228
+3830 press A
+3836 release A
+# First to 8 goals (no clock in a two-player game): each remote puts its player's paddle on the
+# puck, a little past its centre (host_probe.cpp)
+4000 aim 1
+4000 chan 1
+4000 aim 1
+4000 chan 0
+# the game ends at about frame 8300 (8-3); the winner banner, then the results menu with the
+# players' wins: "Play a different game"
+8400 aim 0
+8400 chan 1
+8400 aim 0
+8400 mouse 320 348
+8400 chan 0
+8400 mouse 320 348
+8800 press A
+8806 release A
+end 100000

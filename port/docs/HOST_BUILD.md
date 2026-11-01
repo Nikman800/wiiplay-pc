@@ -2551,7 +2551,10 @@ and `fire PERIOD` (B pressed for the first half of every PERIOD frames; 0 stops)
 roll ("twist"), pitch ("tilt"), acceleration, stick) and `shake X Y Z N` (an acceleration of
 X, Y, Z g on top of `accel` for N frames: a flick, a lift or a jerk); since §34 `hbm PANE`
 (each frame the HOME Menu probe, if linked, puts the pointer on the centre of the HOME Menu's
-pane PANE, by the library's own pane rectangles; `hbm none` stops). Defaults: no
+pane PANE, by the library's own pane rectangles; `hbm none` stops); since §36 `goal N`
+(how far the game-side player of the channel goes: stages, missions, rallies or levels; 0 keeps
+its default). Each of `aim`, `fire`, `play`, `shake`, `hbm` and `goal` applies to the channel
+of the last `chan`: two-player runs drive remote 2 with `chan 1` (§36). Defaults: no
 remote connected, battery 4, distance 2 m, level.
 
 ### The harness
@@ -4555,3 +4558,177 @@ cache across runs and its build key, writeback off frame-identical, the audio co
 the dummy device, the cursor wrapper through synthetic SDL mouse events. Not verifiable here (no
 window may be opened): the overlay's look, mailbox on the user's display (`present` in the
 summary), sound on a real device, the mouse by hand. What to run and send back: RUNNING.md.
+
+## 36. Two players, and later levels
+
+All nine minigames now also run in their two-player modes, headless, from a two-player party
+menu: a second virtual remote (channel 1) is connected from the boot, Select Players gets "2",
+and each player picks a Mii with their own remote (Guest A, then Guest B). In each game both
+remotes are worked by game-side players (the §33 players, now one per remote, each reading its
+own player's objects), to the results ("P1 n wins" / "P2 n wins", "Play a different game")
+and back. The players also go further alone where it was cheap (Tanks! past mission 3; and in
+`make playtest2`, Find Mii to stage 13, Pose Mii to level 5, Table Tennis to the end of its
+100-rally game). Playing two players found two 64-bit bugs the one-player runs never reached,
+and a sweep for the same pattern found two more that had been quietly wrong all along (one of
+them is why the one-player Pose Mii run used to lose in level 2). All are fixed, identical on
+the Wii.
+
+### Files
+
+| File | What |
+|---|---|
+| `port/host/tests/boot/menus_saved2.txt` | **New.** The menus with two players: remote 2 connected at frame 0, "2" on Select Players, Guest A (remote 1, the guest warning, Yes), Guest B (remote 2: "Select a Mii for Player 2."), OK. The timings are `menus_saved.txt`'s, so the games' scripts follow it unchanged |
+| `port/host/tests/boot/play2.txt` | **New.** `chan 1`, `play 1` at frame 3850: remote 2's player plays player 2 |
+| `port/host/tests/boot/shooting2.txt`, `hockey2.txt` | **New.** Shooting Range and Laser Hockey with `aim 1` (and `fire 6`) on both remotes, then "Play a different game" |
+| `port/host/src/host_probe_games.cpp` | One player state per remote (`Begin(chan, frame)`; `play 1` on channel n plays player n); every game's player takes its player's objects by index (below); the probes append player 2's fields when two play; `goal N` (`PortInputPlayGoal`); Tanks! plays on until its lives run out (three missions with two players) |
+| `port/host/src/host_probe.cpp` | Shooting Range: the aim per remote (each player its own target, not yet hit by that player; player 2 searches from the end of the target lists); `duc:` gains player 2's score and hits. Laser Hockey: the aim per paddle (paddle 1: the +x half of the mapping), a two-player strategy (below); `hky:` gains paddle 1's position and distance |
+| `port/host/src/host_input.cpp`, `include/port/input.h` | Script command `goal N` (§23) and `PortInputPlayGoal(chan)` |
+| `port/host/tests/play_games.py` | `GAMES2` (the nine two-player runs and their checks), `LONG` (the later-level runs); the one-player Tanks! and Pose Mii runs' frames and checks (below) |
+| `port/host/tests/test_play.py` | `--set 2`: the two-player and later-level runs |
+| `port/host/Makefile` | `make playtest2` (`PLAYTEST2_ARGS`, scratch `$TMPDIR/wiiplay-play2`) |
+| `port/host/tools/check_matching.py` | The decomp files below in `TOUCHED` |
+| `port/docs/RUNNING.md` | Tests; two players in the known limits |
+
+The input layer needed no change for a second remote: the script's `chan N` already sent the
+following commands to channel N, `aim` / `fire` / `play` were per channel, and the boot feeds all
+four states to the WPAD backend every retrace. Only the game-side players were player-0 only.
+
+### Decomp changes (byte-identical on the Wii; `check_matching`: 974 units identical)
+
+| File | Change | Found by |
+|---|---|---|
+| `RPMedalResult_5.h` | `PORT_HOST`: `ResultMenuSceneWins` / `Streak` / `Winner` / `ClearRetryFlag` use `RPSceneInfo`'s members (`unk8[player]`, `unk10`, `unk14`, `unk2C`) instead of word 2 + player, 4, 5 and byte 0x2C | the first two-player result: the wins counter (word 2 = `unk8[0]` with a 4-byte vtable pointer) is `mPlayerNum` on the host; the winner's win made the player count 3, and the party menu (`RPSelectScene::EnterStart`) read a third player's data: crash. Every two-player game hit it on its results. The retry flag cleared a byte of `unk28` |
+| `RPBomPanel_3.h` | `RPBomPanelPool::GetPos` / `GetRot` / `GetUnk40` add `MODEL_OBJ_SHIFT` (`sizeof(void*) - 4` under `PORT_HOST`, else 0) to `RPModelObj`'s 32-bit offsets 0x4 / 0x1C / 0x40 | sweep (`reinterpret_cast` + byte offset). On the host the bubbles' z read `mPos.y` (and the high half of the vtable pointer): the pool's in-range count (wave pacing, the wait for bubbles, the BGM), spawn occupancy, the front bubble a miss takes and the Mii's in-bubble pose were all computed from wrong positions. The one-player run used to take its three misses early in level 2 while the player was still matching; now it clears level 2 and loses in level 3, where it stops matching (as intended) |
+| `RPGrpModelMaterial.cpp` | `SyncChanColor`'s walker over `mpChanColors` steps `sizeof(ChanColor*)` instead of 4 | sweep: the second channel read half of each pointer (no material in the runs had a first channel colour, or it would have crashed) |
+| `RPMedalResult.h`, `RPMedalResult_2.cpp` | `PORT_HOST`: `RP_getPairFromField1C` / `20` as local functions reading `RPRankGetLyt`'s player and rank position panes' global translation (`GetPlayerPosPane()->GetGlobalMtx()._03 / _13`; host-only accessors) | sweep (an `extern "C"` declaration with another parameter type): on the Wii these are `RPSceneInfo_2.cpp`'s functions written for `RPHkyGame` (word 0x1C / 0x20, then 0x90 / 0xA0 of that object, which for the result is a pane's `mGlbMtx`); on the host they read `RPRankGetLyt`'s word at `RPHkyGame::mpPuck`'s host offset (an animation object) and floats from it: the one-player result's Mii and medal positions came from garbage |
+
+### Each game with two players (the game's own rules, as read in the code)
+
+| Game | Two-player mode | How the players play (player 2 = remote 2) |
+|---|---|---|
+| Shooting Range | versus (`RPDucGame::mMode` 1); either player can hit any target; per-player scores; versus point values and two-face patterns | each remote aims at a live target its player has not hit (player 1 the first found, player 2 the last), B every 6 frames |
+| Laser Hockey | paddle 1 human (`IsCpu()` only in one-player); no clock, first to 8 goals | each goal is given away on purpose by one side (player 2 two goals in three): that paddle knocks the puck into its own goal when the puck is on its half, otherwise waits by the side wall; the other gets behind the puck (going round it) and strikes it at the other goal. Two paddles simply chasing the puck pinned it against a wall, and two good defenders scored once in 15000 frames |
+| Find Mii | both pick at once (`mHoverIdx[p]`, `mPenaltyTimers[p]`); finds scored per player by how many were already found; two minutes, no time bonus | as alone, player 2 searching the list from the end; after 5 stages player 2 picks wrong Miis (its penalty, -5 each) and player 1 waits |
+| Pose Mii | one screen, shared bubbles coloured per player (`mColorType` 0 / 1, 2 special), shared misses | each its own colour (player 1 also the specials) |
+| Table Tennis | points game to 11 (`RPPnpPointPhase`), serve changes every 2 points, the camera turns at court changes; side 1 plays -z | player 2's mapping uses `sHumanMinX`; the racket waits at z -160 and meets the ball on z -165; both hold the paddle, then the server presses A on its own remote and keeps still (the ball falls through the racket, `CheckServeHit`); the receiver lets a rally go after 3 to 6 strokes |
+| Billiards | turns (`RPBilPlayerMgr::mCurrentPlayer`), only the current remote is read; scores (pocketed numbers) and fouls per player; ends when the table is clear | the player whose turn it is plays as alone; the other points away |
+| Fishing | one pond and camera, a rod each (grips at x -100 / +100), shared fish | as alone with its own rod and hook |
+| Charge! | split screen, two cows on the two-player course; groups belong to the first player to hit them; time up ends it | as alone, skipping groups the other player has claimed |
+| Tanks! | co-op, one shared life count (one life), kills per player | as alone; neither fires when the other's tank is within 30 of the line of fire before the enemy; three missions, then they sit still |
+
+### The tests
+
+`make playtest2` (new; `test_play.py --set 2`): each two-player game twice (determinism) and
+the three later-level runs once (their games' code is the same as in `make playtest`'s pairs),
+four at a time. Per run: the scene trace, the frame count, five screens (each in its scene, all
+distinct; PNGs with `--png`), the log (documented Aurora warnings only, no `boot:` line), and
+per game the game's own state:
+
+| Run | Checked |
+|---|---|
+| Shooting Range (2P) | rounds 1-5 played, the end state; both players scoring in every round; scores only change in play |
+| Laser Hockey (2P) | intro, play, goals, the end; first to 8 with both scoring; a score changes only by one as a goal starts; at least 3 paddle-puck contacts for each paddle; the clock never runs |
+| Find Mii (2P) | the clock from 7200 (two minutes); 5 stages cleared; finds credited to both players; wrong picks by player 2 |
+| Pose Mii (2P) | the states through the results; level 3 reached; at least 30 bubbles matched by each player; all misses used; the borders 16 apart in play |
+| Table Tennis (2P) | states 0-5; the game to 11 with both scoring, points one at a time; at least 10 strokes by each player |
+| Billiards (2P) | the turn changes; both players shot and scored; all 9 object balls off; balls leave the table only during a shot |
+| Fishing (2P) | each player caught at least 2 fish and has points; player 2 through aim, wait, fight, land; the clock ran out; the versus result |
+| Charge! (2P) | the states through the two-player end (time up 19, scores 20, winner 23, results 24); both scored and ran over 3000 |
+| Tanks! (2P) | at least 2 missions cleared; kills by both, one at a time in play; the shared lives equal |
+| Find Mii (12 stages) | the §33 checks, stage 13 reached |
+| Pose Mii (4 levels) | the §33 checks, level 5 reached |
+| Table Tennis (100 rallies) | the §33 checks, the game ends at 100 rallies |
+
+`make playtest` changes: Tanks! (9900 frames) must clear 3 missions (it clears 3 and loses in
+mission 4); Pose Mii (11400 frames) must clear 2 levels (it loses in level 3).
+
+Expected output of `make playtest2` (four runs at a time on 12 cores, lavapipe: 7258 s, about 2 hours, for the 21 runs):
+
+```
+test_play (two players, later levels): 21 runs on lavapipe in 7258 s wall
+  shooting range (2P): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 18 -> 27 over 14800 frames; states 0 
+-> 1 -> 2 -> 3 -> 4 -> 2 -> 3 -> 4 -> 2 -> 3 -> 4 -> 2 -> 3 -> 4 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7; 
+scores 375 (149 hits) / 302 (106 hits), both scoring in every round; 5 distinct screens; log as 
+§33
+    hashes and scenes identical over two runs: True
+  laser hockey (2P): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 17 -> 27 over 9300 frames; states 0 -> 
+1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 2 -> 1 -> 
+2 -> 1 -> 2 -> 1 -> 3 -> 4 -> 5; goals 8-3; paddle-puck contacts 86 / 115; no clock; 5 distinct 
+screens; log as §33
+    hashes and scenes identical over two runs: True
+  find mii (2P): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 22 -> 27 over 14400 frames; states 0 -> 1 
+-> 2 -> 3 -> 0 ... 4; 5 stages cleared; finds credited to player 1 / 2: 6 / 4 (best scores 45 / 
+30); 79 wrong picks by player 2; time up; 5 distinct screens; log as §33
+    hashes and scenes identical over two runs: True
+  pose mii (2P): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 24 -> 27 over 11300 frames; states 0 -> 1 
+-> 2 -> 3 -> 5 -> 3 -> 5 -> 3 -> 5 -> 3 ...; levels 3; matched 258 / 58, scores 288 / 58; 3/3 
+misses; 5 distinct screens; log as §33
+    hashes and scenes identical over two runs: True
+  table tennis (2P): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 19 -> 27 over 12700 frames; states 0 -> 
+1 -> 2 -> 3 -> 4 -> 2 ...; points 4-11; strokes by player 1 / 2: 30 / 33; 5 distinct screens; 
+log as §33
+    hashes and scenes identical over two runs: True
+  billiards (2P): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 20 -> 27 over 12100 frames; states 0 -> 1 
+-> 2 -> 3 -> 2 -> 3 -> 2 -> 4 ...; 7 turn changes; shots 8 / 5, fouls 2 / 1, scores 24 / 14; 
+all 9 object balls off: True; 5 distinct screens; log as §33
+    hashes and scenes identical over two runs: True
+  fishing (2P): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 16 -> 27 over 13500 frames; caught 8 / 4 
+fish, 770 / 360 points; the clock ran out; result state 8; 5 distinct screens; log as §33
+    hashes and scenes identical over two runs: True
+  charge (2P): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 21 -> 27 over 9300 frames; states 0 -> 1 -> 2 
+-> 4 -> 5 -> 6 -> 7 -> 8 -> 19 -> 20 -> 21 -> 23 -> 24; scores 107 / 97; ran 14285 / 14356 
+along the course; winner player 1; 5 distinct screens; log as §33
+    hashes and scenes identical over two runs: True
+  tanks (2P): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 23 -> 27 over 8600 frames; states 0 -> 1 -> 2 
+-> 4 -> 6 -> 7 -> 2 -> 4 -> 6 -> 7 -> 2 -> 4 ...; missions cleared 3; kills 4 / 1; 5 distinct 
+screens; log as §33
+    hashes and scenes identical over two runs: True
+  find mii (12 stages): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 22 -> 27 over 14900 frames; states 0 
+-> 1 -> 2 -> 3 -> 0 -> 1 -> 2 -> 3 ... 4; 12 stages cleared (stage 13 reached); 12 wrong picks, 
+each taking time off; time up; 5 distinct screens; log as §33
+  pose mii (4 levels): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 24 -> 27 over 15700 frames; states 0 
+-> 1 -> 2 -> 3 -> 6 -> 7 -> 8 -> 3 -> 6 -> 7 -> 8 -> 3 ...; levels 5, 493 bubbles matched, 
+score 543, 3/3 misses; borders 16 apart in all 7959 frames of play; 5 distinct screens; log as 
+§33
+  table tennis (100 rallies): scenes -1 -> 0 -> 25 -> 1 -> 27 -> 19 -> 27 over 11200 frames; 
+states 0 -> 1 -> 2 -> 3 -> 4 -> 5; 100 returns by player 0, 100 rallies (final hit count 200); 
+5 distinct screens; log as §33
+errors: 0
+OK
+```
+
+`make playtest` with the changes: 6164 s (about 103 minutes) for its 18 runs, all passing
+(Tanks! "missions cleared 3, 5 enemy tanks destroyed"; Pose Mii "levels 3, 260 bubbles
+matched, score 275, 3/3 misses"). `make -j8 test`: 7 min 58 s (unchanged: no new run in it).
+`make M32=1 test` passes. With `--gpu` (the machine's discrete GPU instead of lavapipe) the two
+targets took 11 and 15 minutes (six runs at a time, all passing); the hashes were not
+compared across drivers (each pair runs on one).
+
+### Not a stage: Shooting Range
+
+Shooting Range has no stages: "Stage two is now open!" on the party menu after the first game
+is the party menu opening its second game (Find Mii), and the all-games save opens them all.
+What the one-player Shooting Range does have and no run drives yet is the co-op join:
+`RPDucScene::Configure` starts a one-player game in mode 2 (co-op), where A or B on remote 2
+adds player 2 (`mP2Joined`), scoring into player 1's total.
+
+### Verified headless vs. visual only
+
+Verified (the games' own state, the scene trace, the log, determinism over two runs): the
+two-player menus; every game's two-player mode played to its results by both remotes, with
+both players' scores or progress moving; the two-player results menu (the win counts) and back
+to the party menu; Tanks! to mission 4, Find Mii to stage 13, Pose Mii to level 5, Table Tennis
+to its 100-rally end. Visual only (the PNGs, `<key>_<screen>.png`): Charge!'s split screen,
+Table Tennis's turned camera at court changes, Billiards' "P1 Wins" with the totals, Fishing's
+two point counts, the HUDs with P1 / P2. Not tried: two people by hand in a window; the
+Shooting Range co-op join; three or four remotes (Wii Play has two players at most, but the
+HOME Menu shows four cursors).
+
+### Next steps
+
+- The Shooting Range co-op join (one-player game, remote 2 presses A).
+- A sweep of the remaining raw-offset reads (`RPTnkField.cpp`'s `+ 0x20` wall walker is
+  `sizeof(RPTnkWall)` of floats, fine on the host; no others found in `src/Pack` and
+  `include/Pack` beyond those fixed or already under `PORT_HOST`).
+- `make playtest2` is two hours on lavapipe; the later-level runs could share the two-player
+  runs' slots if a machine with more cores runs six at a time.

@@ -1,0 +1,7 @@
+# Two players (port/docs/HOST_BUILD.md §36): test_play.py appends this to
+# tests/boot/menus_saved2.txt and a game's script (tests/boot/<game>.txt, whose player starts at
+# frame 3850). The game-side player of remote 2 (host_probe_games.cpp) plays player 2.
+3850 chan 1
+3850 play 1
+3850 chan 0
+end 100000

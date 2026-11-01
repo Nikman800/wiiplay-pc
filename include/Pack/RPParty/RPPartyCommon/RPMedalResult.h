@@ -44,6 +44,16 @@ public:
     void DrawLayer1C();
     void DrawLayer1A();
 
+#if defined(PORT_HOST)
+    // The panes RP_getPairFromField1C / 20 read on the host (RPMedalResult_2.cpp)
+    const nw4r::lyt::Pane* GetPlayerPosPane() const {
+        return mpPlayerPosPane;
+    }
+    const nw4r::lyt::Pane* GetRankPosPane() const {
+        return mpRankPosPane;
+    }
+#endif
+
 private:
     void EnterIn();
     void CalcIn();

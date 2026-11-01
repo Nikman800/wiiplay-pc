@@ -1,0 +1,43 @@
+# From the boot to the party menu with two players (port/docs/HOST_BUILD.md §36): the save
+# with every game open (test_boot.party_save), a second remote (channel 1) connected from the
+# start, "2" on Select Players, Guest A for player 1 and Guest B for player 2 (each with its own
+# remote), "Play with these Miis." -> OK. The timings are tests/boot/menus_saved.txt's, so the
+# games' scripts (which start at frame 3400 on the party menu) follow it unchanged.
+0 connect
+0 mouse 320 228
+0 chan 1
+0 connect
+0 mouse 400 300
+0 chan 0
+# health and safety screen
+200 press A
+206 release A
+# title: A and B together -> Select Players (the save exists)
+600 press A
+600 press B
+606 release A
+606 release B
+# "2" players -> Select Mii for player 1 (Guest tab)
+900 mouse 228 315
+930 press A
+936 release A
+# Guest A -> "You can't save My Record data with this Mii. Continue?" -> Yes
+1500 mouse 218 245
+1530 press A
+1536 release A
+1750 mouse 195 348
+1780 press A
+1786 release A
+# "Select a Mii for Player 2.": Guest B, with remote 2 (no second warning)
+1950 chan 1
+1950 mouse 304 205
+1980 press A
+1986 release A
+2000 chan 0
+# "Play with these Miis." -> OK -> the two-player party menu
+2200 mouse 460 360
+2230 press A
+2236 release A
+2850 press A
+2856 release A
+end 100000
