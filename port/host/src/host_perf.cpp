@@ -43,18 +43,24 @@ enum Col {
     C_PIPE_WAIT_MS,
     C_AUDIO_MS, // audio queued at the frame's end
     C_GPU_LAT,  // the latest completed frame: end of its recording to its GPU work (presentation included) done
-    C_IN_FLIGHT, // frames ended whose GPU work is not done, at the frame's boundary
+    C_IN_FLIGHT, // frames ended whose rendering is not done, at the frame's boundary
+    C_SYNC_MS,   // part of gx: draw-done syncs (waiting for the FIFO processor)
+    C_QUEUE_LAT, // the latest frame: its end to the render thread taking it
+    C_RENDER_LAT, // the latest frame: its end to its rendering (presentation excluded) done on the GPU
+    C_ACQUIRE,   // render thread: acquiring the window's next image (since the last frame boundary)
+    C_PRESENT_CALL, // render thread: in Surface::Present
     C_COUNT
 };
 const char* const kColNames[C_COUNT] = {"wall_ms",   "calc_ms",  "gx_ms",       "end_ms",
                                         "gpu_ms",    "present_ms", "sleep_ms",  "input_ms",
                                         "pipe_compile_ms", "pipe_wait_ms", "audio_queue_ms",
-                                        "gpu_latency_ms", "in_flight"};
+                                        "gpu_latency_ms", "in_flight", "gx_sync_ms",
+                                        "queue_latency_ms", "render_latency_ms", "acquire_ms", "present_call_ms"};
 
 struct Row {
     int frame, scene;
     float v[C_COUNT];
-    u32 pipelines, pipelineWaits, skippedDraws, drawCalls, copies;
+    u32 pipelines, pipelineWaits, skippedDraws, drawCalls, copies, syncs;
     u32 underruns, skippedAudio, overruns, lateResets;
     float correction;
     float targetX, targetY, kpadX, kpadY;
@@ -73,9 +79,12 @@ int sNoteCount = 0, sNotesDropped = 0;
 Row* sRows = nullptr;
 size_t sCount = 0, sCap = 0;
 u64 sHost[PORT_PERF_HOST_PHASES];
+u64 sSyncNs = 0;
+u32 sSyncs = 0;
 u64 sLastFrame = 0;
 u64 sStartNs = 0;
 wpgx_perf sLastPerf;
+wpgx_frame_stats sLastFrameStats;
 PortLiveStats sLastLive;
 bool sHaveLive = false;
 // The overlay's graph and its numbers (the last 120 frames)
@@ -261,8 +270,9 @@ void WriteSummary(FILE* f) {
         wpgx_frame_stats fs{};
         wpgx_get_frame_stats(&fs);
         std::fprintf(f,
-                     "frames in flight: limit %u%s, most seen %u; GPU latency (frame end to its GPU work and "
-                     "presentation done) avg %.2f ms over %llu frames; begin_frame waited %.1f ms in all for the limit\n",
+                     "frames in flight (not yet drawn by the GPU): limit %u%s, most seen %u; GPU latency (frame end "
+                     "to its GPU work and presentation done) avg %.2f ms over %llu frames; begin_frame waited %.1f ms "
+                     "in all for the limit\n",
                      fs.max_frames_in_flight, fs.max_frames_in_flight ? "" : " (none)", fs.max_in_flight_seen,
                      fs.done ? Ms(fs.gpu_latency_sum_ns) / fs.done : 0.0, static_cast<unsigned long long>(fs.done),
                      Ms(fs.in_flight_wait_ns));
@@ -326,7 +336,7 @@ void WriteCsv(const char* path) {
     for (int c = 0; c < C_COUNT; c++) {
         std::fprintf(f, ",%s", kColNames[c]);
     }
-    std::fprintf(f, ",pipelines,pipeline_waits,skipped_draws,draw_calls,copies,underruns,audio_skipped,overruns,"
+    std::fprintf(f, ",pipelines,pipeline_waits,skipped_draws,draw_calls,copies,syncs,underruns,audio_skipped,overruns,"
                     "late_resets,correction,target_x,target_y,kpad_x,kpad_y\n");
     for (size_t i = 0; i < sCount; i++) {
         const Row& r = sRows[i];
@@ -334,8 +344,8 @@ void WriteCsv(const char* path) {
         for (int c = 0; c < C_COUNT; c++) {
             std::fprintf(f, ",%.3f", r.v[c]);
         }
-        std::fprintf(f, ",%u,%u,%u,%u,%u,%u,%u,%u,%u,%.5f", r.pipelines, r.pipelineWaits, r.skippedDraws,
-                     r.drawCalls, r.copies, r.underruns, r.skippedAudio, r.overruns, r.lateResets, r.correction);
+        std::fprintf(f, ",%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%.5f", r.pipelines, r.pipelineWaits, r.skippedDraws,
+                     r.drawCalls, r.copies, r.syncs, r.underruns, r.skippedAudio, r.overruns, r.lateResets, r.correction);
         if (r.targetValid) {
             std::fprintf(f, ",%.4f,%.4f", r.targetX, r.targetY);
         } else {
@@ -399,6 +409,7 @@ void PortPerfStart(const char* csvPath, int overlay, const char* label) {
         sStartNs = sLastFrame = PortPerfNow();
         std::memset(sHost, 0, sizeof sHost);
         wpgx_get_perf(&sLastPerf);
+        wpgx_get_frame_stats(&sLastFrameStats);
     }
 }
 
@@ -409,6 +420,13 @@ int PortPerfActive(void) {
 void PortPerfAdd(int phase, u64 ns) {
     if (sActive && phase >= 0 && phase < PORT_PERF_HOST_PHASES) {
         sHost[phase] += ns;
+    }
+}
+
+void PortPerfSync(u64 ns) {
+    if (sActive) {
+        sSyncNs += ns;
+        sSyncs++;
     }
 }
 
@@ -456,6 +474,13 @@ void PortPerfFrame(int frame, int scene, const PortPerfCursor* cursor) {
     wpgx_get_frame_stats(&fs);
     r.v[C_GPU_LAT] = static_cast<float>(Ms(fs.last_gpu_latency_ns));
     r.v[C_IN_FLIGHT] = static_cast<float>(fs.ended - fs.done);
+    r.v[C_SYNC_MS] = static_cast<float>(Ms(sSyncNs));
+    r.v[C_QUEUE_LAT] = static_cast<float>(Ms(fs.last_queue_latency_ns));
+    r.v[C_RENDER_LAT] = static_cast<float>(Ms(fs.last_render_latency_ns));
+    r.v[C_ACQUIRE] = static_cast<float>(Ms(fs.acquire_ns - sLastFrameStats.acquire_ns));
+    r.v[C_PRESENT_CALL] = static_cast<float>(Ms(fs.present_ns - sLastFrameStats.present_ns));
+    sLastFrameStats = fs;
+    r.syncs = sSyncs;
     r.pipelines = p.pipelines_created - sLastPerf.pipelines_created;
     r.pipelineWaits = p.pipeline_waits - sLastPerf.pipeline_waits;
     r.skippedDraws = p.skipped_draws - sLastPerf.skipped_draws;
@@ -477,6 +502,8 @@ void PortPerfFrame(int frame, int scene, const PortPerfCursor* cursor) {
     Push(r);
     sLastPerf = p;
     std::memset(sHost, 0, sizeof sHost);
+    sSyncNs = 0;
+    sSyncs = 0;
     sLastFrame = now;
     sGraph[sGraphPos] = r.v[C_WALL];
     sGraphPos = (sGraphPos + 1) % kGraph;

@@ -37,6 +37,10 @@ int PortPerfActive(void);
 u64 PortPerfNow(void);
 /* Adds time to a host phase of the current frame. */
 void PortPerfAdd(int phase, u64 ns);
+/* A draw-done sync of the GX stream (the game thread waiting for Aurora's
+ * FIFO processor to run everything sent so far): counted, and its time kept
+ * apart (it is also part of PORT_PERF_GX). */
+void PortPerfSync(u64 ns);
 
 /* The game's view of remote 0's pointer this frame against the target the
  * input layer gave it (both -1..1 across the picture). */

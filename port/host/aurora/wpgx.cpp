@@ -19,9 +19,6 @@
 #include <cstring>
 #include <string>
 
-#include <elf.h>
-#include <link.h>
-
 #include "gx/fifo.hpp"
 #include "webgpu/gpu.hpp"
 
@@ -34,9 +31,13 @@ void wpgx_platform_shutdown();
 
 namespace {
 
-// Bumped whenever our Aurora patches change what a cached pipeline means, so
-// a stale pipeline_cache.db is discarded instead of loaded.
-constexpr uint32_t kPipelineCacheKey = 4;
+// The on-disk pipeline cache (pipeline_cache.db) holds pipeline configurations,
+// which each build compiles itself at start (Aurora checks each one's size and
+// version; Dawn's own cache is keyed by contents), so it is kept across builds:
+// a rebuilt game does not compile its pipelines again one first use at a time
+// (HOST_BUILD.md §39). Bumped whenever our Aurora patches change what a
+// configuration means, so that an old file is discarded instead of loaded.
+constexpr uint32_t kPipelineCacheKey = 5;
 // Lines of the hardware EFB (528 on the Wii).
 constexpr uint32_t kEfbMaxHeight = 528;
 
@@ -62,52 +63,6 @@ uint64_t NowNs() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                      std::chrono::steady_clock::now().time_since_epoch())
                                      .count());
-}
-
-// The GNU build ID of this library (the linker's hash of its contents): the
-// on-disk pipeline cache is keyed by it, so every build starts its own cache.
-uint32_t BuildIdKey() {
-    struct Ctx {
-        const void* self;
-        uint32_t key;
-    } ctx{reinterpret_cast<const void*>(&BuildIdKey), 0};
-    dl_iterate_phdr(
-        [](dl_phdr_info* info, size_t, void* data) -> int {
-            auto* c = static_cast<Ctx*>(data);
-            const auto addr = reinterpret_cast<uintptr_t>(c->self);
-            bool mine = false;
-            for (int i = 0; i < info->dlpi_phnum && !mine; i++) {
-                const auto& ph = info->dlpi_phdr[i];
-                const uintptr_t start = info->dlpi_addr + ph.p_vaddr;
-                mine = ph.p_type == PT_LOAD && addr >= start && addr < start + ph.p_memsz;
-            }
-            if (!mine) {
-                return 0;
-            }
-            for (int i = 0; i < info->dlpi_phnum; i++) {
-                const auto& ph = info->dlpi_phdr[i];
-                if (ph.p_type != PT_NOTE) {
-                    continue;
-                }
-                const auto* p = reinterpret_cast<const uint8_t*>(info->dlpi_addr + ph.p_vaddr);
-                const uint8_t* end = p + ph.p_memsz;
-                while (p + sizeof(ElfW(Nhdr)) <= end) {
-                    const auto* n = reinterpret_cast<const ElfW(Nhdr)*>(p);
-                    const uint8_t* desc = p + sizeof(ElfW(Nhdr)) + ((n->n_namesz + 3) & ~3u);
-                    if (n->n_type == NT_GNU_BUILD_ID) {
-                        uint32_t h = 2166136261u;
-                        for (uint32_t k = 0; k < n->n_descsz; k++) {
-                            h = (h ^ desc[k]) * 16777619u;
-                        }
-                        c->key = h;
-                    }
-                    p = desc + ((n->n_descsz + 3) & ~3u);
-                }
-            }
-            return 1;
-        },
-        &ctx);
-    return ctx.key;
 }
 
 std::string Lower(std::string_view s) {
@@ -151,15 +106,15 @@ WPGX_API int wpgx_init(const wpgx_config* config) {
     cfg.logCallback = LogCallback;
     cfg.logLevel = static_cast<AuroraLogLevel>(config->log_level);
     cfg.disableShaderCache = config->disk_cache == 0;
-    // The library's own key: our patches' version and this build's ID
-    uint32_t key = config->cache_key;
-    if (key == 0) {
-        key = (kPipelineCacheKey * 0x9E3779B1u) ^ BuildIdKey();
-        key = key != 0 ? key : kPipelineCacheKey;
-    }
-    cfg.pipelineCacheKey = key;
+    cfg.pipelineCacheKey = config->cache_key != 0 ? config->cache_key : kPipelineCacheKey;
     cfg.vsync = config->vsync != 0;
     cfg.adapterName = config->adapter;
+    // The GX stream is translated on the game thread when it syncs (GXDrawDone,
+    // GXPixModeSync, the frame's end), not by Aurora's FIFO thread as it arrives:
+    // the games sync several times a frame (Charge!: 9) and wait for the thread
+    // each time, so it bought little overlap for a hand-over and a wake-up per
+    // draw; measured faster in every case (HOST_BUILD.md §39).
+    cfg.gxProcessingMode = GX_PROCESSING_DRAIN;
     if (config->headless) {
         cfg.surface.type = AURORA_SURFACE_HEADLESS;
         cfg.surface.width = width;
@@ -241,6 +196,10 @@ WPGX_API void wpgx_get_frame_stats(wpgx_frame_stats* stats) {
     stats->in_flight_wait_ns = a.inFlightWaitNs;
     stats->max_in_flight_seen = a.maxInFlightSeen;
     stats->max_frames_in_flight = a.maxFramesInFlight;
+    stats->last_queue_latency_ns = a.lastQueueLatencyNs;
+    stats->last_render_latency_ns = a.lastRenderLatencyNs;
+    stats->acquire_ns = a.acquireNs;
+    stats->present_ns = a.presentNs;
 }
 
 WPGX_API void wpgx_set_max_frames_in_flight(uint32_t frames) { aurora_set_max_frames_in_flight(frames); }

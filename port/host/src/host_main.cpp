@@ -104,8 +104,7 @@ struct Options {
     int blockingPipes = -1;  // -1: the mode's default
     int mailbox = -1;        // -1: with --realtime
     int writeback = -1;      // copy writeback (§28): 0 off, 1 on; -1: off with --live-gfx
-    int framesAhead = -1;    // frames the game may run ahead of the GPU / presentation (§37): -1: 0 in real
-                             // time (as on the Wii), 1 headless
+    int framesAhead = -1;    // frames the game may run ahead of the GPU's rendering (§37, §39): -1: 1
     int gpuLoadMiB = 0, gpuLoadRepeats = 0;
     const char* record = nullptr; // --record DIR[:N] (§37)
     bool latencyMarker = false; // --test-gpu-load MIB:REPEATS (a slow GPU, tests)
@@ -362,10 +361,13 @@ void SinkSync(u32 kind, void*) {
         wpgx_fifo_sync(WPGX_SYNC_FLUSH);
         PortPerfAdd(PORT_PERF_GX, PortPerfNow() - start);
         break;
-    case PORT_GX_SYNC_DRAWDONE:
+    case PORT_GX_SYNC_DRAWDONE: {
         wpgx_fifo_sync(WPGX_SYNC_DRAWDONE);
-        PortPerfAdd(PORT_PERF_GX, PortPerfNow() - start);
+        u64 ns = PortPerfNow() - start;
+        PortPerfAdd(PORT_PERF_GX, ns);
+        PortPerfSync(ns);
         break;
+    }
     case PORT_GX_SYNC_DISPLAY:
         PortPerfDrawOverlay();
         PortRecordDrawMarker();
@@ -470,8 +472,8 @@ void Usage(const char* argv0) {
                  "  --async-pipelines | --blocking-pipelines, --mailbox | --fifo,\n"
                  "  --writeback on|off  EFB texture copies written back to memory (default: on, off with\n"
                  "                      --live-gfx)   (HOST_BUILD.md §35)\n"
-                 "  --frames-ahead N    0-2: frames the game may run ahead of the GPU and presentation\n"
-                 "                      (default 0 in real time: each frame waits for the last one's, else 1)\n"
+                 "  --frames-ahead N    0-2: frames the game may run ahead of the GPU's rendering\n"
+                 "                      (default 1; 0: each frame waits for the last one to be drawn)\n"
                  "  --record DIR[:N]    frame times, input events (and every Nth frame) to DIR (§37)\n"
                  "  --latency-marker    a white square in the corner on frames where an input arrives\n",
                  argv0);
@@ -706,9 +708,11 @@ int main(int argc, char** argv) {
     // and no CPU reader of a copy changes any frame of the menus or the nine games)
     gOpt.writeback = gOpt.writeback < 0 ? (gOpt.liveGfx ? 0 : 1) : gOpt.writeback;
     // The picture must not fall behind the game: a frame starts only when the
-    // GPU has finished all but N of the earlier ones (their presentation's GPU
-    // work included). 0 in real time: as on the Wii, the game waits for the last frame.
-    gOpt.framesAhead = gOpt.framesAhead < 0 ? (gOpt.realtime ? 0 : 1) : gOpt.framesAhead;
+    // GPU has drawn all but N of the earlier ones. Their presentation is not
+    // waited for (it waits for the compositor, §39). 1: the game's frame and
+    // the GPU's drawing of the last one overlap, as the Wii's CPU and GP do;
+    // with the GPU faster than a frame it never waits and adds no latency.
+    gOpt.framesAhead = gOpt.framesAhead < 0 ? 1 : gOpt.framesAhead;
     if (gOpt.gpu == nullptr) {
         const char* env = std::getenv("WIIPLAY_GPU");
         gOpt.gpu = env != nullptr && env[0] != '\0' ? env : nullptr;

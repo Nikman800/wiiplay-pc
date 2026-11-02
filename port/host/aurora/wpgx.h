@@ -28,7 +28,7 @@ typedef struct {
        written under the platform's per-user data directory. */
     const char* data_dir;
     int disk_cache;         /* 0: no pipeline/Dawn cache on disk */
-    uint32_t cache_key;     /* pipeline cache key; 0 = the library's own (its patch version and build ID) */
+    uint32_t cache_key;     /* pipeline cache key; 0 = the library's own (its patch version) */
     int blocking_pipelines; /* 1: draws wait for their pipeline (none skipped) */
     int allow_cpu_adapter;  /* 1: accept a software adapter (lavapipe) */
     int log_level;          /* 0 debug, 1 info, 2 warning, 3 error */
@@ -99,6 +99,13 @@ typedef struct {
     uint64_t in_flight_wait_ns;   /* wpgx_begin_frame waiting for the limit (part of begin_frame_ns) */
     uint32_t max_in_flight_seen;
     uint32_t max_frames_in_flight;
+    /* The latest frame from wpgx_end_frame: until the render thread took it,
+       until its rendering (presentation excluded) was done on the GPU */
+    uint64_t last_queue_latency_ns;
+    uint64_t last_render_latency_ns;
+    /* Cumulative render-thread time acquiring the window's next image and presenting */
+    uint64_t acquire_ns;
+    uint64_t present_ns;
 } wpgx_frame_stats;
 void wpgx_get_frame_stats(wpgx_frame_stats* stats);
 /* wpgx_begin_frame waits until fewer than `frames` frames are in flight
