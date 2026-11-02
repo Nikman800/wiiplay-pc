@@ -5444,3 +5444,59 @@ machine's GPU). So `make WIN64=1 unit`, `archives`, ... `boot` run the same test
 Windows executables. Dawn's Vulkan backend under Wine goes through winevulkan to the host's
 Vulkan loader, so `VK_ICD_FILENAMES` selects lavapipe as on Linux, and the `--compare` tests
 check the Windows harnesses' output against `build/host64`'s.
+
+### Windows x64 passes arguments by position
+
+On the PowerPC and on x86-64 System V, floats and integers / pointers take separate register
+sequences, so an `extern "C"` declaration whose float and pointer parameters are in another
+order than the definition's still works. Windows x64 assigns registers by position. Charge!'s
+units declare six of `RPCollisionShape.cpp`'s vector helpers (`RP_clampVec3Abs`,
+`RP_isVec3WithinAbs`, `RP_isVec3DiffWithinAbs`, `RP_dampVec3AndApply`, `RP_springStep`,
+`RP_wrapAngleNear`) float first: `RP_clampVec3Abs` wrote through a stale register and the game
+crashed at its end. Under `PORT_HOST` those units keep their calls through inline wrappers over
+the definitions' form (an asm label binds the real symbol). A sweep of every C-linkage function
+the game defines against every declaration of it found no others (`RP_Mtx34_getColumn`'s
+struct return was fixed in §32).
+
+### Floats: the C library's math functions
+
+The Windows build calls MinGW-w64's `sinf`, `cosf`, `sincosf`, `tanf`, `asinf`, `acosf`,
+`atan2f`, `powf`, `pow` and `hypotf`; glibc 2.43 has other implementations (ARM's
+optimized-routines for the sine / cosine / power ones, CORE-MATH's correctly rounded ones for
+`tanf`, `asinf`, `acosf`, `atan2f`), and some results differ in the last bit. Game logic is not
+affected in the runs compared (the game state printed per frame is identical to Linux through
+the menus, the HOME Menu and a whole Charge!), but some frames of animated layouts (the title,
+the HOME Menu) and the g3d / particle harness outputs differ by an ulp, so `make WIN64=1 scene`
+and `particles` report differences against `build/host64`. Linking the same implementations
+glibc uses (ARM optimized-routines, MIT / Apache-2.0; CORE-MATH, MIT) into the Windows build
+would make them bit-identical; not done yet (it adds third-party code to the repository).
+
+### Verified under Wine (Wine 10, headless, lavapipe through winevulkan)
+
+- `make WIN64=1 unit`: all unit tests (`test_be`, `test_be_c`, `test_port` with `wchar_t` 2,
+  `test_port_c`, `test_layout`, `test_math`, `test_ef`, `test_polyline`).
+- `archives`, `resources`, `layouts`, `models`, `anims`, `effects`, `efcurves`, `sound`,
+  `collision`, `data`, `bti`, `rfl` (RFL's Mii data: the bit-field layout), `hbm`: OK.
+- `platform` (heaps, DVD, NAND saves), `audio`, `input`: OK and identical to `build/host64`.
+- `gx` (`test_gx`, `test_gxlyt`, `test_gx3d`): OK.
+- `boot` (`test_boot`): boot, title, menus, save, a short Shooting Range and Laser Hockey, the
+  HOME Menu (Close, Reset, Wii Menu), the real-time live run (dummy audio, synthetic SDL
+  events, the pacer's sleeps) and the latency runs: OK. `gestures`: OK after the fix above.
+- `make WIN64=1 dist`'s zip, unpacked and run with nothing else on Wine's DLL path: 300 frames
+  hash-identical to the Linux build.
+- `--gpu list` on the machine's real GPUs through winevulkan (D3D12 refused by Wine's adapter).
+
+### Needs real Windows
+
+Direct3D 12 (and D3D11), a window with vsync / mailbox presentation, fullscreen, WASAPI sound,
+real keyboard / mouse / gamepad input and rumble, the high-resolution sleep's pacing, the
+`%APPDATA%` / Dolphin folder detection with a real Dolphin install, non-ASCII paths, and
+whether the Visual C++ runtime is present. Run, from the unpacked zip:
+
+    wiiplay.exe --gpu list
+    wiiplay.exe --disc C:\path\to\disc --window --perf
+    wiiplay.exe --disc C:\path\to\disc --window --backend vulkan
+    wiiplay.exe --disc C:\path\to\disc --window --mii-db dolphin
+
+and play the nine games, the HOME Menu and a save; the `--perf` summary (in
+`%LOCALAPPDATA%\wiiplay`) shows the pacing.
