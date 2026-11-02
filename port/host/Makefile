@@ -932,3 +932,24 @@ $(OUT)/%: $(OUT)/%$(X)
 	    'exec $(WINE) "$$0.exe" "$$@"' > $@
 	@chmod +x $@
 endif
+
+# The Windows package (WIN64=1 dist; §41): build/win64/wiiplay-windows-x64.zip with
+# wiiplay.exe (boot.exe), the DLLs it loads, play.bat and README-WINDOWS.txt. No
+# Nintendo data.
+ifeq ($(WIN64),1)
+DIST := $(OUT)/dist/wiiplay
+DIST_ZIP := $(OUT)/wiiplay-windows-x64.zip
+.PHONY: dist
+dist: $(OUT)/boot$(X) $(WPGX_LIB)
+	rm -rf $(OUT)/dist $(DIST_ZIP)
+	mkdir -p $(DIST)
+	$(MINGW)strip -o $(DIST)/wiiplay.exe $(OUT)/boot$(X)
+	$(MINGW)strip -o $(DIST)/wiiplay_gx.dll $(WPGX_LIB)
+	cp $(addprefix $(AURORA_BUILD)/,webgpu_dawn.dll dxcompiler.dll dxil.dll) $(DIST)/
+	for d in $(foreach d,libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll,$(abspath $(shell $(MINGW)gcc-posix -print-file-name=$(d)))); do \
+	    $(MINGW)strip --strip-unneeded -o $(DIST)/$$(basename $$d) $$d || exit 1; done
+	sed 's/$$/\r/' $(HOST)/windows/README-WINDOWS.txt > $(DIST)/README-WINDOWS.txt
+	sed 's/$$/\r/' $(HOST)/windows/play.bat > $(DIST)/play.bat
+	cd $(OUT)/dist && zip -q -r -X $(DIST_ZIP) wiiplay
+	@echo "dist: $(DIST_ZIP) ($$(du -h $(DIST_ZIP) | cut -f1))"
+endif
