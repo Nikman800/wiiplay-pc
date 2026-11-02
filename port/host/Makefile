@@ -822,6 +822,12 @@ gestures: $(OUT)/boot
 PLAY_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-play
 playtest: $(OUT)/boot
 	python3 $(HOST)/tests/test_play.py --boot $(OUT)/boot --disc $(DISC) --scratch $(PLAY_SCRATCH) $(PLAYTEST_ARGS)
+# A Mii from a Mii database (§40): the menus and a whole Shooting Range with it, its record
+# saved, then the menus again on the same NAND (about 25 minutes; not part of `make test`).
+.PHONY: miitest
+MII_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-mii
+miitest: $(OUT)/boot
+	python3 $(HOST)/tests/test_mii.py --boot $(OUT)/boot --disc $(DISC) --scratch $(MII_SCRATCH) $(MIITEST_ARGS)
 # The two-player games and the later levels (§36): not part of `make playtest`; run before
 # committing a game milestone, with it.
 .PHONY: playtest2
@@ -829,14 +835,14 @@ PLAY2_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-play2
 playtest2: $(OUT)/boot
 	python3 $(HOST)/tests/test_play.py --set 2 --boot $(OUT)/boot --disc $(DISC) --scratch $(PLAY2_SCRATCH) $(PLAYTEST2_ARGS)
 else
-.PHONY: gx gx-aurora-tests boot gestures playtest playtest2
-gx gx-aurora-tests boot gestures playtest playtest2:
+.PHONY: gx gx-aurora-tests boot gestures playtest playtest2 miitest
+gx gx-aurora-tests boot gestures playtest playtest2 miitest:
 	@echo "$@: skipped (NO_GX=1)"
 test: gx boot
 endif
 else
-.PHONY: gx gx-aurora-tests boot gestures playtest playtest2
-gx gx-aurora-tests boot gestures playtest playtest2:
+.PHONY: gx gx-aurora-tests boot gestures playtest playtest2 miitest
+gx gx-aurora-tests boot gestures playtest playtest2 miitest:
 	@echo "$@: skipped (the GX layer is 64-bit only)"
 test: gx boot
 endif

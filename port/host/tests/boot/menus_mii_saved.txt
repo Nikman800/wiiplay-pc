@@ -1,0 +1,27 @@
+# From the boot to the party menu with a save file and a Mii from the console's Mii
+# database that is already on the save's player list (port/docs/HOST_BUILD.md §40;
+# test_mii.py runs it on the NAND of its first run). The title goes straight to Select
+# Players; Select Mii opens on the "Wii Console" tab; the Mii, "Play with this Mii.", OK,
+# then the party menu (no message: the game opened last was announced in the first run).
+0 connect
+0 mouse 320 228
+# health and safety screen
+200 press A
+206 release A
+# title: A and B together -> Select Players (the save exists)
+600 press A
+600 press B
+606 release A
+606 release B
+# "1" player -> Select Mii
+900 mouse 240 195
+930 press A
+936 release A
+# The first Mii of the "Wii Console" tab -> "Play with this Mii." -> OK
+1500 mouse 115 205
+1530 press A
+1536 release A
+1750 mouse 460 360
+1780 press A
+1786 release A
+end 100000

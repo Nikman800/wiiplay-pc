@@ -210,6 +210,9 @@ TOUCHED = [
     "include/RVLFaceLib/RFL_Model.h",
     "include/RVLFaceLib/RFL_MiddleDatabase.h",
     "include/nw4r/math/math_types.h",
+    # The Mii database on the NAND (HOST_BUILD.md §40): hidden database fields big-endian.
+    "include/RVLFaceLib/RFLi_Database.h",
+    "include/RVLFaceLib/RFLi_Format.h",
     # Animation evaluation (HOST_BUILD.md §17): fast-cast / math asm blocks named with ASM_PS,
     # SCN0 enums BE_ENUM, SHP0 index table and ef curve keys be_*.
     "include/revolution/OS/OSFastCast.h",

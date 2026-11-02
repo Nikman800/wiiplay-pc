@@ -386,6 +386,65 @@ int PortNANDSetRoot(const char* root) {
     return 0;
 }
 
+/* The Mii database RFL reads at boot (RFLiBootLoadDatabaseAsync): RFLiDatabase,
+ * 0x1F1E0 bytes ("RNOD", 100 Miis, the hidden database's header and a CRC over the
+ * whole), then the hidden database's records. The copy goes to a temporary file in
+ * the NAND and is renamed over the old one, so a failed copy leaves it as it was. */
+int PortNANDImportMiiDB(const char* src, char* err, size_t errSize) {
+    const char* const path = "/shared2/menu/FaceLib/RFL_DB.dat";
+    const size_t headerSize = 0x1F1E0; // sizeof(RFLiDatabase)
+    FILE* in = std::fopen(src, "rb");
+    if (in == NULL) {
+        std::snprintf(err, errSize, "cannot open %s: %s", src, std::strerror(errno));
+        return -1;
+    }
+    std::fseek(in, 0, SEEK_END);
+    long size = std::ftell(in);
+    std::fseek(in, 0, SEEK_SET);
+    unsigned char* data = size > 0 ? static_cast<unsigned char*>(std::malloc(size)) : NULL;
+    bool ok = data != NULL && std::fread(data, 1, size, in) == static_cast<size_t>(size);
+    std::fclose(in);
+    if (!ok || static_cast<size_t>(size) < headerSize || std::memcmp(data, "RNOD", 4) != 0) {
+        std::free(data);
+        std::snprintf(err, errSize, "%s is not a Mii database (RFL_DB.dat)", src);
+        return -1;
+    }
+    // RFLiCalculateCRC over the header, its CRC included, is 0 for a good file
+    u16 crc = 0;
+    for (size_t i = 0; i < headerSize; i++) {
+        for (int bit = 7; bit >= 0; bit--) {
+            crc = (crc & 0x8000) != 0 ? static_cast<u16>((crc << 1) ^ 0x1021) : static_cast<u16>(crc << 1);
+            crc ^= (data[i] >> bit) & 1;
+        }
+    }
+    if (crc != 0) {
+        std::free(data);
+        std::snprintf(err, errSize, "%s: the Mii database's checksum is wrong (a damaged file?)", src);
+        return -1;
+    }
+
+    char host[1024], tmp[1100];
+    if (HostPath(path, host, sizeof(host)) != NAND_RESULT_OK) {
+        std::free(data);
+        std::snprintf(err, errSize, "the NAND path is too long");
+        return -1;
+    }
+    std::snprintf(tmp, sizeof(tmp), "%s.import", host);
+    char dir[1024];
+    std::snprintf(dir, sizeof(dir), "%s", host);
+    *std::strrchr(dir, '/') = '\0';
+    FILE* out = MakeDirs(dir) ? std::fopen(tmp, "wb") : NULL;
+    ok = out != NULL && std::fwrite(data, 1, size, out) == static_cast<size_t>(size);
+    ok = out != NULL && std::fclose(out) == 0 && ok;
+    std::free(data);
+    if (!ok || std::rename(tmp, host) != 0) {
+        std::snprintf(err, errSize, "cannot write %s: %s", host, std::strerror(errno));
+        std::remove(tmp);
+        return -1;
+    }
+    return 0;
+}
+
 s32 NANDInit(void) {
     if (!sDeviceAdded) {
         sDeviceAdded = true;

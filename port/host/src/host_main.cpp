@@ -79,6 +79,7 @@ struct Options {
     const char* disc = nullptr;
     const char* nand = nullptr;
     const char* sc = nullptr;
+    const char* miiDb = nullptr;
     const char* dataDir = nullptr;
     const char* input = nullptr;
     const char* audio = nullptr;
@@ -449,6 +450,8 @@ void Usage(const char* argv0) {
                  "usage: %s --disc DIR [options]\n"
                  "  --disc DIR          the extracted disc (its root with files/ and sys/, or files/)\n"
                  "  --nand DIR          saves (default: $XDG_DATA_HOME/wiiplay/nand)\n"
+                 "  --mii-db FILE|dolphin  copy a Mii database (RFL_DB.dat) into the NAND first;\n"
+                 "                      dolphin: the newest one in Dolphin's usual folders\n"
                  "  --data-dir DIR      Aurora's data and caches (default: $XDG_DATA_HOME/wiiplay/aurora)\n"
                  "  --sc FILE           console settings (language, aspect 4:3/16:9, sensor bar, ...)\n"
                  "  --config FILE       input bindings and settings (default: $XDG_CONFIG_HOME/wiiplay/input.cfg)\n"
@@ -516,6 +519,42 @@ std::string UserDir(const char* xdgVar, const char* fallback) {
     return std::string(home) + fallback + "/wiiplay";
 }
 
+// --mii-db (HOST_BUILD.md §40): the Mii Channel's database, from a file or from Dolphin's
+// NAND (Flatpak, then the XDG and the old user folder; the newest file wins). The file
+// is only read: the NAND gets a copy.
+void ImportMiiDB(const char* arg) {
+    std::string src = arg;
+    if (src == "dolphin") {
+        const char* home = std::getenv("HOME");
+        const char* xdg = std::getenv("XDG_DATA_HOME");
+        std::string h = home != nullptr ? home : "";
+        std::string dirs[] = {
+            h + "/.var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu",
+            (xdg != nullptr && xdg[0] == '/' ? std::string(xdg) : h + "/.local/share") + "/dolphin-emu",
+            h + "/.dolphin-emu",
+        };
+        src.clear();
+        time_t newest = 0;
+        for (const std::string& dir : dirs) {
+            std::string path = dir + "/Wii/shared2/menu/FaceLib/RFL_DB.dat";
+            struct stat st;
+            if (home != nullptr && stat(path.c_str(), &st) == 0 && (src.empty() || st.st_mtime > newest)) {
+                src = path;
+                newest = st.st_mtime;
+            }
+        }
+        if (src.empty()) {
+            Die("--mii-db dolphin: no Mii database in Dolphin's folders (make a Mii in the Mii "
+                "Channel first; see RUNNING.md)");
+        }
+    }
+    char err[512];
+    if (PortNANDImportMiiDB(src.c_str(), err, sizeof err) != 0) {
+        Die("--mii-db: ", err);
+    }
+    std::fprintf(stderr, "boot: Mii database: %s\n", src.c_str());
+}
+
 // The source tree this executable was built in (it lives in
 // port/host/build/host64/), so that saves never land inside the repository.
 std::string RepoRoot() {
@@ -580,6 +619,8 @@ int main(int argc, char** argv) {
             gOpt.disc = argv[++i];
         } else if (is("--nand") && more) {
             gOpt.nand = argv[++i];
+        } else if (is("--mii-db") && more) {
+            gOpt.miiDb = argv[++i];
         } else if (is("--sc") && more) {
             gOpt.sc = argv[++i];
         } else if (is("--data-dir") && more) {
@@ -794,6 +835,9 @@ int main(int argc, char** argv) {
     }
     if (PortNANDSetRoot(gOpt.nand) != 0) {
         Die("cannot use the NAND directory ", gOpt.nand);
+    }
+    if (gOpt.miiDb != nullptr) {
+        ImportMiiDB(gOpt.miiDb);
     }
     if (PortSCLoadConfig(gOpt.sc) != 0) {
         Die("bad SC config ", gOpt.sc != nullptr ? gOpt.sc : "");

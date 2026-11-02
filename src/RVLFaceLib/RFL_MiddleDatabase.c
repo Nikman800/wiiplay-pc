@@ -174,13 +174,13 @@ static s16 stepOne_(s16 srcIdx, BOOL oldIsHead) {
 
     if (oldIsHead) {
         if (srcIdx < 0) {
-            ret = RFLiGetHiddenHeader()->head;
+            ret = BE_GET(RFLiGetHiddenHeader()->head);
         } else {
             ret = RFLiGetHiddenNext(srcIdx);
         }
     } else {
         if (srcIdx < 0) {
-            ret = RFLiGetHiddenHeader()->tail;
+            ret = BE_GET(RFLiGetHiddenHeader()->tail);
         } else {
             ret = RFLiGetHiddenPrev(srcIdx);
         }

@@ -16,8 +16,15 @@ typedef struct RFLiDatabase {
     RFLiCharData rawData[RFL_DB_CHAR_MAX]; // at 0x4
 
     // at 0x1CEC
+#if defined(PORT_HOST)
+    // Host: the flag is the top bit of the big-endian word, bit 7 of its first byte
+    u8 padding1 : 7;
+    u8 isolation : 1;
+    u8 padding1b[3];
+#else
     u32 isolation : 1;
     u32 padding1 : 31;
+#endif
 
     u8 specialInvite[13]; // at 0x1CF0
     u8 nwc24Month;        // at 0x1CFD

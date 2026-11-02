@@ -3,6 +3,20 @@
 
 static void writeData_(RFLiHiddenCharData* data) DECOMP_DONT_INLINE;
 
+#if defined(PORT_HOST)
+// Stored (big-endian) RFLiHiddenCharData: the host declares each 16-bit word's
+// bit-fields for the word in host order (RFLi_Types.h), so the stored fields used
+// here are read and written by byte. sex: bit 14 of word 0x0; favorite: bit 0 of
+// word 0x0; localonly: bit 2 of word 0x20.
+#define PORT_STORED_SEX(data) ((((const u8*)(data))[0] >> 6) & 1)
+#define PORT_STORED_LOCALONLY(data) ((((const u8*)(data))[0x21] >> 2) & 1)
+#define PORT_CLEAR_FAVORITE(data) (((u8*)(data))[1] &= ~1)
+#else
+#define PORT_STORED_SEX(data) ((data)->sex)
+#define PORT_STORED_LOCALONLY(data) ((data)->localonly)
+#define PORT_CLEAR_FAVORITE(data) ((data)->favorite = FALSE)
+#endif
+
 static void initWritableList_(void) {
     RFLiHDBManager* mgr = RFLiGetHDBManager();
     mgr->writeCb = NULL;
@@ -153,11 +167,11 @@ static void writeCtrl2HDBCallback_(void) {
 
 static int overwrite_(const RFLiHiddenCharData* data) {
     RFLiHiddenDB* hdb = RFLiGetHiddenHeader();
-    s16 head = hdb->head;
+    s16 head = BE_GET(hdb->head);
 
     RFLiTableData* it = &hdb->data[head];
-    s16 next = it->next;
-    s16 prev = hdb->tail;
+    s16 next = RFLi_TABLE_GET(it, next);
+    s16 prev = BE_GET(hdb->tail);
 
     RFLiTableData* itnext = &hdb->data[next];
     RFLiTableData* itprev = &hdb->data[prev];
@@ -167,15 +181,15 @@ static int overwrite_(const RFLiHiddenCharData* data) {
     }
 
     RFLiClearTableData(it);
-    hdb->head = next;
-    itnext->prev = -1;
-    itprev->next = head;
-    it->prev = prev;
-    hdb->tail = head;
-    it->next = -1;
+    BE_SET(hdb->head, next);
+    RFLi_TABLE_SET(itnext, prev, -1);
+    RFLi_TABLE_SET(itprev, next, head);
+    RFLi_TABLE_SET(it, prev, prev);
+    BE_SET(hdb->tail, head);
+    RFLi_TABLE_SET(it, next, -1);
 
     memcpy(&it->createID, &data->createID, sizeof(RFLCreateID));
-    it->sex = data->sex;
+    RFLi_TABLE_SET(it, sex, PORT_STORED_SEX(data));
 
     return head;
 }
@@ -190,20 +204,20 @@ static void create_(const RFLiHiddenCharData* data, s16 index) {
 
     RFLiClearTableData(it);
 
-    if (hdb->tail >= 0) {
-        hdb->data[hdb->tail].next = index;
-        it->prev = hdb->tail;
-        hdb->tail = index;
-        it->next = -1;
+    if (BE_GET(hdb->tail) >= 0) {
+        RFLi_TABLE_SET(&hdb->data[BE_GET(hdb->tail)], next, index);
+        RFLi_TABLE_SET(it, prev, BE_GET(hdb->tail));
+        BE_SET(hdb->tail, index);
+        RFLi_TABLE_SET(it, next, -1);
     } else {
-        hdb->tail = index;
-        hdb->head = index;
-        it->prev = -1;
-        it->next = -1;
+        BE_SET(hdb->tail, index);
+        BE_SET(hdb->head, index);
+        RFLi_TABLE_SET(it, prev, -1);
+        RFLi_TABLE_SET(it, next, -1);
     }
 
     memcpy(&it->createID, &data->createID, sizeof(RFLCreateID));
-    it->sex = data->sex;
+    RFLi_TABLE_SET(it, sex, PORT_STORED_SEX(data));
 }
 
 static void writeHeader_(void) {
@@ -242,7 +256,8 @@ static BOOL checkCtrlWritableData_(const RFLiCtrlBuf* buf, BOOL ch, u8 index) {
         RFLiHiddenCharData data;
         RFLiConvertRaw2HRaw(&buf->data[index], &data);
 
-        if (!data.localonly && !RFLSearchOfficialData(&data.createID, NULL)) {
+        if (!PORT_STORED_LOCALONLY(&data) &&
+            !RFLSearchOfficialData(&data.createID, NULL)) {
             return TRUE;
         }
     }
@@ -264,7 +279,7 @@ static u8 getCtrlWritableCount_(const RFLiCtrlBuf* buf, volatile s64 ch) {
 
             dst = &mgr->list.data[mgr->list.num];
             memcpy(dst, &temp, sizeof(RFLiHiddenCharData));
-            dst->favorite = FALSE;
+            PORT_CLEAR_FAVORITE(dst);
 
             count++;
             mgr->list.num++;
@@ -428,7 +443,7 @@ s16 RFLiGetHiddenNext(u16 index) {
     data = &RFLiGetHiddenHeader()->data[index];
 
     if (RFLiIsValidID(&data->createID)) {
-        return data->next;
+        return RFLi_TABLE_GET(data, next);
     }
 
     return -1;
@@ -449,7 +464,7 @@ s16 RFLiGetHiddenPrev(u16 index) {
     data = &RFLiGetHiddenHeader()->data[index];
 
     if (RFLiIsValidID(&data->createID)) {
-        return data->prev;
+        return RFLi_TABLE_GET(data, prev);
     }
 
     return -1;
@@ -479,7 +494,7 @@ BOOL RFLiIsValidHiddenData(u16 index, RFLSex sex) {
         return TRUE;
     }
 
-    switch (header->data[index].sex) {
+    switch (RFLi_TABLE_GET(&header->data[index], sex)) {
     case RFLSex_Male:
         return sex == RFLSex_Male;
     case RFLSex_Female:

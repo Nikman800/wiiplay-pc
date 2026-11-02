@@ -11,8 +11,8 @@
 
 void RFLiClearTableData(RFLiTableData* data) {
     memset(data, 0, sizeof(RFLiTableData));
-    data->next = -1;
-    data->prev = -1;
+    RFLi_TABLE_SET(data, next, -1);
+    RFLi_TABLE_SET(data, prev, -1);
 }
 
 void RFLiClearDBBuffer(void) {
@@ -29,8 +29,8 @@ void RFLiClearDBBuffer(void) {
     db->isolation = TRUE;
 
     header->identifier = MAGIC_HIDDEN_DB;
-    header->head = -1;
-    header->tail = -1;
+    BE_SET(header->head, -1);
+    BE_SET(header->tail, -1);
 
     for (i = 0; i < RFLi_HDB_DATA_MAX; i++) {
         RFLiClearTableData(&header->data[i]);

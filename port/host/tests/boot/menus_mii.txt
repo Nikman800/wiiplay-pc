@@ -1,0 +1,40 @@
+# From the boot to the party menu with a Mii from the console's Mii database
+# (port/docs/HOST_BUILD.md §40; tests/mii_db.py writes the database): menus.txt up to
+# Select Mii, which opens on the "Wii Console" tab; the first Mii, the "Added ... to the
+# player list" message, then as menus.txt. A Mii already on the player list (a second run
+# on the same NAND) gets no message: the A press at 3200 then lands on nothing.
+0 connect
+0 mouse 320 228
+# health and safety screen
+200 press A
+206 release A
+# title: A and B together -> "Create a save file for Wii Play?"
+600 press A
+600 press B
+606 release A
+606 release B
+# "Yes"
+800 mouse 195 348
+830 press A
+836 release A
+# "A save file has been created." -> Select Players
+1950 press A
+1956 release A
+# "1" player -> Select Mii
+2300 mouse 240 195
+2330 press A
+2336 release A
+# The first Mii of the "Wii Console" tab
+2900 mouse 115 205
+2930 press A
+2936 release A
+# "Added ... to the player list. If you erase this Mii ..." -> A
+3200 press A
+3206 release A
+# "Play with this Mii." -> OK -> the party menu and its welcome message
+3600 mouse 460 360
+3630 press A
+3636 release A
+4250 press A
+4256 release A
+end 100000

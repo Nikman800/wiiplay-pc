@@ -25,11 +25,17 @@ void PortHostSetDiscRoot(const char* pRoot);
  *                       when that is missing; ""  forces the tree); returns 1
  *                       when the FST was built from the tree
  *   PortNANDSetRoot     the directory that stands for the NAND
+ *   PortNANDImportMiiDB (optional) copy a Mii database into it (§40)
  *   PortSCLoadConfig    system settings (NULL: the defaults) */
 void PortOSInit(void);
 int PortDVDSetDisc(const char* filesRoot, const char* fstPath);
 const void* PortDVDGetFst(u32* size, int* fromTree);
 int PortNANDSetRoot(const char* root);
+/* Copies the Mii database file `src` (the Mii Channel's RFL_DB.dat, from a Wii NAND
+ * dump or an emulator) to /shared2/menu/FaceLib/RFL_DB.dat. The file is checked
+ * first (its "RNOD" header and the CRC RFL checks); `src` is only read. Returns 0,
+ * or -1 with a message in err. */
+int PortNANDImportMiiDB(const char* src, char* err, size_t errSize);
 int PortSCLoadConfig(const char* path);
 
 /**

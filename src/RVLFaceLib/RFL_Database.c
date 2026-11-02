@@ -548,9 +548,16 @@ BOOL RFLIsAvailableOfficialData(u16 index) {
     return RFLiGetCharData(index) != NULL;
 }
 
+#if defined(PORT_HOST)
+// A create ID is eight bytes, the first word big-endian (its flags in the top bits)
+#define PORT_CREATE_ID_WORD(w) PORT_BE32(w)
+#else
+#define PORT_CREATE_ID_WORD(w) (w)
+#endif
+
 void RFLiSetTemporaryID(RFLiCharInfo* info) {
     u32* dst = (u32*)&info->createID.data;
-    dst[0] = RFLi_CREATE_ID_MASK_TEMPORARY;
+    dst[0] = PORT_CREATE_ID_WORD(RFLi_CREATE_ID_MASK_TEMPORARY);
     dst[1] = 0;
 }
 
@@ -618,7 +625,9 @@ BOOL RFLiIsSpecialID(const RFLCreateID* id) {
         return FALSE;
     }
 
-    return (*ptr & RFLi_CREATE_ID_MASK_NOT_SPECIAL) == 0 ? TRUE : FALSE;
+    return (PORT_CREATE_ID_WORD(*ptr) & RFLi_CREATE_ID_MASK_NOT_SPECIAL) == 0
+               ? TRUE
+               : FALSE;
 }
 
 BOOL RFLiIsTemporaryID(const RFLCreateID* id) {
@@ -632,7 +641,9 @@ BOOL RFLiIsTemporaryID(const RFLCreateID* id) {
         return FALSE;
     }
 
-    return (*ptr & RFLi_CREATE_ID_MASK_TEMPORARY) != 0 ? TRUE : FALSE;
+    return (PORT_CREATE_ID_WORD(*ptr) & RFLi_CREATE_ID_MASK_TEMPORARY) != 0
+               ? TRUE
+               : FALSE;
 }
 
 BOOL RFLSearchOfficialData(const RFLCreateID* id, u16* index) {
@@ -788,7 +799,7 @@ static void alarmCreateCb_(OSAlarm* alarm, OSContext* ctx) {
 
     OSCancelAlarm(&mgr->crcInfo.alarm);
     mgr->crcInfo.callback(crc);
-    mgr->database->hidden.crc = crc;
+    BE_SET(mgr->database->hidden.crc, crc);
 }
 
 void RFLiCreateHeaderCRCAsync(RFLiExCallback callback) {
@@ -798,7 +809,7 @@ void RFLiCreateHeaderCRCAsync(RFLiExCallback callback) {
         RFLiStartWorking();
     }
 
-    mgr->database->hidden.crc = 0;
+    BE_SET(mgr->database->hidden.crc, 0);
 
     mgr->crcInfo.head = mgr->database;
     mgr->crcInfo.size = sizeof(RFLiDatabase);
