@@ -5418,7 +5418,7 @@ Dawn's prebuilt Windows package (`dawn-windows-amd64.tar.gz` of the same release
 pinned by hash) is `webgpu_dawn.dll` built with MSVC, its import library and `dxcompiler.dll` /
 `dxil.dll`. Its C API (`webgpu.h`, which the C++ wrapper `webgpu_cpp.h` is inline over) links
 from GCC; its C++ API (`dawn::native`) does not (MSVC's mangling and standard library). Aurora
-used the latter in two places; the fork's patch (`aurora-patches/`) builds the
+used the latter in two places; the fork (commit 36eb6cb) builds the
 `DawnInstanceDescriptor` from its C layout and lists adapters for `--gpu` through
 `RequestAdapter` (both power preferences, with and without the fallback adapter) when built by
 MinGW against a Dawn DLL (`AURORA_DAWN_C_API_ONLY`). It also lower-cases two Windows SDK header

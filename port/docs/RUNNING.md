@@ -83,7 +83,6 @@ Ninja, Python 3, zip):
 
 ```
 git submodule update --init port/extern/aurora
-git -C port/extern/aurora am ../../../aurora-patches/*.patch   # until the fork has them
 make -C port/host -j$(nproc) WIN64=1 dist
 ```
 
