@@ -41,12 +41,31 @@ extern "C" void RP_CollisionShape_getMtx(EGG::Matrix34f* pOut, const RPCollision
 extern "C" void RP_pushDebugGraphSamples(f32 a, f32 b, f32 c);
 extern "C" void RP_debugLogPrintf(const wchar_t* pFormat, ...);
 extern "C" void RP_drawDebugLogAndGraphs();
+#if defined(PORT_HOST)
+// PORT_HOST: RPCollisionShape.cpp defines these with the pointers first. The PowerPC ABI (and
+// x86-64 System V) pass floats and pointers in separate registers, so the order did not
+// matter; Windows x64 assigns registers by position. These wrappers keep this unit's calls
+// and call the definitions' form (port/docs/HOST_BUILD.md §41).
+extern "C" void RP_clampVec3Abs_Def(EGG::Vector3f*, f32) __asm__("RP_clampVec3Abs");
+static inline void RP_clampVec3Abs(f32 abs, EGG::Vector3f* pVec) {
+    RP_clampVec3Abs_Def(pVec, abs);
+}
+#else
 extern "C" void RP_clampVec3Abs(f32 abs, EGG::Vector3f* pVec);
+#endif
 extern "C" void RP_CollisionShape_accumPosOffset(RPCollisionShape* pShape,
                                                  const EGG::Vector3f& rOfs);
 extern "C" void RP_CollisionShape_accumRotOffset(RPCollisionShape* pShape,
                                                  const EGG::Vector3f& rOfs);
+#if defined(PORT_HOST)
+// PORT_HOST: as RP_clampVec3Abs above.
+extern "C" bool RP_isVec3WithinAbs_Def(const EGG::Vector3f*, f32) __asm__("RP_isVec3WithinAbs");
+static inline bool RP_isVec3WithinAbs(f32 abs, const EGG::Vector3f* pVec) {
+    return RP_isVec3WithinAbs_Def(pVec, abs);
+}
+#else
 extern "C" bool RP_isVec3WithinAbs(f32 abs, const EGG::Vector3f* pVec);
+#endif
 // EGG::ShadowTexture members missing from the vendored EGG header (called by their symbols)
 // NONMATCHING-DEBT: including eggShadowTexture.h to call them reorders the .sdata2 pool and adds a local GXFastCallDisplayList.
 extern "C" void BeginDrawQuad__Q23EGG13ShadowTextureFQ33EGG13ShadowTexture5Blend(int blend);

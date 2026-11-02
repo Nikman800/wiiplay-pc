@@ -17,7 +17,18 @@
 // pointers use separate registers; this parameter order gives the original argument
 // scheduling (target first did not) [M]. RP_springStep: a damped spring step.
 extern "C" void RP_approachStep(f32* pValue, f32* pVel, f32 target, f32 rate);
+#if defined(PORT_HOST)
+// PORT_HOST: RPCollisionShape.cpp defines these with the pointers first. The PowerPC ABI (and
+// x86-64 System V) pass floats and pointers in separate registers, so the order did not
+// matter; Windows x64 assigns registers by position. These wrappers keep this unit's calls
+// and call the definitions' form (port/docs/HOST_BUILD.md §41).
+extern "C" void RP_springStep_Def(f32*, f32*, f32, f32) __asm__("RP_springStep");
+static inline void RP_springStep(f32 target, f32 rate, f32* pValue, f32* pVel) {
+    RP_springStep_Def(pValue, pVel, target, rate);
+}
+#else
 extern "C" void RP_springStep(f32 target, f32 rate, f32* pValue, f32* pVel);
+#endif
 // Column of a 3x4 matrix (ledger RP_Mtx34_getColumn, RPCollisionShape.cpp) [M]
 extern "C" EGG::Vector3f RP_Mtx34_getColumn(const nw4r::math::MTX34& rMtx, int col);
 

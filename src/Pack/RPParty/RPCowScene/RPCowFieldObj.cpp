@@ -22,13 +22,47 @@ extern "C" u8 Lyt_getCurrentViewNo();
 extern "C" const EGG::Matrix34f RP_eggMtxIdentity;
 extern "C" const EGG::Vector3f RP_eggVecZero;
 extern "C" void RP_CollisionShape_getMtx(EGG::Matrix34f* pOut, const RPCollisionShape* pShape);
+#if defined(PORT_HOST)
+// PORT_HOST: RPCollisionShape.cpp defines these with the pointers first. The PowerPC ABI (and
+// x86-64 System V) pass floats and pointers in separate registers, so the order did not
+// matter; Windows x64 assigns registers by position. These wrappers keep this unit's calls
+// and call the definitions' form (port/docs/HOST_BUILD.md §41).
+extern "C" void RP_dampVec3AndApply_Def(EGG::Vector3f*, EGG::Vector3f*, f32) __asm__("RP_dampVec3AndApply");
+static inline void RP_dampVec3AndApply(f32 rate, EGG::Vector3f* pPos, EGG::Vector3f* pVel) {
+    RP_dampVec3AndApply_Def(pPos, pVel, rate);
+}
+#else
 extern "C" void RP_dampVec3AndApply(f32 rate, EGG::Vector3f* pPos, EGG::Vector3f* pVel);
+#endif
 extern "C" void RP_dampAndApply(f32* pPos, f32* pVel, f32 rate);
+#if defined(PORT_HOST)
+// PORT_HOST: RPCollisionShape.cpp defines these with the pointers first. The PowerPC ABI (and
+// x86-64 System V) pass floats and pointers in separate registers, so the order did not
+// matter; Windows x64 assigns registers by position. These wrappers keep this unit's calls
+// and call the definitions' form (port/docs/HOST_BUILD.md §41).
+extern "C" bool RP_isVec3DiffWithinAbs_Def(const EGG::Vector3f*, const EGG::Vector3f*, f32) __asm__("RP_isVec3DiffWithinAbs");
+static inline bool RP_isVec3DiffWithinAbs(f32 abs, const EGG::Vector3f* pLhs, const EGG::Vector3f* pRhs) {
+    return RP_isVec3DiffWithinAbs_Def(pLhs, pRhs, abs);
+}
+extern "C" bool RP_isVec3WithinAbs_Def(const EGG::Vector3f*, f32) __asm__("RP_isVec3WithinAbs");
+static inline bool RP_isVec3WithinAbs(f32 abs, const EGG::Vector3f* pVec) {
+    return RP_isVec3WithinAbs_Def(pVec, abs);
+}
+extern "C" void RP_wrapAngleNear_Def(f32*, f32) __asm__("RP_wrapAngleNear");
+static inline void RP_wrapAngleNear(f32 ref, f32* pAngle) {
+    RP_wrapAngleNear_Def(pAngle, ref);
+}
+extern "C" void RP_springStep_Def(f32*, f32*, f32, f32) __asm__("RP_springStep");
+static inline void RP_springStep(f32 target, f32 rate, f32* pValue, f32* pVel) {
+    RP_springStep_Def(pValue, pVel, target, rate);
+}
+#else
 extern "C" bool RP_isVec3DiffWithinAbs(f32 abs, const EGG::Vector3f* pLhs,
                                        const EGG::Vector3f* pRhs);
 extern "C" bool RP_isVec3WithinAbs(f32 abs, const EGG::Vector3f* pVec);
 extern "C" void RP_wrapAngleNear(f32 ref, f32* pAngle);
 extern "C" void RP_springStep(f32 target, f32 rate, f32* pValue, f32* pVel);
+#endif
 // 0.01 in the framework's .sdata2 (8043ECB8)
 extern "C" const f32 RP_epsilon;
 

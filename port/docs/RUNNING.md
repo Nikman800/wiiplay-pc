@@ -342,3 +342,6 @@ Mouse buttons are `Mouse1` (left), `Mouse2` (middle), `Mouse3` (right), `Mouse4`
   billiards2, fishing2, charge2, tanks2, findmii_long, posemii_long, tabletennis_long.
 
 Both need the extracted disc (`DISC=/path/to/files`, default `~/wii-play/extracted/files`).
+
+With `WIN64=1` the same targets build the Windows executables and run them under Wine
+(`wine`, headless; HOST_BUILD.md §41), for example `make -C port/host WIN64=1 unit boot`.

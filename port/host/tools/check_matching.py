@@ -172,6 +172,10 @@ TOUCHED = [
     "include/Pack/RPParty/RPPartyCommon/RPActor.h",
     "src/Pack/RPParty/RPBilScene/RPBilCamera_2.cpp",
     "src/Pack/RPParty/RPWlyScene/RPWlySound_3.cpp",
+    # Windows x64 assigns argument registers by position (HOST_BUILD.md §41)
+    "src/Pack/RPParty/RPCowScene/RPCowCowModel.cpp",
+    "src/Pack/RPParty/RPCowScene/RPCowFieldObj.cpp",
+    "src/Pack/RPParty/RPCowScene/RPCowPlayer_6.cpp",
     "src/egg/gfxe/eggAnalizeDL.cpp",
     "src/Pack/RPParty/RPPartyCommon/RPPathFollower_2.cpp",
     "src/Pack/RPParty/RPBilScene/RPBilResult.cpp",
