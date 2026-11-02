@@ -112,7 +112,11 @@ else
 # The manifest (windows/wiiplay.manifest): UTF-8 as the process code page (paths in
 # fopen / stat / argv / getenv), long paths. 8 MiB main stack, as Linux's default.
 MANIFEST_O := $(OUT)/wiiplay_manifest.o
-EXE_LDFLAGS := -Wl,$(shell $(MINGW)gcc-posix -print-file-name=binmode.o) -Wl,$(MANIFEST_O) -Wl,--stack,8388608
+# WPLIBM_O (windows/libm): sinf, cosf, tanf, powf, fmaf, ... as glibc computes them, linked
+# ahead of MinGW's (§41, "Floats: the C library's math functions").
+WPLIBM_O := $(OUT)/libm/wp_libm_all.o
+EXE_LDFLAGS := -Wl,$(shell $(MINGW)gcc-posix -print-file-name=binmode.o) -Wl,$(MANIFEST_O) -Wl,$(WPLIBM_O) \
+    -Wl,--stack,8388608
 endif
 CFLAGS += $(EXE_LDFLAGS)
 CXXFLAGS += $(EXE_LDFLAGS)
@@ -912,11 +916,66 @@ endif
 ifeq ($(WIN64),1)
 # Every executable (the rules above whose target is $(OUT)/NAME$(X))
 EXE_NAMES := $(shell sed -n 's/^\$$(OUT)\/\([a-z0-9_]*\)\$$(X):.*/\1/p' $(HOST)/Makefile)
-$(addprefix $(OUT)/,$(addsuffix $(X),$(EXE_NAMES))): $(MANIFEST_O)
+$(addprefix $(OUT)/,$(addsuffix $(X),$(EXE_NAMES))): $(MANIFEST_O) $(WPLIBM_O)
 
 $(MANIFEST_O): $(HOST)/windows/wiiplay.rc $(HOST)/windows/wiiplay.manifest
 	@mkdir -p $(dir $@)
 	$(WINDRES) -I$(HOST)/windows $< -O coff -o $@
+
+# The math library (windows/libm/README.md): ARM optimized-routines' sinf, cosf,
+# sincosf, powf and pow, each built twice (x86-64 and -mfma -mavx2; wp_libm.c picks one
+# from cpuid, as glibc's IFUNCs do) and renamed; CORE-MATH's tanf, asinf, acosf, atan2f
+# and sincos; wp_libm.c's dispatch, fmaf, fma, hypotf, modff, sqrtf and sqrt. Flags as
+# glibc's libm (-O2 -frounding-math -fno-math-errno; HAVE_FAST_FMA in the FMA build,
+# which glibc's math.h gives through FP_FAST_FMA and MinGW's does not). One relocatable
+# object, linked whole into every executable before MinGW's libraries, so its
+# definitions are the ones used.
+WPLIBM := $(HOST)/windows/libm
+WPLIBM_ARM := sinf cosf sincosf powf pow
+WPLIBM_ARM_DATA := sincosf_data powf_log2_data exp2f_data pow_log_data exp_data math_err math_errf
+WPLIBM_CORE_MATH := tanf asinf acosf atan2f sincos
+WPLIBM_CFLAGS := -O2 -std=gnu11 -frounding-math -fno-math-errno -fno-asynchronous-unwind-tables \
+    -ffunction-sections -fdata-sections -DUSE_GLIBC_ABI=0 -I$(WPLIBM)/arm
+WPLIBM_DEPS := $(wildcard $(WPLIBM)/arm/*.h)
+WPLIBM_OBJS := $(foreach v,sse2 fma,$(patsubst %,$(OUT)/libm/$(v)/%.o,$(WPLIBM_ARM))) \
+    $(patsubst %,$(OUT)/libm/data/%.o,$(WPLIBM_ARM_DATA)) \
+    $(patsubst %,$(OUT)/libm/core-math/%.o,$(WPLIBM_CORE_MATH)) $(OUT)/libm/wp_libm.o
+$(OUT)/libm/sse2/%.o: $(WPLIBM)/arm/%.c $(WPLIBM_DEPS)
+	@mkdir -p $(dir $@)
+	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -c $< -o $@
+	$(MINGW)objcopy --redefine-sym $*=wp_arm_$*_sse2 $@
+$(OUT)/libm/fma/%.o: $(WPLIBM)/arm/%.c $(WPLIBM_DEPS)
+	@mkdir -p $(dir $@)
+	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -mfma -mavx2 -DHAVE_FAST_FMA=1 -c $< -o $@
+	$(MINGW)objcopy --redefine-sym $*=wp_arm_$*_fma $@
+$(OUT)/libm/data/%.o: $(WPLIBM)/arm/%.c $(WPLIBM_DEPS)
+	@mkdir -p $(dir $@)
+	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -c $< -o $@
+$(OUT)/libm/core-math/%.o: $(WPLIBM)/core-math/%.c $(WPLIBM_DEPS)
+	@mkdir -p $(dir $@)
+	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -c $< -o $@
+$(OUT)/libm/wp_libm.o: $(WPLIBM)/wp_libm.c $(WPLIBM_DEPS)
+	@mkdir -p $(dir $@)
+	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -Wall -c $< -o $@
+$(WPLIBM_O): $(WPLIBM_OBJS)
+	$(MINGW)ld -r -o $@ $^
+
+# `make WIN64=1 libm`: the math functions of the Windows build against glibc's, through a
+# pipe (tests/libm_compare.c): LIBM_N inputs each (2^32: every float), the Windows side
+# under Wine. Not part of `test`.
+LIBM_FUNCS := sinf cosf sincosf_sin sincosf_cos tanf asinf acosf atan2f powf hypotf fmaf pow fma \
+    sincos_sin sincos_cos sqrtf modff_frac modff_int fmodf fminf fmaxf sqrt lround fmod ldexp
+LIBM_N ?= 16777216
+$(OUT)/libm_compare$(X): $(HOST)/tests/libm_compare.c
+	$(CC) -O2 -std=gnu11 -fno-builtin -Wall $(EXE_LDFLAGS) $< -o $@
+$(OUT)/libm_compare_linux: $(HOST)/tests/libm_compare.c
+	@mkdir -p $(dir $@)
+	gcc -O2 -std=gnu11 -fno-builtin -Wall $< -lm -o $@
+.PHONY: libm
+libm: $(OUT)/libm_compare $(OUT)/libm_compare_linux
+	@fail=0; for f in $(LIBM_FUNCS); do \
+	    $(OUT)/libm_compare gen $$f $(LIBM_N) | $(OUT)/libm_compare_linux cmp $$f $(LIBM_N) || fail=1; done; \
+	    if [ $$fail = 0 ]; then echo "libm: OK"; else echo "libm: FAILED"; exit 1; fi
 
 # $(OUT)/NAME runs NAME.exe under Wine, headless: no display (Wine then opens no
 # window), its own prefix (WINEPREFIX, default $TMPDIR/wiiplay-wine when it runs). Make
@@ -937,9 +996,15 @@ $(OUT)/%: $(OUT)/%$(X)
 	@chmod +x $@
 endif
 
+ifneq ($(WIN64),1)
+.PHONY: libm
+libm:
+	@echo "libm: skipped (compares the Windows build's math functions: WIN64=1)"
+endif
+
 # The Windows package (WIN64=1 dist; §41): build/win64/wiiplay-windows-x64.zip with
-# wiiplay.exe (boot.exe), the DLLs it loads, play.bat and README-WINDOWS.txt. No
-# Nintendo data.
+# wiiplay.exe (boot.exe), the DLLs it loads, play.bat, README-WINDOWS.txt and
+# LICENSE-math.txt (windows/libm's licenses). No Nintendo data.
 ifeq ($(WIN64),1)
 DIST := $(OUT)/dist/wiiplay
 DIST_ZIP := $(OUT)/wiiplay-windows-x64.zip
@@ -954,6 +1019,12 @@ dist: $(OUT)/boot$(X) $(WPGX_LIB)
 	    $(MINGW)strip --strip-unneeded -o $(DIST)/$$(basename $$d) $$d || exit 1; done
 	sed 's/$$/\r/' $(HOST)/windows/README-WINDOWS.txt > $(DIST)/README-WINDOWS.txt
 	sed 's/$$/\r/' $(HOST)/windows/play.bat > $(DIST)/play.bat
+	{ echo "wiiplay.exe contains math functions from ARM optimized-routines"; \
+	  echo "(https://github.com/ARM-software/optimized-routines) and CORE-MATH"; \
+	  echo "(https://gitlab.inria.fr/core-math/core-math). Their licenses follow."; echo; \
+	  echo "=== ARM optimized-routines ==="; echo; cat $(WPLIBM)/arm/LICENSE; echo; \
+	  echo "=== CORE-MATH ==="; echo; grep -h '^Copyright' $(WPLIBM)/core-math/*.c; echo; \
+	  cat $(WPLIBM)/core-math/LICENSE; } | sed 's/$$/\r/' > $(DIST)/LICENSE-math.txt
 	cd $(OUT)/dist && zip -q -r -X $(DIST_ZIP) wiiplay
 	@echo "dist: $(DIST_ZIP) ($$(du -h $(DIST_ZIP) | cut -f1))"
 endif

@@ -5341,6 +5341,8 @@ unchanged.
   unreachable references).
 - `windows/wiiplay.manifest`, `windows/wiiplay.rc`: linked into every executable.
 - `windows/README-WINDOWS.txt`, `windows/play.bat`: the package's.
+- `windows/libm/`: the math functions as glibc computes them (below, "Floats"), with
+  `tests/libm_compare.c` and `make WIN64=1 libm` to compare them.
 - `aurora/mingw-w64.cmake`: the CMake toolchain for Aurora; `aurora/CMakeLists.txt` takes
   Dawn's Windows package and builds `wiiplay_gx.dll`.
 
@@ -5460,16 +5462,66 @@ struct return was fixed in §32).
 
 ### Floats: the C library's math functions
 
-The Windows build calls MinGW-w64's `sinf`, `cosf`, `sincosf`, `tanf`, `asinf`, `acosf`,
-`atan2f`, `powf`, `pow` and `hypotf`; glibc 2.43 has other implementations (ARM's
-optimized-routines for the sine / cosine / power ones, CORE-MATH's correctly rounded ones for
-`tanf`, `asinf`, `acosf`, `atan2f`), and some results differ in the last bit. Game logic is not
-affected in the runs compared (the game state printed per frame is identical to Linux through
-the menus, the HOME Menu and a whole Charge!), but some frames of animated layouts (the title,
-the HOME Menu) and the g3d / particle harness outputs differ by an ulp, so `make WIN64=1 scene`
-and `particles` report differences against `build/host64`. Linking the same implementations
-glibc uses (ARM optimized-routines, MIT / Apache-2.0; CORE-MATH, MIT) into the Windows build
-would make them bit-identical; not done yet (it adds third-party code to the repository).
+MinGW-w64's math functions (and msvcrt's, which some of them call, and whose results
+differ again between Windows and Wine) are not glibc's: `make WIN64=1 scene` and
+`particles` reported differences against `build/host64`, and some frames of animated
+layouts (the title, the HOME Menu) hashed differently. The Windows build now links
+`windows/libm/` (its `README.md`), the implementations glibc 2.43 uses, ahead of
+MinGW's: one relocatable object, `build/win64/libm/wp_libm_all.o`, linked whole into
+every executable (`EXE_LDFLAGS`), so its definitions are the ones used and MinGW's
+are never pulled from the archives. Linux builds do not use it.
+
+- `sinf`, `cosf`, `sincosf`, `powf`, `pow`: ARM optimized-routines (commit 2ee4b0d).
+  glibc builds them twice, plain x86-64 and `-mfma -mavx2`, and picks one per CPU (an
+  IFUNC: FMA and AVX2 usable); the two builds differ in the last bit for some inputs
+  (`sinf(0x1.ab6152p+5)`). The Makefile builds both too, renames each entry point with
+  `objcopy --redefine-sym`, and `wp_libm.c` picks one from cpuid on the first call.
+- `tanf`, `asinf`, `acosf`, `atan2f`: CORE-MATH (commit 660067d), correctly rounded, as
+  glibc's.
+- `sincos` (double, the host's input code): MinGW defines it in one object with
+  `sincosf`, so it has to be replaced too. CORE-MATH's is correctly rounded, glibc's
+  (IBM's) is not: they differ in the last bit of the double for about 0.1% of inputs;
+  none changed the value rounded to float in 10^8 inputs, and `host_input.cpp` rounds
+  them to integer counts.
+- `wp_libm.c`: `fmaf` and `fma` (the game's paired-single code calls `fmaf` everywhere,
+  through `__builtin_fmaf`): `vfmadd` when the CPU has FMA, else exact software forms
+  (MinGW's were wrong for 17% of random float inputs); `hypotf` as glibc computes it;
+  `modff` (MinGW's gives +0 as the fraction of a negative integer); `sqrtf` and `sqrt`
+  as the instructions (MinGW's `sqrt` misrounds about 1 in 10^4 doubles); `fminf` and
+  `fmaxf` with glibc's signaling-NaN results; a `roundeven` for CORE-MATH's `tanf`.
+- Flags as glibc's libm: `-O2 -frounding-math -fno-math-errno`, and `HAVE_FAST_FMA` in
+  the FMA build (glibc's `math.h` defines `FP_FAST_FMA` there, MinGW's does not; without
+  it `pow` takes its other path, and 36 of 2^28 inputs differed).
+
+`fmodf`, `fmod`, `ldexp` and `lround` give the same results in both (but for NaN
+payloads, and `lround` of NaN or infinity, `LONG_MIN` of another width) and stay
+MinGW's. Inputs are compared in `tests/libm_compare.c`: `make WIN64=1 libm`
+runs it under Wine and pipes the results to the Linux build of it (glibc), 2^24 inputs
+per function by default (`LIBM_N=4294967296`: every float). Before and after, on this
+machine (FMA; Wine 10), differing results out of 2^32 float inputs or 2^28 random
+ones (not counting NaNs that differ only in their payload):
+
+| Function | MinGW-w64 | `windows/libm` |
+|---|---|---|
+| `sinf`, `cosf`, `sincosf` | 1414975594, 1413825404, 1414975596 / 1413825404 (all floats) | 0 |
+| `tanf`, `asinf`, `acosf` | 0 (all floats: Wine's msvcrt; Windows' own differs) | 0 |
+| `atan2f` | 0 (Wine's msvcrt) | 0 |
+| `powf` | 23218 | 0 |
+| `pow` | 197831 | 0 |
+| `fmaf`, `fma` | 45942599, 36828854 | 0 |
+| `modff` (fraction) | 889192449 (all floats) | 0 |
+| `sqrt` | 32863 | 0 |
+| `fminf`, `fmaxf` | 262856 each (signaling NaNs) | 0 |
+| `hypotf`, `sqrtf` | 0 (NaN payloads only) | 0 |
+| `sincos` (double) | 104367414 (sine), 104358971 (cosine) | 206156, 191728 (CORE-MATH against IBM, above) |
+
+On Linux the vendored sources (built with the system GCC, names prefixed) match glibc
+2.43 in one process for every float input of the one-argument functions and 2^30
+random inputs of the others, in both builds (`GLIBC_TUNABLES=glibc.cpu.hwcaps=-AVX2,-FMA`
+makes glibc take its non-FMA builds); so does the Windows build with the plain builds
+forced, against glibc with that setting (2^28 inputs each). A CPU with FMA4 but no FMA
+(AMD, 2011-2013) gets the plain builds here and glibc's FMA4 builds of `pow`: those may
+differ.
 
 ### Verified under Wine (Wine 10, headless, lavapipe through winevulkan)
 
@@ -5482,6 +5534,10 @@ would make them bit-identical; not done yet (it adds third-party code to the rep
 - `boot` (`test_boot`): boot, title, menus, save, a short Shooting Range and Laser Hockey, the
   HOME Menu (Close, Reset, Wii Menu), the real-time live run (dummy audio, synthetic SDL
   events, the pacer's sleeps) and the latency runs: OK. `gestures`: OK after the fix above.
+- `scene` and `particles`: identical to `build/host64` (with `windows/libm`). `libm`: OK.
+- Frame hashes and the game state of every frame, Linux against Wine: the HOME Menu from
+  the title (`home_title.txt`, 1800 frames) and the menus with a Shooting Range
+  (`menus.txt`, 6450 frames): identical.
 - `make WIN64=1 dist`'s zip, unpacked and run with nothing else on Wine's DLL path: 300 frames
   hash-identical to the Linux build.
 - `--gpu list` on the machine's real GPUs through winevulkan (D3D12 refused by Wine's adapter).
