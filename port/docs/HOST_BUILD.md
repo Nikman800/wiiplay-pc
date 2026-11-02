@@ -2408,8 +2408,8 @@ errors.
 - `RPSysSceneMgr` / `RPSysScene` (the harness stands in for the two calls the save code makes).
 - The older loader harnesses keep their arena allocators; `audio_harness` runs on this layer's
   EGG heaps since the Phase 7 integration (§21).
-- The Mii database on the NAND (`/shared2/menu/FaceLib/RFL_DB.dat`, `RPSysKokeshiManager`'s
-  private NAND calls) and loading a save taken from Dolphin.
+- The Mii database on the NAND (`/shared2/menu/FaceLib/RFL_DB.dat`, read through RFL's
+  private NAND calls): done in §40. Loading a save taken from Dolphin.
 - `EGG::UnitHeap` is not in Wii Play (no `eggUnitHeap.cpp`, no MEM unit heap in the binary).
 - The BMG swap for the message archive belongs in the Phase 7 loader (§6).
 
@@ -5186,3 +5186,136 @@ user's own desktop (two monitors on two GPUs, the 144 Hz panel), whose composito
 worse than the private one's (the old build, menus: 15 frames over 20 ms of 4599 here against
 5-14 % in the user's runs); `acquire_ms` and `render_latency_ms` in a new `--perf` run there
 show what remains.
+
+## 40. The Mii database: your own Miis, their records
+
+Until now only the six guest Miis appeared in Select Mii: the port's NAND had no Mii database,
+and the game keeps no My Record for guests. Wii Play reads the console's Miis the way every
+Wii game with RVLFaceLib does; this milestone makes that path work on a little-endian 64-bit
+host and gives the player a way to bring Miis made in Dolphin's Mii Channel.
+
+### How the game reads the database
+
+- **Boot.** `RPSysKokeshiManager` calls `RFLInitRes`, which boots RFL; `RFLiBootLoadDatabaseAsync`
+  opens `/shared2/menu/FaceLib/RFL_DB.dat` read-only (`NANDPrivateSafeOpenAsync`), reads
+  `RFLiDatabase` (0x1F1E0 bytes) whole into RFL's heap and checks the CRC over all of it
+  (`RFLiCheckHeaderCRCAsync`: CRC-16/CCITT, 0 for a good file). A missing file is an empty
+  database (`RFLiFileBrokenType_DBNotFound`, guests only); a bad CRC marks it broken.
+- **The file.** `RFLiDatabase`: `"RNOD"`, 100 `RFLiCharData` records (0x4A bytes each, the
+  Miis of the Mii Channel), the isolation flag (bit 31 of the word at 0x1CEC), 13 bytes of
+  special-invitation data and a WiiConnect24 month and day, then `RFLiHiddenDB` at 0x1D00: `"RNHD"`, the head and tail of a
+  linked list and 10000 12-byte entries (create ID, `sex:1 next:15`, `prev:15`), the CRC at
+  0x1F1DE. After it come the 10000 hidden records (`RFLiHiddenCharData`, 0x40 bytes: Miis seen on
+  other consoles' remotes) and a padding tail: 779968 bytes as `RFLiFormatAsync` writes it.
+- **Use.** `RFLIsAvailableOfficialData` / `RFLiGetCharData` for each slot (a create ID, the
+  character data valid, not a temporary ID); `RFLSearchOfficialData` by create ID (the save's
+  player list, `RPSysPlayerMgr`); the hidden list for the hidden middle databases
+  (`RPSysMiddleDB`, `RFLiGetHiddenNext` / `Prev`, `RFLiLoadHiddenDataAsync` reads one hidden
+  record from the file at `0x1F1E0 + index * 0x40`).
+- **Writes.** Wii Play never calls `RFLiSaveDatabaseAsync` itself. RFL writes the file only when
+  it copies Miis from a remote's memory into the hidden database (`RFLLoadControllerAsync` ->
+  `RFLiWriteCtrlToHiddenDB`, which formats a missing database first), and only when the
+  isolation flag is clear. The host's `WPADReadFaceData` reports no controller, so on the
+  host the game never writes it.
+- **Records.** The save (`RPParty.dat`) has a player list of 100 entries, one per database
+  slot: the Mii's create ID, its records and medals. Picking a Mii the first time registers it
+  ("Added ... to the player list"); `RPSysPlayer::loadData` resets an entry whose create ID is
+  not the Mii's (the Mii was erased or replaced).
+
+### What was wrong on the host, what changed
+
+Before this, a database Mii was rejected: `RFLiIsSpecialID` read the first word of the create
+ID natively, so the "not special" bit (bit 31 of the big-endian word) was tested on the wrong
+byte; a Mii Channel Mii (first byte 0x8x) looked special and, not being local-only, failed
+`RFLiCheckValidInfo`. Select Mii showed only the guests. The fixes (all `PORT_HOST`, the
+matching build unchanged: `check_matching.py`, 974 units identical):
+
+| File | Change | Why |
+|---|---|---|
+| `src/RVLFaceLib/RFL_Database.c` | `RFLiIsSpecialID`, `RFLiIsTemporaryID`, `RFLiSetTemporaryID`: the create ID's first word through `PORT_CREATE_ID_WORD` (`PORT_BE32` on the host, the identity on the Wii); the CRC stored with `BE_SET` | the flags are the top bits of a big-endian word; the CRC is checked over the bytes, so it must be stored big-endian for a written database to load again |
+| `include/RVLFaceLib/RFLi_HiddenDatabase.h` | `RFLiHiddenDB::head`, `tail` `be_s16`, `crc` `be_u16` | big-endian in the file and in memory (the database is read and written whole) |
+| `include/RVLFaceLib/RFLi_Format.h` | host `RFLiTableData`: the two bit-field words `be_u16` (`sexNext`, `prevWord`), read and written through `RFLi_TABLE_GET` / `RFLi_TABLE_SET` (inline accessors on the host; `(d)->field` on the Wii) | CodeWarrior allocates `sex:1 next:15` from the most significant bit of a big-endian word; GCC on a little-endian host would put `sex` in bit 0 of the first byte |
+| `include/RVLFaceLib/RFLi_Database.h` | host: `isolation` is bit 7 of the byte at 0x1CEC (`u8 padding1:7; u8 isolation:1; u8 padding1b[3]`) | the same allocation order |
+| `src/RVLFaceLib/RFL_HiddenDatabase.c` | the list code through the accessors; the stored hidden record's `sex`, `localonly` and `favorite` read / cleared by byte (`PORT_STORED_SEX`, `PORT_STORED_LOCALONLY`, `PORT_CLEAR_FAVORITE`) | `RFLiHiddenCharData` stays big-endian in memory (§30), while the host declares its bit-fields for a word in host order |
+| `src/RVLFaceLib/RFL_Format.c`, `RFL_MiddleDatabase.c` | `RFLiClearTableData`, `RFLiClearDBBuffer` and the hidden list's head / tail through the accessors | as above |
+| `port/host/src/host_nand.cpp`, `include/port/host.h` | **New** `PortNANDImportMiiDB(src)`: checks the file (`"RNOD"`, at least 0x1F1E0 bytes, RFL's CRC over the header) and copies it to `<nand>/shared2/menu/FaceLib/RFL_DB.dat` (a temporary file, then a rename) | the user-facing import |
+| `port/host/src/host_main.cpp` | **New** `--mii-db FILE` / `--mii-db dolphin`: imports before the game starts; `dolphin` takes the newest of the Flatpak's, the XDG and the old user folder's `Wii/shared2/menu/FaceLib/RFL_DB.dat` | RUNNING.md, "Your own Miis" |
+| `port/host/tools/check_matching.py` | `RFLi_Database.h`, `RFLi_Format.h` in the touched list | |
+
+The character records needed nothing new: §30 already converts `RFLiCharData` /
+`RFLiHiddenCharData` through a host-order copy (the bit-fields, the name), and the create ID
+is compared byte for byte. RFL's NAND access (`RFL_NANDAccess.c`) goes through the host NAND
+of §22 unchanged: `/shared2/...` maps to `<nand>/shared2/...`.
+
+The source file of `--mii-db` is only read. Writing Dolphin's NAND would race a running
+Dolphin, and the port does not write the database anyway; the copy in the port's NAND stays
+until the next import. The port does not look for Dolphin's database on its own: a run
+without `--mii-db` uses what its NAND has, so the tests (scratch NANDs) never see a user's
+Miis.
+
+### The test (`make miitest`)
+
+`tests/mii_db.py` writes a database from scratch: the bit layout of `RFLiCharData`
+(MSB-first fields per 16-bit word), a Mii named "Tester" made from parameters in the middle of
+each range (`RFLi_Config.h`), a create ID as the Mii Channel makes them (`0x8A000000`, then four
+console bytes), an empty hidden list (head / tail -1, every entry's next / prev -1), the
+isolation flag set as `RFLiClearDBBuffer` leaves it, the CRC, and the 779968-byte size. No
+console or disc data goes into it. `tests/test_mii.py` (`make miitest`, about 25 minutes,
+not part of `make test`) runs `boot` three times:
+
+| Run | Input | Checks |
+|---|---|---|
+| bad | `--mii-db` with one bit flipped | exit status 1 with the checksum message; no database in the NAND |
+| first | a fresh NAND, `--mii-db`, `tests/boot/menus_mii.txt` (Select Mii opens on the "Wii Console" tab: the Mii, "Added Tester to the player list", "Play with this Mii.", OK) then `tests/boot/shooting.txt`, 16200 frames | scenes -1, 0, 25, 1, 27, 18, 27; the NAND's `RFL_DB.dat` is the file given, byte for byte; save slot 0 has the Mii's create ID, the registered flag and the Shooting Range record equal to the game's final score (`host_probe`); no other slot used |
+| again | the same NAND, `tests/boot/menus_mii_saved.txt` (the save exists: no save prompt; the Mii again, no "Added" message), 2400 frames | scenes -1, 0, 25, 1, 27; slot 0 unchanged (create ID, flags, records); the party menu's "Record: N points" box differs from the first run's (0 points); `RFL_DB.dat` still unchanged |
+
+Faces: in Select Mii, "Play with this Mii." and the party menu (both runs) the head's box has
+more than 1500 skin-coloured pixels (a dialog over it has none). `--png DIR` writes the screens.
+
+```
+test_mii:
+  bad database refused: status 1
+  first: scenes -1 -> 0 -> 25 -> 1 -> 27 -> 18 -> 27 over 16200 frames; Mii 8a0000000c0ffee0 on the player list (slot 0); Shooting Range score 534 saved as its record
+  again: scenes -1 -> 0 -> 25 -> 1 -> 27 over 2400 frames; same slot, create ID and records; the record shown on the party menu; RFL_DB.dat never written
+  faces (skin-coloured pixels): again_party_menu 2820, again_play_with_mii 4613, again_select_mii 3699, first_party_menu 2832, first_play_with_mii 4613, first_select_mii 3699
+test_mii: OK
+```
+
+The same Mii without the fixes: Select Mii opened on the Guest tab (the Mii rejected as special).
+`--mii-db dolphin` was checked with a scratch `HOME`: the Flatpak's file taken over an older one
+in `~/.local/share/dolphin-emu`, then the XDG one alone, then none (status 1, the message).
+
+### Against the original (Dolphin)
+
+The same generated `RFL_DB.dat` in the NAND of a headless Dolphin 2609a (`-p headless`, a fresh
+user directory, the Wii Remote through Dolphin's pipe input, the GDB stub as in §38), the
+menus of `tests/boot/menus_mii.txt` timed from each scene's first frame:
+
+- RFL loaded it: at Select Mii, `sRFLManager`'s broken type 0 and last error 0, the database
+  in RFL's heap with the file's bytes (the Mii at slot 0, the isolation word, the CRC).
+- With the software renderer (the frame read from the XFB that `VISetNextFrameBuffer` is given)
+  Select Mii opens on the "Wii Console" tab with the same face and name as the port draws, and
+  picking it shows "Added Tester to the player list. ...".
+- After the party menu (`-v Null`, faster), Dolphin's `RPParty.dat` has slot 0 with create ID
+  `8a0000000c0ffee0`, flags 6 and empty records, as the port's after the same menus. The two
+  saves differ in 15 bytes, all expected: the last remote's index and address (0x8-0xE), the
+  registration date (0x1E), the debut time (0x34) and the checksum. Dolphin did not change the
+  database file either.
+
+The pipe's pointer does not map linearly to the picture at the edges: Dolphin needed x = 148 for
+the Mii the port's script points at with 115.
+
+### Verified
+
+`make test` (64-bit) and `make M32=1 test`, `make miitest`, `make playtest` (the guest path
+unchanged), `check_matching.py` (974 units identical).
+
+### Left
+
+- Miis on a Wii Remote (the "Wii Remote" tab): `WPADReadFaceData` / `WPADReadMemoryAsync` on
+  the host WPAD, the controller buffer's 16-bit fields (`RFL_Controller.c`: `secretFlag`,
+  `deleted`, `checksum`) and then the hidden-database writes this milestone prepared.
+- The hidden list (Miis copied from other remotes) is read through the new accessors when the
+  game builds its hidden middle databases, but the test's database has an empty list, so only
+  the empty case runs; a database from a console that saw other remotes' Miis would exercise
+  the rest.

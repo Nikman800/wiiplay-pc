@@ -40,6 +40,8 @@ port/host/build/host64/boot --disc /path/to/extracted-disc --window
 - `--no-vsync`: present without waiting for the display.
 - `--nand DIR`: where the save file goes (default `$XDG_DATA_HOME/wiiplay/nand`, usually
   `~/.local/share/wiiplay/nand`). Directories inside the source tree or the disc are refused.
+- `--mii-db FILE` or `--mii-db dolphin`: copy a Mii database into the NAND before the game
+  starts, so that your own Miis appear in Select Mii (below).
 - `--data-dir DIR`: Aurora's data and caches (default `$XDG_DATA_HOME/wiiplay/aurora`).
 - `--sc FILE`: console settings: language, 4:3 or 16:9, sensor bar position, sound mode.
   The format is in HOST_BUILD.md §22 (`key = value` lines). With `aspect = 16:9` the game draws for a widescreen TV
@@ -115,6 +117,49 @@ is still compiling are skipped instead of waited for: no hitches the first time 
 drawn, but a frame may miss an object, and a texture the game renders once, such as a Mii
 face, may come out incomplete); `--fifo` (classic vsync instead of mailbox presentation);
 `--no-vsync`.
+
+## Your own Miis
+
+Without a Mii database only the six guest Miis appear in Select Mii, and the game keeps no
+My Record for guests. Wii Play reads the Miis from the Wii Menu's Mii Channel database,
+`/shared2/menu/FaceLib/RFL_DB.dat` on the console's NAND; the port reads the same file from
+its NAND directory (`--nand`), `<nand>/shared2/menu/FaceLib/RFL_DB.dat`. The game never writes
+it, and records are kept for each Mii in the save file as on the Wii.
+
+To make Miis with Dolphin's Mii Channel:
+
+1. Install Dolphin: the Flatpak from Flathub (`flatpak install flathub
+   org.DolphinEmu.dolphin-emu`) or your distribution's package.
+2. Tools -> Perform Online System Update (pick your region; it downloads the Wii Menu from
+   Nintendo's update servers).
+3. Tools -> Load Wii System Menu, then open the Mii Channel, make your Miis and leave the Mii
+   Channel (back to the Wii Menu: that saves the database). Close Dolphin.
+4. Start the port once with `--mii-db dolphin`:
+
+   ```
+   port/host/build/host64/boot --disc /path/to/extracted-disc --window --mii-db dolphin
+   ```
+
+   It prints `boot: Mii database: PATH` and copies that file into the port's NAND. Dolphin's
+   file is only read. The copy stays, so later runs need no option; give it again after you
+   change your Miis in Dolphin.
+
+`--mii-db dolphin` looks for Dolphin's database in these places and takes the newest:
+
+| Dolphin | Database |
+|---|---|
+| Flatpak | `~/.var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu/Wii/shared2/menu/FaceLib/RFL_DB.dat` |
+| Distribution package | `~/.local/share/dolphin-emu/Wii/shared2/menu/FaceLib/RFL_DB.dat` (`$XDG_DATA_HOME/dolphin-emu/...`) |
+| Older versions | `~/.dolphin-emu/Wii/shared2/menu/FaceLib/RFL_DB.dat` |
+
+`--mii-db FILE` takes any `RFL_DB.dat` instead (another Dolphin user folder, a NAND backup of
+your own Wii). The file is checked first (its header and checksum); a damaged one is refused
+and the NAND's copy is left as it was. Copying the file by hand to
+`~/.local/share/wiiplay/nand/shared2/menu/FaceLib/RFL_DB.dat` does the same.
+
+A Mii is on Wii Play's player list from the first time you pick it ("Added ... to the player
+list"); if you erase it in the Mii Channel and copy the database again, its records go, as on
+the Wii. Miis stored on a Wii Remote ("Wii Remote" tab) are not available.
 
 ## The HOME Menu
 
@@ -222,7 +267,8 @@ Mouse buttons are `Mouse1` (left), `Mouse2` (middle), `Mouse3` (right), `Mouse4`
   gamepad is not read yet (its accelerometer gives the tilt only). Two players: connect a second gamepad (remote 2) before Select Players, choose "2",
   and each player picks a Mii with their own remote; all nine games' two-player modes run in
   the tests (HOST_BUILD.md §36), not yet tried by hand with two people.
-- Miis: see HOST_BUILD.md §30 for the state of Mii drawing.
+- Miis: your own Miis come from a Mii database (above); Miis on a Wii Remote are not
+  available. HOST_BUILD.md §30 has the state of Mii drawing.
 - The Wii's ROM font is not on the disc; the game uses it only for debug text and for a
   font-size query in Table Tennis and Laser Hockey (HOST_BUILD.md §30).
 - WiiConnect24 is not available. The remote speaker's sounds (the game's and the HOME Menu's)
@@ -240,6 +286,9 @@ Mouse buttons are `Mouse1` (left), `Mouse2` (middle), `Mouse3` (right), `Mouse4`
   `make -C port/host playtest PLAYTEST_ARGS="--only tanks,fishing"` (names: shooting, hockey,
   findmii, posemii, tabletennis, billiards, fishing, charge, tanks); `--png DIR` saves the
   screens checked.
+- `make -C port/host miitest`: a Mii from a database the test writes (HOST_BUILD.md §40): the
+  menus and a whole Shooting Range with it, its record in the save, then the menus again with
+  the record shown (about 25 minutes).
 - `make -C port/host playtest2`: the two-player modes of all nine games (two remotes, both
   played; twice each) and three later-level runs (Find Mii to stage 13, Pose Mii to level 5,
   Table Tennis to its 100 rallies; HOST_BUILD.md §36; about 120 minutes). Keys for
