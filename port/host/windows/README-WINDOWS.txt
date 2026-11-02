@@ -34,6 +34,8 @@ Useful options (wiiplay.exe with no options lists them all):
     --mii-db dolphin      use the Miis you made in Dolphin's Mii Channel (below)
     --mii-db FILE         use this RFL_DB.dat (a NAND backup of your own Wii)
     --gpu list            list the graphics adapters; --gpu NAME picks one
+    --backend vulkan      use Vulkan instead of Direct3D 12 (or d3d11); try it if the
+                          picture is wrong or the program cannot start its graphics
     --no-vsync, --fifo    presentation settings
     --perf                write frame timings for a bug report (F3 shows them live)
 

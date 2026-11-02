@@ -131,4 +131,19 @@ static_assert(sizeof(u32) == 4 && sizeof(s32) == 4, "u32/s32 must be 4 bytes");
 _Static_assert(sizeof(u32) == 4 && sizeof(s32) == 4, "u32/s32 must be 4 bytes");
 #endif
 
+#ifdef _WIN32
+// Bit-fields laid out as by GCC on Linux and CodeWarrior (RFL's Mii data, the GX
+// registers): MinGW's default MSVC layout would give this 4 bytes (port/host/Makefile
+// WIN64=1 passes -mno-ms-bitfields; HOST_BUILD.md §41).
+struct PortBitfieldLayout {
+    unsigned char a : 4;
+    unsigned short b : 12;
+};
+#ifdef __cplusplus
+static_assert(sizeof(struct PortBitfieldLayout) == 2, "build with -mno-ms-bitfields");
+#else
+_Static_assert(sizeof(struct PortBitfieldLayout) == 2, "build with -mno-ms-bitfields");
+#endif
+#endif
+
 #endif

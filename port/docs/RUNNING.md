@@ -1,6 +1,6 @@
 # Running the PC port
 
-The port runs the decompiled game's own `main` on a PC (Linux, 64-bit) with Aurora
+The port runs the decompiled game's own `main` on a PC (Linux or Windows, 64-bit) with Aurora
 (WebGPU through Dawn) for graphics and SDL3 for the window, input and sound. It plays
 the boot, the title, the save check, player and Mii selection, the party menu and the
 minigames. All nine are linked and played from start to finish in the tests (by game-side
@@ -72,6 +72,52 @@ the picture and the sound arrive seconds late: the stream cannot carry a full-mo
 
 Closing the window ends the game (the save file is written by the game whenever it saves,
 as on the Wii).
+
+## Windows
+
+The Windows build is cross-compiled on Linux with MinGW-w64 (HOST_BUILD.md §41) and packaged
+as a zip to copy to the Windows PC.
+
+Build (on Linux; Debian / Ubuntu packages `mingw-w64 g++-mingw-w64-x86-64-posix`, plus CMake,
+Ninja, Python 3, zip):
+
+```
+git submodule update --init port/extern/aurora
+make -C port/host -j$(nproc) WIN64=1 dist
+```
+
+This writes `port/host/build/win64/wiiplay-windows-x64.zip` (the first build downloads Dawn's
+Windows package, SDL3 and a few libraries). It holds `wiiplay.exe`, the DLLs it loads,
+`play.bat` and `README-WINDOWS.txt`; no Nintendo data.
+
+On Windows (10 version 1903 or later, 64-bit; a GPU with Direct3D 12 or Vulkan drivers; the
+Microsoft Visual C++ Redistributable 2015-2022 x64, which Dawn's DLLs use): unzip it anywhere,
+put the extracted disc in a folder `disc` beside `wiiplay.exe` and double-click `play.bat`, or
+from a command prompt:
+
+```
+wiiplay.exe --disc C:\path\to\extracted-disc --window
+```
+
+Every option above works the same. The folders differ:
+
+| What | Linux | Windows |
+|---|---|---|
+| Saves (`--nand`) | `~/.local/share/wiiplay/nand` | `%APPDATA%\wiiplay\nand` |
+| Input config (`--config`) | `~/.config/wiiplay/input.cfg` | `%APPDATA%\wiiplay\input.cfg` |
+| Graphics caches (`--data-dir`) | `~/.local/share/wiiplay/aurora` | `%LOCALAPPDATA%\wiiplay\aurora` |
+| `--perf` files | `~/.local/state/wiiplay` | `%LOCALAPPDATA%\wiiplay` |
+
+Graphics use Direct3D 12, else Vulkan; `--backend vulkan` (or `d3d12`, `d3d11`; the
+environment variable `WIIPLAY_BACKEND`) picks the API to try first, and `--gpu list` shows the
+adapters. `--mii-db dolphin` looks in Dolphin's Windows user folder: the one in Dolphin's
+registry setting (`HKCU\Software\Dolphin Emulator\UserConfigPath`), `Documents\Dolphin
+Emulator` and `%APPDATA%\Dolphin Emulator`, and takes the newest `Wii\shared2\menu\FaceLib\RFL_DB.dat`;
+a portable Dolphin keeps it in the `User` folder next to `Dolphin.exe` (give that file with
+`--mii-db FILE`).
+
+The program is a console program: it prints its messages to the console it was started from
+(double-clicking `wiiplay.exe` opens one).
 
 ## Performance: `--perf` and F3
 

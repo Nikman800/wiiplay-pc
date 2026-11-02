@@ -44,6 +44,9 @@ typedef struct {
     const char* adapter;    /* graphics adapter: index, type (discrete, integrated, cpu) or part of the
                                name (wpgx_adapter_list); NULL = the high-performance default */
     int vsync_mailbox;      /* with vsync: present in mailbox mode where offered (never waits for a refresh) */
+    /* HOST_BUILD.md §41 */
+    const char* backend;    /* "d3d12", "d3d11", "vulkan"; NULL: $WIIPLAY_BACKEND, else (or "auto") Aurora's
+                               order for the platform (Windows: D3D12, then Vulkan); tried first, then the others */
 } wpgx_config;
 
 /* Returns 0 on success. */

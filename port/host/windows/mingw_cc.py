@@ -18,6 +18,11 @@ to W, and an archive's index does not list W at all, so the host's weak defaults
 definition of W, linked or pulled from an archive, still wins as on ELF: only
 symbols the link leaves undefined get a default, in the order the inputs are given.
 
+A weak definition in an object given directly (not from an archive) is always linked
+on ELF, also when the references are weak (the input hooks of include/port/input.h,
+declared weak and defined in host_probe*.cpp, which makes the definitions weak too):
+those defaults are applied up front, unless an input defines the symbol strongly.
+
 The C++ runtime defines operator new / delete too, so those references never stay
 undefined; on ELF the executable's archive member still wins (archives come before
 the runtime library). Their weak defaults are applied up front, unless an input
@@ -49,6 +54,7 @@ def weak_defaults(inputs, nm):
     """W -> `.weak.W.ANCHOR` for every weak default in the inputs (first one wins),
     and the set of symbols the inputs define strongly."""
     found = {}
+    direct = set()
     strong = set()
     for path in inputs:
         try:
@@ -63,8 +69,12 @@ def weak_defaults(inputs, nm):
                 continue
             name = parts[2]
             sym = name[len(".weak."):].split(".", 1)[0]
-            found.setdefault(sym, name)
-    return found, strong
+            if path.endswith(".o") and sym not in direct:
+                found[sym] = name  # an object's default before an archive member's
+                direct.add(sym)
+            else:
+                found.setdefault(sym, name)
+    return found, direct, strong
 
 
 def gc_only_undefined(driver, cmd, stderr):
@@ -91,11 +101,16 @@ def main():
 
     nm = driver.rsplit("-", 2)[0] + "-nm" if driver.endswith(("-gcc-posix", "-g++-posix")) else "nm"
     inputs = [a for a in args if a.endswith((".o", ".a")) and not a.startswith("-") and os.path.isfile(a)]
-    defaults, strong = weak_defaults(inputs, nm)
+    defaults, direct, strong = weak_defaults(inputs, nm)
     extra = []
     done = set()
     for w in sorted(defaults):
-        if OPERATOR_RE.match(w) and w not in strong:
+        if w in strong:
+            continue
+        if w in direct:
+            extra += ["-Wl,--defsym," + w + "=" + defaults[w]]
+            done.add(w)
+        elif OPERATOR_RE.match(w):
             extra += ["-Wl,-u," + defaults[w], "-Wl,--defsym," + w + "=" + defaults[w]]
             done.add(w)
     while True:

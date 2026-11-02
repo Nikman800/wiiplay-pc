@@ -100,6 +100,15 @@ WPGX_API int wpgx_init(const wpgx_config* config) {
     cfg.cachePath = gDataDir.c_str();
     cfg.resourcesPath = gDataDir.c_str();
     cfg.desiredBackend = BACKEND_AUTO;
+    // --backend, else the environment (the tests under Wine choose Vulkan so)
+    const char* backend = config->backend != nullptr ? config->backend : std::getenv("WIIPLAY_BACKEND");
+    if (backend != nullptr) {
+        const std::string b = Lower(backend);
+        cfg.desiredBackend = b == "d3d12"    ? BACKEND_D3D12
+                             : b == "d3d11"  ? BACKEND_D3D11
+                             : b == "vulkan" ? BACKEND_VULKAN
+                                             : BACKEND_AUTO;
+    }
     cfg.allowCpuAdapter = config->allow_cpu_adapter != 0;
     cfg.windowWidth = width;
     cfg.windowHeight = height;

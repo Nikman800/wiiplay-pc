@@ -5319,3 +5319,128 @@ unchanged), `check_matching.py` (974 units identical).
   game builds its hidden middle databases, but the test's database has an empty list, so only
   the empty case runs; a database from a console that saw other remotes' Miis would exercise
   the rest.
+
+## 41. Windows: a MinGW-w64 build, cross-compiled on Linux
+
+The port builds for Windows x86-64 from Linux with MinGW-w64 GCC (`x86_64-w64-mingw32-g++-posix`,
+GCC 13, posix threads) rather than MSVC: the layout fixes of §3 onward assume GCC and the
+Itanium C++ ABI. `make WIN64=1` builds every harness and the game into `build/win64/` as
+`NAME.exe`; `make WIN64=1 dist` packages the game (RUNNING.md, "Windows"). Linux builds are
+unchanged.
+
+### Files
+
+- `include/port/platform.h`, `src/host_platform.cpp`: the operating system under the host code,
+  one Linux and one Windows half: directories (create, test, resolve, compare paths; a rename
+  that replaces), the per-user folders (XDG; `%APPDATA%` / `%LOCALAPPDATA%`), Dolphin's user
+  folders for `--mii-db dolphin`, reserved and committed memory (mmap / mprotect; VirtualAlloc),
+  fibers for the cooperative OS threads (ucontext; Win32 fibers), the monotonic clock and a
+  precise sleep. `host_arena.cpp`, `host_thread.cpp`, `host_nand.cpp`, `host_record.cpp`,
+  `host_live.cpp` and `host_main.cpp` call it instead of POSIX.
+- `windows/mingw_cc.py`: the compiler driver for the Windows build (below: weak definitions,
+  unreachable references).
+- `windows/wiiplay.manifest`, `windows/wiiplay.rc`: linked into every executable.
+- `windows/README-WINDOWS.txt`, `windows/play.bat`: the package's.
+- `aurora/mingw-w64.cmake`: the CMake toolchain for Aurora; `aurora/CMakeLists.txt` takes
+  Dawn's Windows package and builds `wiiplay_gx.dll`.
+
+### Build
+
+`make WIN64=1` sets the MinGW driver, `build/win64/` and these flags on top of the Linux ones:
+
+| Flag | Why |
+|---|---|
+| `-mno-ms-bitfields` | MinGW lays out bit-fields as MSVC does by default; the decomp's bit-field structs (RFL's Mii data, GX registers) need GCC's layout. `types.h` checks it with a `static_assert`. |
+| `-D__USE_MINGW_ANSI_STDIO=1` | MinGW's own printf / scanf: `%lld`, `%zu`, `long double` and float formatting as glibc's, not msvcrt's |
+| `-fno-asynchronous-unwind-tables` | no SEH unwind data (`.pdata`), which PE's linker script keeps, and with it every function: `--gc-sections` would remove nothing (below) |
+| `-fno-jump-tables` | GCC puts a switch's jump table in the unit's shared `.rdata`, which every string of the unit keeps, and with it every function that has a switch |
+| `binmode.o` | files open in binary mode by default (and `host_platform.cpp` sets stdin / stdout / stderr binary): no CR before LF in the FRAME lines, as on Linux |
+| the manifest | UTF-8 as the process code page (Windows 10 1903+): `fopen`, `stat`, `opendir`, `argv` and `getenv` take and give UTF-8, so paths with any characters work through the C library; long paths |
+| `--stack,8388608` | the main thread's stack as on Linux (the fibers have their own 1 MiB stacks, as the ucontext stacks) |
+
+`libstdc++-6.dll` stays a DLL, as `libstdc++.so` is on Linux: the executables' operator new /
+delete (the game's heaps, §28) serve only the executable's own code, never the runtime's
+internal allocations. Windows needs no `exe.map`: a DLL never binds to an executable's symbols.
+The exe's operator new comes from `host_sdk.cpp`'s weak default (or `eggHeap.cpp`'s), not the
+runtime's (`mingw_cc.py` applies those defaults first, as an ELF link takes an archive's
+definition before a shared library's).
+
+### Traps found, and their fixes
+
+- **Weak definitions** (the host's defaults in `host_sdk.cpp`, `host_gx.cpp`, `host_gfx_stubs.c`,
+  `host_snd.cpp`, ...): on PE/COFF GCC emits a weak definition of W as a weak external whose
+  default is the global `.weak.W.ANCHOR`. The GNU ld in use (2.45.90) never lets it satisfy
+  another object's reference, and an archive's index does not list W, so no default was ever
+  linked. `mingw_cc.py` runs the link; for each symbol left undefined that some input defines
+  weakly it adds `-u .weak.W.ANCHOR --defsym W=.weak.W.ANCHOR` and links again. A strong
+  definition still wins, as on ELF.
+- **Weak data in headers** (`DECL_ADDRESS`: `OS_BOOT_INFO` and the other low-memory globals, the
+  hardware register blocks): the same variable weak in many units collided (each default is
+  named after its unit's first global, often the same inline function). On Windows
+  `DECL_ADDRESS` makes it a COMDAT "select any" definition (`selectany`, zero) instead.
+  `OS_BUS_CLOCK_SPEED`'s strong value (`host_os_clock.c`) is stored by a constructor there.
+- **References from unreachable code**: with `--gc-sections` ELF's ld ignores undefined
+  references in removed sections, which the harnesses rely on (they link whole units); PE's
+  reports them and has no `--unresolved-symbols`. Once unwind data and jump tables no longer
+  keep every function (the flags above), `mingw_cc.py` relinks with `--print-gc-sections` and,
+  if every remaining reference is in a removed section, aliases those symbols to `abort`. Any
+  reference from kept code still fails the link.
+- **One definition for each inline / out-of-line pair**: the decomp defines some functions both
+  in a header (inline) and in one unit (out of line), or specializes a template that no header
+  declares (matching tricks). ELF linkers let the strong copy win; PE/COFF reports two
+  definitions. Under `PORT_HOST` the headers declare those (`eggIBinary.h`: `IBinary<LightTexture>::GetVersion`;
+  `RPSndObject.h`: three `TRPSndObject<8>` members; `RPActor.h`: `VF_0x3C`, `VF_0x40`,
+  `IsEnabled`) and two units' inline copies of `RPSndObject2D`'s destructor go
+  (`RPBilCamera_2.cpp`, `RPWlySound_3.cpp`). `check_matching.py`: 974 units identical.
+- **`__declspec`**: MinGW predefines it; `decomp/compat.h` keeps its own mapping and adds the
+  forms MinGW's headers use.
+- **GCC 13's libstdc++** has no `std::sinf` and the other float math names (GCC 14 added them);
+  `types.h` adds them for older libstdc++.
+- **LLP64** (`long` is 32-bit on Windows): no host or decomp code converts pointers through
+  `long` (`-Werror=pointer-to-int-cast`, and C++ rejects narrowing pointer casts, so the build
+  would fail); `%ld` is used only with `long`; file offsets through `ftell` / `fseek` are
+  within the disc's files (under 2 GiB). Nothing else needed.
+- **Paths**: `--record DIR:N` took a drive's colon for N; `--perf-out`, `--save` and the other
+  file options find the directory with `\` too; the writable-location check compares resolved
+  paths case-insensitively. Directories are created with `PortMakeDir`, which accepts an
+  existing one (and `C:`). NAND renames replace the destination (`MoveFileEx`), as POSIX
+  `rename` does.
+- **Frame pacing** (§39): Windows' sleeps end at the next scheduler tick (up to 15.6 ms).
+  `PortSleepUntilNs` waits on a high-resolution waitable timer (Windows 10 1803+) until 1 ms
+  before the deadline and spins the rest; Linux keeps `sleep_until`.
+- **The fibers**: `host_thread.cpp`'s threads were ucontext coroutines; they are now
+  `PortFiber`s (ucontext on Linux, unchanged behaviour; `CreateFiberEx` / `SwitchToFiber` on
+  Windows, with the floating-point state switched too).
+
+### Aurora and Dawn on Windows
+
+Dawn's prebuilt Windows package (`dawn-windows-amd64.tar.gz` of the same release as Linux's,
+pinned by hash) is `webgpu_dawn.dll` built with MSVC, its import library and `dxcompiler.dll` /
+`dxil.dll`. Its C API (`webgpu.h`, which the C++ wrapper `webgpu_cpp.h` is inline over) links
+from GCC; its C++ API (`dawn::native`) does not (MSVC's mangling and standard library). Aurora
+used the latter in two places; the fork's patch (`aurora-patches/`) builds the
+`DawnInstanceDescriptor` from its C layout and lists adapters for `--gpu` through
+`RequestAdapter` (both power preferences, with and without the fallback adapter) when built by
+MinGW against a Dawn DLL (`AURORA_DAWN_C_API_ONLY`). It also lower-cases two Windows SDK header
+names and uses MinGW's import libraries. Aurora, SDL3 (static), abseil, fmt, zstd and the
+C++ runtime go into `wiiplay_gx.dll`, which exports only the `wpgx_*` functions of `wpgx.h` (a
+`.def` file made from the header at configure time). The toolchain file keeps the build
+machine's pkg-config libraries out and sets `NTDDI_VERSION` to Windows 10 (abseil 20240722
+otherwise uses WinRT time-zone headers that do not compile with this MinGW).
+
+`webgpu_dawn.dll` and `dxcompiler.dll` need the Visual C++ 2015-2022 runtime (`MSVCP140.dll`,
+`VCRUNTIME140(_1).dll`), which is not shipped: most Windows installations have it, else
+Microsoft's `vc_redist.x64.exe` installs it.
+
+Aurora tries Direct3D 12 first on Windows, then Vulkan (then D3D11). `--backend NAME` (or
+`WIIPLAY_BACKEND`) puts one first.
+
+### Running the tests under Wine
+
+`$(OUT)/NAME` is a script that runs `NAME.exe` under Wine without a display (`DISPLAY` unset:
+Wine opens no window), in its own prefix (`$TMPDIR/wiiplay-wine`), with the MinGW runtime and
+Aurora's DLLs on `WINEPATH` and `WIIPLAY_BACKEND=vulkan` (Wine offers no Direct3D 12 for this
+machine's GPU). So `make WIN64=1 unit`, `archives`, ... `boot` run the same test scripts on the
+Windows executables. Dawn's Vulkan backend under Wine goes through winevulkan to the host's
+Vulkan loader, so `VK_ICD_FILENAMES` selects lavapipe as on Linux, and the `--compare` tests
+check the Windows harnesses' output against `build/host64`'s.

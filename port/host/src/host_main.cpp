@@ -99,6 +99,7 @@ struct Options {
     bool perf = false;
     const char* perfOut = nullptr;
     const char* gpu = nullptr;
+    const char* backend = nullptr; // --backend (§41)
     int liveGfx = -1;        // -1: with --window: disk pipeline cache, no CPU adapter, mailbox
     int blockingPipes = -1;  // -1: the mode's default
     int mailbox = -1;        // -1: with --realtime
@@ -481,6 +482,8 @@ void Usage(const char* argv0) {
                  "  --perf-out FILE.csv where (default: " STATE_DIR_HELP "/perf-TIME.csv)\n"
                  "  --gpu NAME|N|list   graphics adapter: part of its name, its index, discrete,\n"
                  "                      integrated or cpu (default: $WIIPLAY_GPU, else the discrete GPU)\n"
+                 "  --backend NAME      graphics API to try first: d3d12, d3d11 or vulkan (default:\n"
+                 "                      $WIIPLAY_BACKEND, else the platform's order: Windows D3D12, Linux Vulkan)\n"
                  "  --live-gfx | --test-gfx  graphics settings of the window (pipeline cache on disk,\n"
                  "                      no CPU adapter) or of the tests (default: by mode)\n"
                  "  --async-pipelines | --blocking-pipelines, --mailbox | --fifo,\n"
@@ -695,6 +698,8 @@ int main(int argc, char** argv) {
             gOpt.perfOut = argv[++i];
         } else if (is("--gpu") && more) {
             gOpt.gpu = argv[++i];
+        } else if (is("--backend") && more) {
+            gOpt.backend = argv[++i];
         } else if (is("--live-gfx")) {
             gOpt.liveGfx = 1;
         } else if (is("--test-gfx")) {
@@ -912,6 +917,7 @@ int main(int argc, char** argv) {
     cfg.allow_cpu_adapter = gOpt.liveGfx && !wantCpu ? 0 : 1;
     const bool listGpus = gOpt.gpu != nullptr && std::strcmp(gOpt.gpu, "list") == 0;
     cfg.adapter = listGpus ? nullptr : gOpt.gpu;
+    cfg.backend = gOpt.backend;
     cfg.vsync_mailbox = gOpt.mailbox;
     cfg.log_level = gOpt.logLevel;
     if (wpgx_init(&cfg) != 0) {

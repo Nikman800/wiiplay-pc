@@ -929,6 +929,8 @@ $(OUT)/%: $(OUT)/%$(X)
 	@printf '%s\n' '#!/bin/sh' '# Runs $*.exe under Wine without a display (port/host/Makefile, WIN64=1)' \
 	    'export WINEPREFIX="$${WINEPREFIX:-$${TMPDIR:-/tmp}/wiiplay-wine}" WINEDEBUG="$${WINEDEBUG:--all}"' \
 	    'export WINEDLLOVERRIDES="mscoree,mshtml=" WINEPATH="$(WINE_DLL_PATH)"' 'unset DISPLAY WAYLAND_DISPLAY' \
+	    '# Wine offers no Direct3D 12 here: Vulkan (winevulkan on the host driver, lavapipe in the tests)' \
+	    'export WIIPLAY_BACKEND="$${WIIPLAY_BACKEND:-vulkan}"' \
 	    'exec $(WINE) "$$0.exe" "$$@"' > $@
 	@chmod +x $@
 endif
