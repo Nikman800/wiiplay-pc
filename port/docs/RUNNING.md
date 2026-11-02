@@ -54,9 +54,11 @@ port/host/build/host64/boot --disc /path/to/extracted-disc --window
   refuses the CPU (software) adapter unless asked for with `--gpu cpu`. The adapter in use is
   printed at start (`boot: gpu: ...`).
 - `--perf`: performance tracking (below).
-- `--frames-ahead N`: how many frames the game may run ahead of the GPU and the display
-  (default 0: each frame waits until the last one is drawn and presented, as on the Wii; 1 or
-  2 can smooth a slow GPU at the cost of latency).
+- `--frames-ahead N`: how many frames the game may run ahead of the GPU's drawing (default
+  1: the game works on a frame while the GPU draws the last one, as on the Wii; with a GPU
+  faster than a frame this never waits and adds no latency. 0: each frame waits until the
+  last one is drawn. 2 can smooth a slow GPU at the cost of latency). The game never waits for
+  the display itself (HOST_BUILD.md §39).
 - `--record DIR[:N]`: write frame times, the input events (and every Nth frame as a picture)
   to DIR, for a bug report about lag. `--latency-marker`: a white square in the top-left
   corner on every frame where a key or button is pressed (film the screen to measure
@@ -95,10 +97,13 @@ What the numbers mean (milliseconds per displayed frame):
 | `gx` | handing the frame's drawing to the renderer; includes draws waiting for a new pipeline |
 | `end` | finishing the frame for the GPU |
 | `gpu` | waiting for the GPU (only with `--writeback on`: the game's render-to-texture copies read back every frame) |
-| `present` | waiting for the display / GPU to take another frame |
+| `present` | waiting for the GPU to finish drawing an earlier frame (`--frames-ahead`) |
 | `sleep` | idle, waiting for the next 1/59.94 s |
 | `pipe_compile` | compiling new GPU pipelines (the first time a material is seen; cached on disk afterwards) |
 | `audio_queue` | sound queued for the device (about 50 ms in steady state) |
+| `gx_sync` | part of `gx`: the game waiting at its draw-done syncs while the renderer translates what it sent (`syncs`: how many) |
+| `render_latency` | from a frame's end until the GPU has drawn it |
+| `acquire` | the renderer waiting for the window system to hand back an image to draw into (it does not hold up the game) |
 
 The summary also counts frames over 16.7, 20 and 33.3 ms, audio underruns (the device ran out
 of sound: crackles) and skipped audio frames, and the cursor's lag (frames) and error against

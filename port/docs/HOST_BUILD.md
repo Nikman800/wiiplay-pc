@@ -5020,3 +5020,169 @@ missions) are identical, and `TnkGameParam.bin`'s 42 fields per tank agree with 
   covered above and play identically on the port and in Dolphin.
 - **Speed.** The game ran at full speed on the port in the play-test's recording
   (`--perf`: 45544 Tanks! frames, 16.70 ms per frame on average); the game was not slowed down.
+
+## 39. Frame drops: the display's pace, the GX translation, first-use pipelines
+
+Play-tests in a window (RTX 3070 Laptop GPU, a 60 Hz monitor on the NVIDIA GPU next to the
+laptop's 144 Hz panel on the Intel GPU, GNOME on Wayland, the default "balanced" power profile)
+dropped frames: Charge! ran at 54.2 fps (`--frames-ahead 0`; frames over 20 ms: 4825 of 15979,
+`gx` 7.6 ms average, `present` 7.2 ms, 176 pacer re-anchors and late sound), and even the light
+games had 5-14 % of their frames over 20 ms (`gx` 1.6 ms, but `present` 6.5 ms average, 17.8 ms at
+p95). Earlier windowed runs on the same machine, before the frames-in-flight limit of §37, had
+almost none (26 frames over 20 ms in 7345). This milestone finds where the time went and removes
+it. Nothing in the decomp changed; every picture is the same (`make test`).
+
+### Files
+
+| File | What |
+|---|---|
+| `port/extern/aurora` | Three patches (below): the frames-in-flight limit counts rendering, not presentation; cheaper per-draw index work; render-thread timing. |
+| `port/host/aurora/wpgx.cpp`, `wpgx.h` | Drain-mode GX processing; the pipeline cache key without the build ID; the new frame statistics. |
+| `port/host/src/host_main.cpp` | `--frames-ahead` defaults to 1; draw-done syncs timed. |
+| `port/host/src/host_perf.cpp`, `include/port/perf.h` | New columns: `gx_sync_ms`, `syncs`, `queue_latency_ms`, `render_latency_ms`, `acquire_ms`, `present_call_ms`. |
+
+### Where the time went
+
+The user's per-frame CSVs (`--perf`), split by scene, and new measurements: headless real time
+and virtual time on the NVIDIA GPU (`--gpu nvidia --live-gfx`, the test scripts), and real
+Wayland windows in a private headless gnome-shell (as in §37: Mutter composites on the Intel GPU,
+the game renders on the NVIDIA GPU, as on the user's desktop), with a sampling profiler
+(`SIGPROF` and `backtrace`, preloaded) where `perf` is not allowed.
+
+1. **The game thread waited for the compositor.** With `--frames-ahead 0` (the default of §37)
+   a frame began only when the previous one's GPU work *and presentation* were done. The
+   presentation includes acquiring the window's next image, and on this driver that waits until
+   the compositor releases one, up to a refresh: the new `acquire_ms` column shows 2-5 ms on
+   average and up to 8 ms, `present_ms` the same wait on the game thread. The game's own clock
+   (59.94 Hz retraces) and the compositor's (60 Hz) drift, so every so often the wait pushed a
+   frame past its retrace: in the user's run of the light games every sixth frame or so took
+   31-35 ms with 18-22 ms of it in `present`, and the next one 5-6 ms to catch up. With
+   `--frames-ahead 1` the same coupling came one frame later (run B: frames over 20 ms 10165 of
+   60491). In the private compositor (menus, 2400 frames): limit on presentation, frames ahead 0:
+   186 frames over 20 ms; 1: 32; no limit: 2.
+2. **Charge! translates 700 draws a frame, and waits for the translation 9 times.** Aurora
+   translated the GX stream on its FIFO thread as it arrived (one hand-over and wake-up per
+   draw), and the game thread waits for that thread at every draw-done sync (`GXDrawDone`,
+   `GXSetDrawSync`, `GXPixModeSync` after copies; the frame's end): Charge! syncs 9 times a
+   frame (`syncs`), `gx` is almost all of it waiting (`gx_sync_ms`). So the thread overlapped
+   little and cost a hand-over per draw. Profile of the translation (virtual time): reading
+   every index of every draw to size the guest vertex arrays (about a fifth), building
+   triangle-list indices one checked append at a time (a tenth), hashing textures after each
+   texture-cache invalidation, copying vertices and arrays.
+3. **The CPU clocks down when paced.** On the default power profile (`powersave` governor,
+   `balance_performance`) the cores stay at a low clock (0.8 GHz at idle) when the game sleeps
+   most of a frame: in real time the same frame's `calc` and `gx` are 2-4 times their
+   virtual-time values, and they shrink again when something keeps a core busy (the old
+   frames-in-flight wait polled every 100 us and did: Charge! headless real time, the same
+   build, `calc` 1.0 / `gx` 1.4 ms with `--frames-ahead 0`, 2.7 / 5.0 ms with 1). The work per frame has to fit at the low clock; it now does with room
+   (below).
+4. **First-use pipelines.** A pipeline compiled the first time a draw needs it blocks that frame
+   (up to 1 s in the user's runs). The disk cache of §35 removes that from the second visit on,
+   but it was keyed by the library's build ID, so every new build of `libwiiplay_gx.so` started
+   cold (run C: 576 pipelines compiled, 576 draws waited).
+5. **The sound lag** followed from 1-3: a game falling behind re-anchors the pacer (176 times in
+   run A) and the queue sat at 100 ms with the controller pinned at its bound.
+
+### Fixes
+
+**Frames ahead count rendering, not presentation** (Aurora patches 1 and 3). The limit now counts
+a frame done when its rendering is (a work-done callback registered after the frame's command
+buffer, before the presentation), and the render thread reports that before it acquires the
+window's image (polling Dawn's events every 200 us until the frame's rendering is done; the
+GPU would draw the presentation's blit after it anyway). The frame slot and staging buffer are
+released before presenting too. The game thread now never waits for the compositor; the render
+thread does, as before, and still presents every frame (mailbox: the newest at each refresh).
+`--frames-ahead` defaults to 1 in every mode: the game works on a frame while the GPU draws the
+previous one, as the Wii's CPU and GP overlap. A frame's input is read at its retrace, so this
+adds no latency while the GPU draws a frame in less than a frame's time (here 3-7 ms,
+`render_latency_ms`); a slower GPU makes the game wait (`present`) instead of queueing frames.
+`--frames-ahead 0` still waits for the previous frame's rendering (not its presentation).
+`gpu_latency_ms` (end to presentation done) is now as seen by the render thread, which notices it
+only at its next frame: about a frame more than the real time.
+
+A frame acquired early (at the frame's start, so that the compositor's wait overlaps the game's
+frame) was tried and dropped: the render thread then waits there while the frame's passes queue
+behind it, and rendering finished later (menus: 173 frames over 20 ms with frames ahead 0).
+
+**GX translated at the syncs** (wpgx). Aurora's drain mode: the stream is translated on the game
+thread when it syncs or the frame ends. Same output (the tests' hashes and pictures are
+unchanged), no hand-overs: Charge! `gx` in virtual time 1.70 -> 1.43 ms on an idle machine,
+6.8 -> 3.6 ms under load; headless real time (low clocks) 6.5 -> 5.0 ms.
+
+**Cheaper per-draw index work** (Aurora patch 2). Strip, fan and quad indices are written into
+the index buffer directly. The guest arrays' sizes come from the largest index a draw uses:
+`calc_vtx_size` records where the indices sit, and the largest indices are cached by the hash of
+the draw's vertex bytes (with the count and layout; direct-mapped, 4096 entries), since the
+models draw the same vertices every frame. Uploads and pictures are unchanged. Together with the
+drain mode: Charge! `gx` (virtual time, idle machine) 1.70 -> 1.43 ms, the whole 7000-frame run
+14.9 -> 13.5 s.
+
+**The pipeline cache survives a new build** (wpgx). `pipeline_cache.db` holds pipeline
+*configurations* (Aurora checks each row's size and version and compiles them itself at start;
+Dawn's `dawn_cache.db` is keyed by contents), so a stale file cannot give a wrong pipeline. The
+key is now our patch version only (`kPipelineCacheKey`, 5): a rebuilt game compiles its known
+pipelines in the background at start instead of one blocking first use at a time. The first
+visit to a scene on a machine still compiles its new pipelines (blocking, as §35 chose).
+
+### Measurements
+
+Real Wayland windows (1280x912) in the private compositor, 60 Hz virtual monitor, real time,
+SDL's dummy audio, the test scripts, pipeline caches warm; "before" is the user's build of the
+day (frames ahead 0, the limit on presentation, the FIFO thread), "after" this one (defaults).
+The games from frame 3900 (in play), the menus from frame 300; the idle machine on the default
+power profile:
+
+| Scene (frames) | wall p95 / p99 ms | frames over 20 / 33.3 ms | `gx` avg / p95 ms | `calc` ms | `present` ms |
+|---|---|---|---|---|---|
+| Menus (4599) | 17.7 / 18.8 -> 16.8 / 17.0 | 15 / 1 -> 3 / 1 | 0.91 / 1.21 -> 2.77 / 4.20 | 0.88 -> 2.55 | 5.81 -> 0.08 |
+| Charge! (3099) | 17.2 / 18.5 -> 16.9 / 17.1 | 5 / 0 -> 0 / 0 | 1.94 / 2.23 -> 4.70 / 7.53 | 1.04 -> 2.52 | 7.40 -> 0.06 |
+| Shooting Range (4099) | 18.0 / 19.5 -> 16.9 / 17.1 | 19 / 0 -> 1 / 0 | 1.37 / 1.73 -> 3.03 / 4.98 | 1.27 -> 2.87 | 6.44 -> 0.07 |
+| Laser Hockey (3099) | 18.3 / 19.3 -> 16.9 / 17.0 | 13 / 0 -> 0 / 0 | 0.99 / 1.33 -> 2.45 / 3.35 | 0.89 -> 2.44 | 5.42 -> 0.08 |
+| Fishing (3099) | 17.4 / 18.6 -> 16.9 / 17.1 | 3 / 0 -> 0 / 0 | 1.45 / 1.73 -> 3.83 / 5.57 | 1.06 -> 2.74 | 6.34 -> 0.07 |
+| Tanks! (3099) | 17.4 / 18.4 -> 16.8 / 17.0 | 10 / 0 -> 0 / 0 | 1.32 / 1.53 -> 3.96 / 5.06 | 0.77 -> 2.37 | 6.18 -> 0.08 |
+| Billiards (3099) | 17.2 / 18.6 -> 16.8 / 17.0 | 3 / 0 -> 0 / 0 | 2.04 / 2.47 -> 4.46 / 6.81 | 0.85 -> 2.37 | 7.03 -> 0.07 |
+| Find Mii (3099) | 17.9 / 19.2 -> 16.9 / 17.1 | 21 / 2 -> 5 / 4 | 0.98 / 1.81 -> 2.43 / 5.04 | 1.07 -> 2.75 | 5.94 -> 0.10 |
+| Pose Mii (3099) | 17.2 / 18.3 -> 16.8 / 17.0 | 2 / 0 -> 0 / 0 | 1.34 / 1.63 -> 3.59 / 5.05 | 0.97 -> 2.84 | 6.67 -> 0.07 |
+| Table Tennis (3099) | 17.4 / 18.8 -> 16.8 / 17.0 | 3 / 0 -> 0 / 0 | 1.47 / 1.92 -> 4.35 / 5.77 | 0.91 -> 2.70 | 6.63 -> 0.08 |
+
+No pacer re-anchors, underruns or skipped AX frames in any run; the audio queue 26-34 ms before,
+40-44 ms after (the game no longer waits for the compositor, so the controller sees a steadier
+producer). The remaining frames over 33 ms are scene loads and Find Mii's Mii setup.
+
+`present` (the game thread waiting) fell from 5-7 ms a frame to under 0.1 ms. `gx` and `calc`
+*rose*: not more work, a slower clock. The old wait polled every 100 us, which kept a core busy
+enough for the governor to hold a high clock; the game now sleeps through the slack and the cores
+stay at a low clock. Measured at equal clocks the work fell (Charge!, virtual time on an idle
+machine: `gx` 1.70 -> 1.43 ms; headless real time with `--frames-ahead 1` for both builds: 6.5 -> 5.0 ms).
+Charge!'s busiest frames (p95) now take about 10 ms of the 16.7 at that clock.
+
+The private compositor is kinder than the user's desktop (two monitors on two GPUs): the old
+build dropped 0.3 % of frames here against 5-30 % there. The mechanism removed (the game thread
+waiting for the compositor's release) is what dominated there (`present` 6.5-7.2 ms on average,
+p95 16-18 ms, in every scene).
+
+### Aurora patches
+
+On top of the `wiiplay` branch (2f8c5fd), committed in the submodule on a local branch; the
+series is exported as patch files next to the worktree for the fork:
+
+| # | Subject | Files |
+|---|---|---|
+| 1 | `gfx: frames-in-flight limit counts rendering, not presentation; render-thread timing` | `include/aurora/gfx.h` (`AuroraFrameStats.lastQueueLatencyNs`, `lastRenderLatencyNs`, `acquireNs`, `presentNs`), `lib/gfx/frame.cpp`, `lib/gfx/present_target.cpp`, `.hpp` |
+| 2 | `gx: cheaper per-draw index work` | `lib/gx/command_processor.cpp`, `lib/internal.hpp` (`ByteBuffer::append_uninitialized`) |
+| 3 | `gfx: report a frame's rendering done before blocking in the acquire` | `lib/gfx/frame.cpp` |
+
+### The power profile
+
+Not changed by the port. With `powerprofilesctl set performance` (or a governor that keeps the
+cores up) `calc` and `gx` fall to their virtual-time values; the defaults are enough now
+(Charge!: about 7 ms of the 16.7 ms frame on average at the low clock).
+
+### Verified headless vs. by hand
+
+Verified: `make test` (64-bit) and `make M32=1 test`, `make playtest`; the per-game runs above,
+in real Wayland windows of a private compositor on the same GPUs. Not verifiable here: the
+user's own desktop (two monitors on two GPUs, the 144 Hz panel), whose compositor timing is
+worse than the private one's (the old build, menus: 15 frames over 20 ms of 4599 here against
+5-14 % in the user's runs); `acquire_ms` and `render_latency_ms` in a new `--perf` run there
+show what remains.
