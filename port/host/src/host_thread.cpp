@@ -4,7 +4,8 @@
  * The audio runtime starts real threads: nw4r::snd's sound thread (woken by
  * the AX frame callback) and its task (DVD) thread, which the decompiled code
  * drives with message queues, thread queues and mutexes. This file runs them
- * as coroutines (ucontext) on one host thread, so every run is reproducible:
+ * as coroutines (fibers: ucontext on Linux, Win32 fibers on Windows; port/platform.h)
+ * on one host thread, so every run is reproducible:
  *
  *   - A thread switch happens only where the Wii would reschedule: a thread
  *     blocks (full/empty message queue, OSSleepThread, a mutex held by
@@ -33,11 +34,11 @@
 #include <revolution/OS.h>
 
 #include <port/host.h>
+#include <port/platform.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <ucontext.h>
 
 namespace {
 
@@ -48,8 +49,7 @@ const s32 MAIN_PRIORITY = 16;
 
 struct HostThread {
     OSThread* os;
-    ucontext_t ctx;
-    void* stack;
+    PortFiber* fiber;
     OSThreadFunc func;
     void* arg;
     void* result;
@@ -100,6 +100,7 @@ void Init() {
     sMain.os = &sMainOSThread;
     sMain.state = ST_READY;
     sMain.prio = MAIN_PRIORITY;
+    sMain.fiber = PortFiberSelf();
     sMainOSThread.priority = MAIN_PRIORITY;
     sMainOSThread.base = MAIN_PRIORITY;
     sThreads.push_back(&sMain);
@@ -149,9 +150,7 @@ void SwitchTo(HostThread* next) {
         sSwitchCallback(prev->os, next->os);
     }
     sCurrent = next;
-    if (swapcontext(&prev->ctx, &next->ctx) != 0) {
-        Fail("swapcontext failed");
-    }
+    PortFiberSwitch(prev->fiber, next->fiber);
 }
 
 // Devices (PortOSAddDevice): the DVD drive and the NAND of HOST_BUILD.md §22.
@@ -251,7 +250,7 @@ void Wake(const void* key) {
     }
 }
 
-void Trampoline() {
+void Trampoline(void*) {
     HostThread* self = sCurrent;
     self->result = self->func(self->arg);
     self->state = ST_DONE;
@@ -342,7 +341,10 @@ BOOL OSCreateThread(OSThread* thread, OSThreadFunc func, void* funcArg, void* st
     } else if (t->state != ST_DONE) {
         Fail("OSCreateThread: the thread is still running");
     }
-    std::free(t->stack);
+    // A finished thread's fiber is not running (its last switch left it), so
+    // it can go; a cancelled one never ran again either.
+    PortFiberDelete(t->fiber);
+    t->fiber = NULL;
     t->os = thread;
     t->func = func;
     t->arg = funcArg;
@@ -350,14 +352,10 @@ BOOL OSCreateThread(OSThread* thread, OSThreadFunc func, void* funcArg, void* st
     t->state = ST_SUSPENDED;
     t->waitKey = NULL;
     t->prio = prio;
-    t->stack = std::malloc(HOST_STACK_SIZE);
-    if (t->stack == NULL || getcontext(&t->ctx) != 0) {
+    t->fiber = PortFiberCreate(HOST_STACK_SIZE, Trampoline, NULL);
+    if (t->fiber == NULL) {
         Fail("OSCreateThread: no host stack");
     }
-    t->ctx.uc_stack.ss_sp = t->stack;
-    t->ctx.uc_stack.ss_size = HOST_STACK_SIZE;
-    t->ctx.uc_link = NULL;
-    makecontext(&t->ctx, Trampoline, 0);
     return TRUE;
 }
 
@@ -425,7 +423,7 @@ void OSCancelThread(OSThread* thread) {
     Wake(thread);
 }
 
-// Nothing to release: a finished thread's host stack is reused by the next
+// Nothing to release: a finished thread's fiber (and host stack) goes at the next
 // OSCreateThread of the same OSThread.
 void OSDetachThread(OSThread* thread) {
     (void)thread;

@@ -32,6 +32,7 @@
 #include <revolution/OS.h>
 
 #include <port/host.h>
+#include <port/platform.h>
 
 #include <dirent.h>
 #include <sys/stat.h>
@@ -162,13 +163,13 @@ bool MakeDirs(const char* hostPath) {
     for (char* p = buf + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            if (mkdir(buf, 0755) != 0 && errno != EEXIST) {
+            if (PortMakeDir(buf) != 0) {
                 return false;
             }
             *p = '/';
         }
     }
-    return mkdir(buf, 0755) == 0 || errno == EEXIST;
+    return PortMakeDir(buf) == 0;
 }
 
 FILE* FileOf(NANDFileInfo* info) {
@@ -189,7 +190,7 @@ s32 DoCreate(const char* path, bool dir) {
         return NAND_RESULT_EXISTS;
     }
     if (dir) {
-        return mkdir(host, 0755) == 0 ? NAND_RESULT_OK : ErrnoResult();
+        return PortMakeDir(host) == 0 ? NAND_RESULT_OK : ErrnoResult();
     }
     FILE* f = std::fopen(host, "wb");
     if (f == NULL) {
@@ -437,7 +438,7 @@ int PortNANDImportMiiDB(const char* src, char* err, size_t errSize) {
     ok = out != NULL && std::fwrite(data, 1, size, out) == static_cast<size_t>(size);
     ok = out != NULL && std::fclose(out) == 0 && ok;
     std::free(data);
-    if (!ok || std::rename(tmp, host) != 0) {
+    if (!ok || PortRenameReplace(tmp, host) != 0) {
         std::snprintf(err, errSize, "cannot write %s: %s", host, std::strerror(errno));
         std::remove(tmp);
         return -1;
@@ -607,7 +608,8 @@ s32 NANDMove(const char* from, const char* to) {
     }
     const char* name = std::strrchr(hostFrom, '/');
     std::snprintf(hostTo, sizeof(hostTo), "%s%s", hostDir, name);
-    return std::rename(hostFrom, hostTo) == 0 ? NAND_RESULT_OK : ErrnoResult();
+    // POSIX rename: an existing file of that name is replaced (MoveFileEx on Windows)
+    return PortRenameReplace(hostFrom, hostTo) == 0 ? NAND_RESULT_OK : ErrnoResult();
 }
 
 void NANDSetUserData(NANDCommandBlock* block, void* data) {

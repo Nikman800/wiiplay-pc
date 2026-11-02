@@ -3,6 +3,7 @@
  * port/docs/HOST_BUILD.md §37). Host code; malloc / stdio only.
  */
 #include <port/perf.h>
+#include <port/platform.h>
 #include <port/record.h>
 
 #include "wpgx.h"
@@ -10,7 +11,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <sys/stat.h>
 
 namespace {
 
@@ -60,12 +60,13 @@ extern "C" {
 
 int PortRecordStart(const char* spec, char* err, int errLen) {
     std::snprintf(sDir, sizeof sDir, "%s", spec);
+    // DIR[:N]: a trailing colon and digits (a Windows drive's colon is no N)
     char* colon = std::strrchr(sDir, ':');
-    if (colon != nullptr) {
+    if (colon != nullptr && colon[1] != '\0' && std::strspn(colon + 1, "0123456789") == std::strlen(colon + 1)) {
         *colon = '\0';
         sEvery = std::atoi(colon + 1);
     }
-    mkdir(sDir, 0755);
+    PortMakeDir(sDir);
     char path[600];
     std::snprintf(path, sizeof path, "%s/frames.csv", sDir);
     sFrames = std::fopen(path, "w");

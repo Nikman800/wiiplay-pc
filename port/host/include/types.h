@@ -38,6 +38,28 @@ inline int stricmp(const char* pLhs, const char* pRhs) {
     return ::strcasecmp(pLhs, pRhs);
 }
 } // namespace std
+
+// libstdc++ before GCC 14 (the MinGW-w64 cross compiler, HOST_BUILD.md §41) has no
+// std:: names for the float forms of the C math functions; the decomp calls them so.
+#if defined(__GLIBCXX__) && __GNUC__ < 14
+} // extern "C++"
+#include <math.h>
+extern "C++" {
+namespace std {
+using ::acosf;
+using ::asinf;
+using ::atan2f;
+using ::ceilf;
+using ::cosf;
+using ::floorf;
+using ::fmodf;
+using ::ldexpf;
+using ::modff;
+using ::sinf;
+using ::sqrtf;
+using ::tanf;
+} // namespace std
+#endif
 } // extern "C++"
 #else
 #include <limits.h>

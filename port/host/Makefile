@@ -10,6 +10,34 @@
 REPO := $(abspath ../..)
 HOST := $(abspath .)
 
+ifeq ($(WIN64),1)
+# Windows x86-64, cross-compiled with MinGW-w64 (docs/HOST_BUILD.md §41). Executables
+# are NAME.exe; $(OUT)/NAME is a small script that runs NAME.exe under Wine, so the
+# test rules and scripts below run unchanged on this machine.
+ifeq ($(M32),1)
+$(error WIN64=1 is 64-bit only)
+endif
+# windows/mingw_cc.py: the real driver, plus weak definitions resolved at link time
+# (GNU ld for PE never lets a weak definition satisfy another object's reference).
+MINGW ?= x86_64-w64-mingw32-
+CC := python3 $(HOST)/windows/mingw_cc.py $(MINGW)gcc-posix
+CXX := python3 $(HOST)/windows/mingw_cc.py $(MINGW)g++-posix
+WINDRES := $(MINGW)windres
+OUT := $(HOST)/build/win64
+X := .exe
+# -mno-ms-bitfields: GCC's (Itanium) bit-field layout, as on Linux; MinGW defaults to
+# MSVC's, which lays out the decomp's bit-field structs (RFL's Mii data, GX registers)
+# differently. __USE_MINGW_ANSI_STDIO: C99 printf / scanf (%lld, %zu, long double,
+# float formatting identical to glibc) instead of msvcrt's.
+# -fno-asynchronous-unwind-tables: no SEH unwind data (.pdata), which the PE linker
+# script keeps and with it every function, so --gc-sections would drop nothing and the
+# harnesses' unreachable references to unlinked units would fail the link (no C++
+# exceptions or longjmp cross this code). -fno-jump-tables: likewise, GCC puts a
+# switch's jump table in the unit's shared .rdata (with its strings), which then
+# keeps every function that has one.
+ARCH := -mno-ms-bitfields -D__USE_MINGW_ANSI_STDIO=1 -D_WIN32_WINNT=0x0A00 -fno-asynchronous-unwind-tables \
+        -fno-jump-tables
+else
 ifeq ($(M32),1)
 ARCH := -m32
 OUT := $(HOST)/build/host32
@@ -17,14 +45,19 @@ else
 ARCH :=
 OUT := $(HOST)/build/host64
 endif
+X :=
 
 CC ?= gcc
 CXX ?= g++
 ifeq ($(CC),cc)
 CC := gcc
 endif
+endif
 
 DISC ?= $(HOME)/wii-play/extracted/files
+# The other build whose harness output the --compare tests check against: the 32-bit
+# and 64-bit Linux builds check each other; Windows checks against 64-bit Linux.
+OTHER_BUILD := $(if $(filter 1,$(M32))$(filter 1,$(WIN64)),host64,host32)
 
 # port/host/include must come first: it shadows include/types.h,
 # include/decomp/compat.h and include/port/be.h for the host build.
@@ -69,7 +102,18 @@ CXXFLAGS += -Wno-narrowing
 # Every executable keeps its operator new / delete to itself (exe.map, §28):
 # shared libraries (GPU drivers) allocate with libstdc++'s. Compile-only runs
 # ignore it.
+ifneq ($(WIN64),1)
 EXE_LDFLAGS := -Wl,--version-script=$(HOST)/exe.map
+else
+# Windows: a DLL never binds to an executable's operator new, so there is nothing to
+# hide. libstdc++ stays a DLL (libstdc++-6.dll) as libstdc++.so does on Linux: its own
+# code allocates with its own operator new (malloc), never from the game's heaps.
+# binmode.o: files and the standard streams default to binary (no CRLF), as on Linux.
+# The manifest (windows/wiiplay.manifest): UTF-8 as the process code page (paths in
+# fopen / stat / argv / getenv), long paths. 8 MiB main stack, as Linux's default.
+MANIFEST_O := $(OUT)/wiiplay_manifest.o
+EXE_LDFLAGS := -Wl,$(shell $(MINGW)gcc-posix -print-file-name=binmode.o) -Wl,$(MANIFEST_O) -Wl,--stack,8388608
+endif
 CFLAGS += $(EXE_LDFLAGS)
 CXXFLAGS += $(EXE_LDFLAGS)
 
@@ -127,7 +171,7 @@ MSL_SRCS := \
     src/MSL_C/wstring.c \
     src/MSL_C/wmem.c
 
-HOST_SRCS := src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp src/host_mtx.cpp \
+HOST_SRCS := src/host_platform.cpp src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp src/host_mtx.cpp \
     src/host_gxtexobj.cpp src/host_wgpipe.cpp src/host_wprintf.cpp
 
 # POINTERS.md step 4 sites (§5.1): compiled (not linked; most of RPKernel and
@@ -173,36 +217,36 @@ $(LIB): $(DECOMP_OBJS) $(MSL_OBJS) $(HOST_OBJS)
 	@rm -f $@
 	ar rcs $@ $^
 
-$(OUT)/arc_harness: $(HOST)/tests/arc_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
+$(OUT)/arc_harness$(X): $(HOST)/tests/arc_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(LIB) -o $@
 
-$(OUT)/res_harness: $(HOST)/tests/res_harness.cpp $(HOST)/tests/rpsysmessage_unit.cpp \
+$(OUT)/res_harness$(X): $(HOST)/tests/res_harness.cpp $(HOST)/tests/rpsysmessage_unit.cpp \
                    $(HOST)/tests/disc_walk.h $(LIB)
 	$(CXX) $(CXXFLAGS) $(filter %.cpp,$^) $(LIB) -o $@
 
-$(OUT)/lyt_harness: $(HOST)/tests/lyt_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
+$(OUT)/lyt_harness$(X): $(HOST)/tests/lyt_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(LIB) -o $@
 
-$(OUT)/g3d_harness: $(HOST)/tests/g3d_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
+$(OUT)/g3d_harness$(X): $(HOST)/tests/g3d_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(LIB) -o $@
 
-$(OUT)/test_be: $(HOST)/tests/test_be.cpp $(HOST)/include/port/be.h
+$(OUT)/test_be$(X): $(HOST)/tests/test_be.cpp $(HOST)/include/port/be.h
 	$(CXX) $(CXXFLAGS) $< -o $@
 
-$(OUT)/test_be_c: $(HOST)/tests/test_be_c.c $(HOST)/include/port/be.h
+$(OUT)/test_be_c$(X): $(HOST)/tests/test_be_c.c $(HOST)/include/port/be.h
 	$(CC) $(CFLAGS) $< -o $@
 
-$(OUT)/test_port: $(HOST)/tests/test_port.cpp $(LIB)
+$(OUT)/test_port$(X): $(HOST)/tests/test_port.cpp $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(LIB) -o $@
 
-$(OUT)/test_port_c: $(HOST)/tests/test_port_c.c $(LIB)
+$(OUT)/test_port_c$(X): $(HOST)/tests/test_port_c.c $(LIB)
 	$(CC) $(CFLAGS) -MMD $< $(LIB) -lstdc++ -o $@
 
-$(OUT)/test_layout: $(HOST)/tests/layout_asserts.cpp
+$(OUT)/test_layout$(X): $(HOST)/tests/layout_asserts.cpp
 	$(CXX) $(CXXFLAGS) -MMD $< -o $@
 
 # Host forms of the paired-single asm against reference math (HOST_BUILD.md §18).
-$(OUT)/test_math: $(HOST)/tests/test_math.cpp $(LIB)
+$(OUT)/test_math$(X): $(HOST)/tests/test_math.cpp $(LIB)
 	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(LIB) -o $@
 
 unit: $(TESTS) $(STEP4_OBJS)
@@ -240,7 +284,7 @@ ANIM_FP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(G3D_SRCS) src/nw4r/math/math_tr
 $(ANIM_FP_OBJS): CXXFLAGS += $(ANIM_FP)
 $(ANIM_FP_OBJS): CFLAGS += $(ANIM_FP)
 
-$(OUT)/anm_harness: $(HOST)/tests/anm_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
+$(OUT)/anm_harness$(X): $(HOST)/tests/anm_harness.cpp $(HOST)/tests/disc_walk.h $(LIB)
 	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(LIB) -Wl,--gc-sections -o $@
 
 .PHONY: anims
@@ -272,10 +316,10 @@ EF_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(EF_SRCS)) $(patsubst %,$(OUT)/host/%
 EF_CURVE_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(EF_CURVE_SRCS))
 $(EF_CURVE_OBJS): CXXFLAGS += $(ANIM_FP)
 
-$(OUT)/ef_harness: $(HOST)/tests/ef_harness.cpp $(HOST)/tests/disc_walk.h $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB)
+$(OUT)/ef_harness$(X): $(HOST)/tests/ef_harness.cpp $(HOST)/tests/disc_walk.h $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB) -o $@
 
-$(OUT)/test_ef: $(HOST)/tests/test_ef.cpp $(EF_OBJS) $(LIB)
+$(OUT)/test_ef$(X): $(HOST)/tests/test_ef.cpp $(EF_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(EF_OBJS) $(LIB) -o $@
 
 .PHONY: effects effects-unit efcurves
@@ -315,7 +359,7 @@ $(SND_LIB): $(SND_OBJS)
 	@rm -f $@
 	ar rcs $@ $^
 
-$(OUT)/snd_harness: $(HOST)/tests/snd_harness.cpp $(HOST)/tests/disc_walk.h $(SND_LIB) $(LIB)
+$(OUT)/snd_harness$(X): $(HOST)/tests/snd_harness.cpp $(HOST)/tests/disc_walk.h $(SND_LIB) $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(SND_LIB) $(LIB) $(SND_LIB) -Wl,--gc-sections -o $@
 
 .PHONY: sound
@@ -345,7 +389,7 @@ COLL_COMPILE_OBJS := $(OUT)/decomp/$(RPPC)/RPCollisionModel.cpp.o
 
 $(patsubst %,$(OUT)/decomp/%.o,$(filter src/Pack/%,$(COLL_SRCS))) $(COLL_COMPILE_OBJS): CXXFLAGS += $(STEP8_FP)
 
-$(OUT)/coll_harness: $(HOST)/tests/coll_harness.cpp $(HOST)/tests/disc_walk.h $(COLL_OBJS) $(LIB)
+$(OUT)/coll_harness$(X): $(HOST)/tests/coll_harness.cpp $(HOST)/tests/disc_walk.h $(COLL_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) $(STEP8_FP) -MMD $< $(COLL_OBJS) $(LIB) -o $@
 
 .PHONY: collision
@@ -376,7 +420,7 @@ DATA_OBJS := $(sort $(patsubst %,$(OUT)/decomp/%.o,$(DATA_SRCS))) \
 DATA_COMPILE_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(DUC)/RPDucBalloon.cpp $(DUC)/RPDucCan.cpp \
     $(DUC)/RPDucClay.cpp $(TNK)/RPTnkStageMap.cpp)
 
-$(OUT)/data_harness: $(HOST)/tests/data_harness.cpp $(HOST)/tests/disc_walk.h $(DATA_OBJS) $(LIB)
+$(OUT)/data_harness$(X): $(HOST)/tests/data_harness.cpp $(HOST)/tests/disc_walk.h $(DATA_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(DATA_OBJS) $(LIB) -Wl,--gc-sections -o $@
 
 .PHONY: data
@@ -392,7 +436,7 @@ BTI_SRCS := src/Pack/RPGraphics/RPGrpTexture.cpp src/Pack/RPParty/RPTnkScene/RPT
     $(RPPC)/RPSceneObj.cpp src/egg/gfxe/eggGXUtility.cpp src/egg/gfxe/eggDrawGX.cpp
 BTI_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(BTI_SRCS)) $(OUT)/host/src/host_gfx_stubs.c.o
 
-$(OUT)/bti_harness: $(HOST)/tests/bti_harness.cpp $(HOST)/tests/disc_walk.h $(BTI_OBJS) $(LIB)
+$(OUT)/bti_harness$(X): $(HOST)/tests/bti_harness.cpp $(HOST)/tests/disc_walk.h $(BTI_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(BTI_OBJS) $(LIB) -Wl,--gc-sections -o $@
 
 .PHONY: bti
@@ -413,7 +457,7 @@ $(OUT)/tests/%.c.o: $(HOST)/tests/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -c $< -o $@
 
-$(OUT)/rfl_harness: $(HOST)/tests/rfl_harness.cpp $(HOST)/tests/disc_walk.h $(RFL_OBJS) $(LIB)
+$(OUT)/rfl_harness$(X): $(HOST)/tests/rfl_harness.cpp $(HOST)/tests/disc_walk.h $(RFL_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(RFL_OBJS) $(LIB) -Wl,--gc-sections -o $@
 
 .PHONY: rfl
@@ -438,7 +482,7 @@ $(OUT)/tests/%.cpp.o: $(HOST)/tests/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -MMD -c $< -o $@
 
-$(OUT)/hbm_harness: $(HOST)/tests/hbm_harness.cpp $(HOST)/tests/disc_walk.h $(HBM_OBJS) $(SND_LIB) $(LIB)
+$(OUT)/hbm_harness$(X): $(HOST)/tests/hbm_harness.cpp $(HOST)/tests/disc_walk.h $(HBM_OBJS) $(SND_LIB) $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(HBM_OBJS) $(SND_LIB) $(LIB) $(SND_LIB) -Wl,--gc-sections -o $@
 
 .PHONY: hbm
@@ -458,7 +502,7 @@ KOKESHI3_OBJS := $(OUT)/decomp/$(RPPC)/RPKokeshiMgr_3.cpp.o \
     $(OUT)/decomp/src/Pack/RPKernel/RPSysHomeMenuMgr.cpp.o \
     $(OUT)/decomp/src/nw4r/g3d/g3d_scnrfl.cpp.o
 
-$(OUT)/test_polyline: $(HOST)/tests/test_polyline.cpp $(POLY_OBJS) $(LIB)
+$(OUT)/test_polyline$(X): $(HOST)/tests/test_polyline.cpp $(POLY_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(POLY_OBJS) $(LIB) -Wl,--gc-sections -o $@
 
 .PHONY: polyline-unit
@@ -485,13 +529,13 @@ PTCL_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(PTCL_SRCS)) $(OUT)/host/src/host_g
 # host_mtx.cpp too (PSMTXInverse, reached through MTX34Inv in every Calc).
 $(PTCL_OBJS) $(OUT)/host/src/host_mtx.cpp.o: CXXFLAGS += $(ANIM_FP)
 
-$(OUT)/ptcl_harness: $(HOST)/tests/ptcl_harness.cpp $(HOST)/tests/disc_walk.h $(PTCL_OBJS) $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB)
+$(OUT)/ptcl_harness$(X): $(HOST)/tests/ptcl_harness.cpp $(HOST)/tests/disc_walk.h $(PTCL_OBJS) $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(PTCL_OBJS) $(EF_OBJS) $(EF_CURVE_OBJS) $(LIB) -Wl,--gc-sections -o $@
 
 .PHONY: particles
 all: $(OUT)/ptcl_harness
 # --compare: the other build's harness, if it has been built, must print the same.
-PTCL_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/ptcl_harness
+PTCL_OTHER := $(HOST)/build/$(OTHER_BUILD)/ptcl_harness
 particles: $(OUT)/ptcl_harness
 	python3 $(HOST)/tests/test_particles.py --harness $(OUT)/ptcl_harness --disc $(DISC) \
 	    --compare $(PTCL_OTHER)
@@ -517,13 +561,13 @@ MDL_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(MDL_SRCS)) $(OUT)/host/src/host_gfx
     $(OUT)/host/src/host_g3d.cpp.o $(OUT)/host/src/host_gxlight.cpp.o
 $(MDL_OBJS): CXXFLAGS += $(ANIM_FP)
 
-$(OUT)/mdl_harness: $(HOST)/tests/mdl_harness.cpp $(HOST)/tests/disc_walk.h $(MDL_OBJS) $(LIB)
+$(OUT)/mdl_harness$(X): $(HOST)/tests/mdl_harness.cpp $(HOST)/tests/disc_walk.h $(MDL_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(MDL_OBJS) $(LIB) -Wl,--gc-sections -o $@
 
 .PHONY: scene
 all: $(OUT)/mdl_harness
 # --compare: the other build's harness, if it has been built, must print the same.
-MDL_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/mdl_harness
+MDL_OTHER := $(HOST)/build/$(OTHER_BUILD)/mdl_harness
 scene: $(OUT)/mdl_harness
 	python3 $(HOST)/tests/test_scene.py --harness $(OUT)/mdl_harness --disc $(DISC) \
 	    --compare $(MDL_OTHER)
@@ -572,7 +616,7 @@ AUDIO_HEAP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(AUDIO_HEAP_SRCS)) \
     $(OUT)/host/src/host_os.cpp.o $(OUT)/host/src/host_sc.cpp.o
 $(OUT)/decomp/src/revolution/WENC/%.c.o: CFLAGS += -D__abs=__builtin_abs
 
-$(OUT)/audio_harness: $(HOST)/tests/audio_harness.cpp $(HOST)/tests/disc_walk.h $(AUDIO_OBJS) \
+$(OUT)/audio_harness$(X): $(HOST)/tests/audio_harness.cpp $(HOST)/tests/disc_walk.h $(AUDIO_OBJS) \
     $(AUDIO_HEAP_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(AUDIO_OBJS) $(AUDIO_HEAP_OBJS) $(LIB) \
 	    -Wl,--gc-sections -o $@
@@ -580,7 +624,7 @@ $(OUT)/audio_harness: $(HOST)/tests/audio_harness.cpp $(HOST)/tests/disc_walk.h 
 .PHONY: audio
 all: $(OUT)/audio_harness
 # --compare: the other build's harness, if it has been built, must print the same.
-AUDIO_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/audio_harness
+AUDIO_OTHER := $(HOST)/build/$(OTHER_BUILD)/audio_harness
 audio: $(OUT)/audio_harness
 	python3 $(HOST)/tests/test_audio.py --harness $(OUT)/audio_harness --disc $(DISC) \
 	    --compare $(AUDIO_OTHER)
@@ -612,14 +656,14 @@ SYS_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(SYS_SRCS)) \
     $(patsubst %,$(OUT)/host/%.o,$(SYS_HOST_SRCS)) $(OUT)/tests/sys_host.c.o \
     $(OUT)/tests/rpsysmessage_unit.cpp.o
 
-$(OUT)/sys_harness: $(HOST)/tests/sys_harness.cpp $(SYS_OBJS) $(LIB)
+$(OUT)/sys_harness$(X): $(HOST)/tests/sys_harness.cpp $(SYS_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) -MMD $< $(SYS_OBJS) $(LIB) -Wl,--gc-sections -o $@
 
 SYS_SCRATCH ?= $(if $(TMPDIR),$(TMPDIR),/tmp)/wiiplay-sys-$(notdir $(OUT))
 .PHONY: platform
 all: $(OUT)/sys_harness
 # --compare: the other build's harness, if it has been built, must print the same.
-SYS_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/sys_harness
+SYS_OTHER := $(HOST)/build/$(OTHER_BUILD)/sys_harness
 platform: $(OUT)/sys_harness
 	python3 $(HOST)/tests/test_sys.py --harness $(OUT)/sys_harness --disc $(DISC) \
 	    --scratch $(SYS_SCRATCH) --compare $(SYS_OTHER)
@@ -653,13 +697,13 @@ INPUT_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(INPUT_SRCS)) \
 $(INPUT_FP_OBJS): CXXFLAGS += $(ANIM_FP)
 $(INPUT_FP_OBJS): CFLAGS += $(ANIM_FP)
 
-$(OUT)/input_harness: $(HOST)/tests/input_harness.cpp $(INPUT_OBJS) $(LIB)
+$(OUT)/input_harness$(X): $(HOST)/tests/input_harness.cpp $(INPUT_OBJS) $(LIB)
 	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(INPUT_OBJS) $(LIB) -Wl,--gc-sections -o $@
 
 .PHONY: input
 all: $(OUT)/input_harness
 # --compare: the other build's harness, if it has been built, must print the same.
-INPUT_OTHER := $(HOST)/build/$(if $(filter 1,$(M32)),host64,host32)/input_harness
+INPUT_OTHER := $(HOST)/build/$(OTHER_BUILD)/input_harness
 input: $(OUT)/input_harness
 	python3 $(HOST)/tests/test_input.py --harness $(OUT)/input_harness \
 	    --scripts $(HOST)/tests/input --compare $(INPUT_OTHER)
@@ -672,9 +716,21 @@ test: input
 # skips them on 64-bit too (no CMake, no downloads).
 ifneq ($(M32),1)
 ifneq ($(NO_GX),1)
+ifeq ($(WIN64),1)
+# Windows (§41): wiiplay_gx.dll with Aurora, SDL3 and the C++ runtime inside, beside
+# the prebuilt webgpu_dawn.dll (and dxcompiler.dll / dxil.dll), copied there by CMake
+AURORA_BUILD := $(HOST)/build/aurora-win64
+WPGX_LIB := $(AURORA_BUILD)/wiiplay_gx.dll
+AURORA_CMAKE_ARGS := -DCMAKE_TOOLCHAIN_FILE=$(HOST)/aurora/mingw-w64.cmake -DWIIPLAY_AURORA_TESTS=OFF \
+    -DBUILD_SHARED_LIBS=OFF
+AURORA_TARGETS := wiiplay_gx
+else
 AURORA_BUILD := $(HOST)/build/aurora
-AURORA_STAMP := $(AURORA_BUILD)/.configured
 WPGX_LIB := $(AURORA_BUILD)/libwiiplay_gx.so
+AURORA_CMAKE_ARGS :=
+AURORA_TARGETS := wiiplay_gx gx_fifo_tests gfx_readback_tests
+endif
+AURORA_STAMP := $(AURORA_BUILD)/.configured
 CMAKE ?= cmake
 AURORA_GENERATOR := $(if $(shell command -v ninja 2>/dev/null),Ninja,Unix Makefiles)
 AURORA_JOBS ?= $(shell nproc 2>/dev/null || echo 4)
@@ -685,7 +741,7 @@ $(AURORA_STAMP): $(HOST)/aurora/CMakeLists.txt
 	@mkdir -p $(AURORA_BUILD)
 	@echo "cmake: configuring Aurora in $(AURORA_BUILD) (log: configure.log)"
 	@$(CMAKE) -G "$(AURORA_GENERATOR)" -S $(HOST)/aurora -B $(AURORA_BUILD) \
-	    -DCMAKE_BUILD_TYPE=Release > $(AURORA_BUILD)/configure.log 2>&1 \
+	    -DCMAKE_BUILD_TYPE=Release $(AURORA_CMAKE_ARGS) > $(AURORA_BUILD)/configure.log 2>&1 \
 	    || { tail -30 $(AURORA_BUILD)/configure.log; exit 1; }
 	@touch $@
 
@@ -695,10 +751,10 @@ $(AURORA_STAMP): $(HOST)/aurora/CMakeLists.txt
 # `cmake --build` runs in one tree both re-run the configure step after a
 # submodule change and fail ("Configuring incomplete").
 $(WPGX_LIB): $(AURORA_STAMP) FORCE
-	@$(CMAKE) --build $(AURORA_BUILD) --target wiiplay_gx gx_fifo_tests gfx_readback_tests -j $(AURORA_JOBS) > $(AURORA_BUILD)/build.log 2>&1 \
+	@$(CMAKE) --build $(AURORA_BUILD) --target $(AURORA_TARGETS) -j $(AURORA_JOBS) > $(AURORA_BUILD)/build.log 2>&1 \
 	    || { grep -E "error|FAILED|CMake Error" $(AURORA_BUILD)/build.log | head -20; tail -5 $(AURORA_BUILD)/build.log; exit 1; }
 
-$(OUT)/gx_harness: $(HOST)/tests/gx_harness.cpp $(HOST)/tests/disc_walk.h $(HOST)/aurora/wpgx.h $(WPGX_LIB) $(LIB)
+$(OUT)/gx_harness$(X): $(HOST)/tests/gx_harness.cpp $(HOST)/tests/disc_walk.h $(HOST)/aurora/wpgx.h $(WPGX_LIB) $(LIB)
 	$(CXX) $(CXXFLAGS) -I$(HOST)/aurora -MMD $< $(LIB) -L$(AURORA_BUILD) -lwiiplay_gx \
 	    -Wl,-rpath,$(AURORA_BUILD) -o $@
 
@@ -713,7 +769,7 @@ $(GX_SDK_DECOMP_OBJS): CFLAGS += -fgnu89-inline
 GX_SDK_OBJS := $(GX_SDK_DECOMP_OBJS) $(OUT)/host/src/host_gxfifo.cpp.o $(OUT)/host/src/host_gxmisc.cpp.o
 
 # The health and safety screen through lyt, the GX SDK and Aurora (§26).
-$(OUT)/gxlyt_harness: $(HOST)/tests/gxlyt_harness.cpp $(HOST)/aurora/wpgx.h $(GX_SDK_OBJS) $(WPGX_LIB) $(LIB)
+$(OUT)/gxlyt_harness$(X): $(HOST)/tests/gxlyt_harness.cpp $(HOST)/aurora/wpgx.h $(GX_SDK_OBJS) $(WPGX_LIB) $(LIB)
 	$(CXX) $(CXXFLAGS) -I$(HOST)/aurora -MMD $< $(GX_SDK_OBJS) $(LIB) -L$(AURORA_BUILD) -lwiiplay_gx \
 	    -Wl,-rpath,$(AURORA_BUILD) -o $@
 
@@ -729,7 +785,7 @@ GX3D_SRCS := src/nw4r/g3d/platform/g3d_gpu.cpp src/nw4r/g3d/platform/g3d_tmem.cp
     src/Pack/RPParty/RPPartyCommon/RPKcl_3.cpp
 GX3D_OBJS := $(filter-out $(OUT)/host/src/host_gxlight.cpp.o,$(MDL_OBJS)) \
     $(sort $(patsubst %,$(OUT)/decomp/%.o,$(GX3D_SRCS))) $(OUT)/host/src/host_sc.cpp.o
-$(OUT)/gx3d_harness: $(HOST)/tests/gx3d_harness.cpp $(HOST)/tests/disc_walk.h $(HOST)/aurora/wpgx.h \
+$(OUT)/gx3d_harness$(X): $(HOST)/tests/gx3d_harness.cpp $(HOST)/tests/disc_walk.h $(HOST)/aurora/wpgx.h \
     $(GX_SDK_OBJS) $(GX3D_OBJS) $(WPGX_LIB) $(LIB)
 	$(CXX) $(CXXFLAGS) -I$(HOST)/aurora -MMD $< $(GX_SDK_OBJS) $(GX3D_OBJS) $(LIB) \
 	    -L$(AURORA_BUILD) -lwiiplay_gx -Wl,-rpath,$(AURORA_BUILD) -Wl,--gc-sections -o $@
@@ -775,7 +831,7 @@ BOOT_CW_NAMES := -Wl,--defsym=spCurrentScreen__13RPGrpRenderer=_ZN13RPGrpRendere
 # The decomp's main is the game's entry point; the host's main (host_main.cpp)
 # sets up the platform and calls it under this name.
 $(OUT)/decomp/src/main.cpp.o: CXXFLAGS += -Dmain=PortGameMain
-$(OUT)/boot: $(HOST)/aurora/wpgx.h $(GX_SDK_OBJS) $(BOOT_OBJS) $(WPGX_LIB) $(LIB)
+$(OUT)/boot$(X): $(HOST)/aurora/wpgx.h $(GX_SDK_OBJS) $(BOOT_OBJS) $(WPGX_LIB) $(LIB)
 	$(CXX) $(CXXFLAGS) $(GX_SDK_OBJS) $(BOOT_OBJS) $(LIB) \
 	    -L$(AURORA_BUILD) -lwiiplay_gx -Wl,-rpath,$(AURORA_BUILD) -Wl,--gc-sections \
 	    $(BOOT_CW_NAMES) -Wl,--wrap=KPADSetPosParam -o $@
@@ -786,6 +842,10 @@ $(OUT)/host/src/host_main.cpp.o $(OUT)/host/src/host_vi.cpp.o $(OUT)/host/src/ho
 FORCE:
 all: $(OUT)/gx_harness $(OUT)/gxlyt_harness $(OUT)/gx3d_harness
 # Aurora's own GX FIFO encoder/decoder tests (googletest), from our build.
+ifeq ($(WIN64),1)
+gx-aurora-tests: $(WPGX_LIB)
+	@echo "gx-aurora-tests: skipped (not built for Windows: Aurora's tests are off when cross-compiling)"
+else
 gx-aurora-tests: $(WPGX_LIB)
 	@$(AURORA_BUILD)/aurora/tests/gx_fifo_tests --gtest_brief=1 > $(AURORA_BUILD)/gx_fifo_tests.log 2>&1 \
 	    || { tail -30 $(AURORA_BUILD)/gx_fifo_tests.log; exit 1; }
@@ -795,6 +855,7 @@ gx-aurora-tests: $(WPGX_LIB)
 	    $(AURORA_BUILD)/aurora/tests/gfx_readback_tests --gtest_brief=1 > $(AURORA_BUILD)/gfx_readback_tests.log 2>&1 \
 	    || { grep -vE '^\[(debug|info|2)\]' $(AURORA_BUILD)/gfx_readback_tests.log | tail -30; exit 1; }
 	@echo "gfx_readback_tests: $$(grep -E 'PASSED|SKIPPED|tests ran' $(AURORA_BUILD)/gfx_readback_tests.log | tr '\n' ' ')"
+endif
 # The bring-up render on lavapipe (software Vulkan; --gpu for the real adapter).
 gx: $(OUT)/gx_harness $(OUT)/gxlyt_harness $(OUT)/gx3d_harness gx-aurora-tests
 	python3 $(HOST)/tests/test_gx.py --harness $(OUT)/gx_harness --disc $(DISC) --scratch $(GX_SCRATCH)
@@ -845,4 +906,29 @@ else
 gx gx-aurora-tests boot gestures playtest playtest2 miitest:
 	@echo "$@: skipped (the GX layer is 64-bit only)"
 test: gx boot
+endif
+
+# --- Windows (WIN64=1; docs/HOST_BUILD.md §41) ----------------------------------
+ifeq ($(WIN64),1)
+# Every executable (the rules above whose target is $(OUT)/NAME$(X))
+EXE_NAMES := $(shell sed -n 's/^\$$(OUT)\/\([a-z0-9_]*\)\$$(X):.*/\1/p' $(HOST)/Makefile)
+$(addprefix $(OUT)/,$(addsuffix $(X),$(EXE_NAMES))): $(MANIFEST_O)
+
+$(MANIFEST_O): $(HOST)/windows/wiiplay.rc $(HOST)/windows/wiiplay.manifest
+	@mkdir -p $(dir $@)
+	$(WINDRES) -I$(HOST)/windows $< -O coff -o $@
+
+# $(OUT)/NAME runs NAME.exe under Wine, headless: no display (Wine then opens no
+# window), its own prefix (WINEPREFIX, default $TMPDIR/wiiplay-wine when it runs).
+# WINEPATH: the MinGW runtime DLLs (libstdc++-6, libgcc_s_seh-1, libwinpthread-1).
+WINE ?= wine
+MINGW_DLL_DIRS := $(sort $(foreach d,libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll,\
+    $(dir $(abspath $(shell $(MINGW)gcc-posix -print-file-name=$(d))))))
+WINE_DLL_PATH := $(subst $(eval) ,;,$(patsubst %/,Z:%,$(MINGW_DLL_DIRS)))
+$(OUT)/%: $(OUT)/%$(X)
+	@printf '%s\n' '#!/bin/sh' '# Runs $*.exe under Wine without a display (port/host/Makefile, WIN64=1)' \
+	    'export WINEPREFIX="$${WINEPREFIX:-$${TMPDIR:-/tmp}/wiiplay-wine}" WINEDEBUG="$${WINEDEBUG:--all}"' \
+	    'export WINEDLLOVERRIDES="mscoree,mshtml=" WINEPATH="$(WINE_DLL_PATH)"' 'unset DISPLAY WAYLAND_DISPLAY' \
+	    'exec $(WINE) "$$0.exe" "$$@"' > $@
+	@chmod +x $@
 endif

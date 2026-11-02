@@ -37,6 +37,7 @@
 #include <port/input.h>
 #include <port/live.h>
 #include <port/perf.h>
+#include <port/platform.h>
 #include <port/record.h>
 #include <port/speaker.h>
 #include <egg/core/eggController.h>
@@ -48,11 +49,8 @@
 #include <cstring>
 #include <string>
 
-#include <cerrno>
 #include <ctime>
 #include <strings.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 extern int PortGameMain(int argc, char** argv);
 extern "C" u8 Health_strapArchive[];
@@ -233,7 +231,7 @@ void BeginFrame() {
         if (gOpt.liveInput == 1 && PortLivePoll(gInputStates)) {
             Finish();
         }
-        usleep(10000);
+        PortSleepMs(10);
     }
 }
 
@@ -445,16 +443,29 @@ void OnAudio(const short* samples, u32 frames, void*) {
     PortLiveAudioFrame(samples, frames);
 }
 
+// The default folders, as Usage() names them (port/platform.h; printf format text)
+#ifdef _WIN32
+#define DATA_DIR_HELP "%%APPDATA%%\\wiiplay"
+#define CACHE_DIR_HELP "%%LOCALAPPDATA%%\\wiiplay"
+#define CONFIG_DIR_HELP "%%APPDATA%%\\wiiplay"
+#define STATE_DIR_HELP "%%LOCALAPPDATA%%\\wiiplay"
+#else
+#define DATA_DIR_HELP "$XDG_DATA_HOME/wiiplay"
+#define CACHE_DIR_HELP "$XDG_DATA_HOME/wiiplay"
+#define CONFIG_DIR_HELP "$XDG_CONFIG_HOME/wiiplay"
+#define STATE_DIR_HELP "$XDG_STATE_HOME/wiiplay"
+#endif
+
 void Usage(const char* argv0) {
     std::fprintf(stderr,
                  "usage: %s --disc DIR [options]\n"
                  "  --disc DIR          the extracted disc (its root with files/ and sys/, or files/)\n"
-                 "  --nand DIR          saves (default: $XDG_DATA_HOME/wiiplay/nand)\n"
+                 "  --nand DIR          saves (default: " DATA_DIR_HELP "/nand)\n"
                  "  --mii-db FILE|dolphin  copy a Mii database (RFL_DB.dat) into the NAND first;\n"
                  "                      dolphin: the newest one in Dolphin's usual folders\n"
-                 "  --data-dir DIR      Aurora's data and caches (default: $XDG_DATA_HOME/wiiplay/aurora)\n"
+                 "  --data-dir DIR      Aurora's data and caches (default: " CACHE_DIR_HELP "/aurora)\n"
                  "  --sc FILE           console settings (language, aspect 4:3/16:9, sensor bar, ...)\n"
-                 "  --config FILE       input bindings and settings (default: $XDG_CONFIG_HOME/wiiplay/input.cfg)\n"
+                 "  --config FILE       input bindings and settings (default: " CONFIG_DIR_HELP "/input.cfg)\n"
                  "  --window            play: a window, real time, sound, keyboard / mouse / gamepads\n"
                  "  --headless          no window, virtual time, scripted input (the default; tests)\n"
                  "  --fullscreen        start fullscreen (F11 or Alt+Enter toggles)\n"
@@ -467,7 +478,7 @@ void Usage(const char* argv0) {
                  "  --input SCRIPT      scripted remotes (tests)   --events SCRIPT  synthetic SDL events (tests)\n"
                  "  --save FRAME:PATH.rgba, --hash, --audio PATH.raw, --trace, --log-level N\n"
                  "  --perf              per-frame timings: a CSV and a summary at exit (F3: overlay)\n"
-                 "  --perf-out FILE.csv where (default: $XDG_STATE_HOME/wiiplay/perf-TIME.csv)\n"
+                 "  --perf-out FILE.csv where (default: " STATE_DIR_HELP "/perf-TIME.csv)\n"
                  "  --gpu NAME|N|list   graphics adapter: part of its name, its index, discrete,\n"
                  "                      integrated or cpu (default: $WIIPLAY_GPU, else the discrete GPU)\n"
                  "  --live-gfx | --test-gfx  graphics settings of the window (pipeline cache on disk,\n"
@@ -484,63 +495,56 @@ void Usage(const char* argv0) {
 }
 
 bool IsDir(const std::string& path) {
-    struct stat st;
-    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+    return PortPathIsDir(path.c_str()) != 0;
 }
 
 void MakeDirs(const std::string& path) {
-    for (size_t i = 1; i <= path.size(); i++) {
-        if (i == path.size() || path[i] == '/') {
-            std::string sub = path.substr(0, i);
-            if (mkdir(sub.c_str(), 0755) != 0 && errno != EEXIST) {
-                Die("cannot create ", sub.c_str());
-            }
-        }
+    if (PortMakeDirs(path.c_str()) != 0) {
+        Die("cannot create ", path.c_str());
     }
 }
 
 std::string RealPath(const std::string& path) {
     char buf[4096]; // PATH_MAX (the decomp's limits.h shadows the system one)
-    if (realpath(path.c_str(), buf) == nullptr) {
-        return path;
+    PortRealPath(path.c_str(), buf, sizeof buf);
+    return buf;
+}
+
+// The directory part of a path given on the command line ('\\' too on Windows)
+size_t LastSlash(const std::string& path) {
+#ifdef _WIN32
+    return path.find_last_of("/\\");
+#else
+    return path.rfind('/');
+#endif
+}
+
+// The per-user folder of `kind` (port/platform.h: XDG on Linux, AppData on Windows)
+std::string UserDir(int kind) {
+    char buf[4096];
+    if (PortUserDir(kind, buf, sizeof buf) != 0) {
+        Die("no per-user folder (HOME is not set?): give --nand and --data-dir");
     }
     return buf;
 }
 
-std::string UserDir(const char* xdgVar, const char* fallback) {
-    const char* xdg = std::getenv(xdgVar);
-    if (xdg != nullptr && xdg[0] == '/') {
-        return std::string(xdg) + "/wiiplay";
-    }
-    const char* home = std::getenv("HOME");
-    if (home == nullptr) {
-        Die("HOME is not set: give --nand and --data-dir");
-    }
-    return std::string(home) + fallback + "/wiiplay";
-}
-
 // --mii-db (HOST_BUILD.md §40): the Mii Channel's database, from a file or from Dolphin's
-// NAND (Flatpak, then the XDG and the old user folder; the newest file wins). The file
+// NAND (port/platform.h: on Linux Flatpak, the XDG and the old user folder; on Windows
+// the registry's, Documents' and AppData's; the newest file wins). The file
 // is only read: the NAND gets a copy.
 void ImportMiiDB(const char* arg) {
     std::string src = arg;
     if (src == "dolphin") {
-        const char* home = std::getenv("HOME");
-        const char* xdg = std::getenv("XDG_DATA_HOME");
-        std::string h = home != nullptr ? home : "";
-        std::string dirs[] = {
-            h + "/.var/app/org.DolphinEmu.dolphin-emu/data/dolphin-emu",
-            (xdg != nullptr && xdg[0] == '/' ? std::string(xdg) : h + "/.local/share") + "/dolphin-emu",
-            h + "/.dolphin-emu",
-        };
+        char dirs[4][1024];
+        int count = PortDolphinUserDirs(dirs, 4);
         src.clear();
-        time_t newest = 0;
-        for (const std::string& dir : dirs) {
-            std::string path = dir + "/Wii/shared2/menu/FaceLib/RFL_DB.dat";
-            struct stat st;
-            if (home != nullptr && stat(path.c_str(), &st) == 0 && (src.empty() || st.st_mtime > newest)) {
+        int64_t newest = 0;
+        for (int i = 0; i < count; i++) {
+            std::string path = std::string(dirs[i]) + "/Wii/shared2/menu/FaceLib/RFL_DB.dat";
+            int64_t mtime = PortPathMTime(path.c_str());
+            if (mtime >= 0 && (src.empty() || mtime > newest)) {
                 src = path;
-                newest = st.st_mtime;
+                newest = mtime;
             }
         }
         if (src.empty()) {
@@ -558,15 +562,18 @@ void ImportMiiDB(const char* arg) {
 // The source tree this executable was built in (it lives in
 // port/host/build/host64/), so that saves never land inside the repository.
 std::string RepoRoot() {
-    std::string dir = RealPath("/proc/self/exe");
+    char exe[4096];
+    if (PortExePath(exe, sizeof exe) != 0) {
+        return "";
+    }
+    std::string dir = exe;
     for (int up = 0; up < 6; up++) {
         size_t slash = dir.rfind('/');
         if (slash == std::string::npos || slash == 0) {
             break;
         }
         dir.resize(slash);
-        struct stat st;
-        if (stat((dir + "/port/host/Makefile").c_str(), &st) == 0) {
+        if (PortPathExists((dir + "/port/host/Makefile").c_str())) {
             return dir;
         }
     }
@@ -574,7 +581,7 @@ std::string RepoRoot() {
 }
 
 bool Inside(const std::string& path, const std::string& dir) {
-    return !dir.empty() && (path == dir || path.compare(0, dir.size() + 1, dir + "/") == 0);
+    return PortPathInside(path.c_str(), dir.c_str()) != 0;
 }
 
 // Writable locations must be outside the repository and the disc (read-only
@@ -582,7 +589,7 @@ bool Inside(const std::string& path, const std::string& dir) {
 void CheckWritable(const char* what, const std::string& path, bool isDir, const std::string& disc) {
     std::string dir = path;
     if (!isDir) {
-        size_t slash = dir.rfind('/');
+        size_t slash = LastSlash(dir);
         dir = slash == std::string::npos ? "." : (slash == 0 ? "/" : dir.substr(0, slash));
     } else {
         MakeDirs(path);
@@ -768,8 +775,8 @@ int main(int argc, char** argv) {
     discRoot = RealPath(discFiles + "/..");
     gOpt.disc = discFiles.c_str();
     // Saves and caches: outside the source tree and the disc
-    nandDir = gOpt.nand != nullptr ? gOpt.nand : UserDir("XDG_DATA_HOME", "/.local/share") + "/nand";
-    dataDir = gOpt.dataDir != nullptr ? gOpt.dataDir : UserDir("XDG_DATA_HOME", "/.local/share") + "/aurora";
+    nandDir = gOpt.nand != nullptr ? gOpt.nand : UserDir(PORT_USER_DATA) + "/nand";
+    dataDir = gOpt.dataDir != nullptr ? gOpt.dataDir : UserDir(PORT_USER_CACHE) + "/aurora";
     CheckWritable("the NAND directory", nandDir, true, discRoot);
     CheckWritable("the data directory", dataDir, true, discRoot);
     gOpt.nand = nandDir.c_str();
@@ -788,11 +795,11 @@ int main(int argc, char** argv) {
             char stamp[32];
             time_t now = time(nullptr);
             struct tm tmNow;
-            localtime_r(&now, &tmNow);
+            PortLocalTime(static_cast<int64_t>(now), &tmNow);
             strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &tmNow);
-            perfPath = UserDir("XDG_STATE_HOME", "/.local/state") + "/perf-" + stamp + ".csv";
+            perfPath = UserDir(PORT_USER_STATE) + "/perf-" + stamp + ".csv";
         }
-        size_t slash = perfPath.rfind('/');
+        size_t slash = LastSlash(perfPath);
         if (slash != std::string::npos && slash > 0) {
             MakeDirs(perfPath.substr(0, slash));
         }
@@ -801,8 +808,10 @@ int main(int argc, char** argv) {
     static std::string recordDir;
     if (gOpt.record != nullptr) {
         recordDir = gOpt.record;
+        // DIR[:N]: a trailing colon and digits (a Windows drive's colon is no N)
         size_t colon = recordDir.rfind(':');
-        if (colon != std::string::npos) {
+        if (colon != std::string::npos && colon + 1 < recordDir.size() &&
+            recordDir.find_first_not_of("0123456789", colon + 1) == std::string::npos) {
             recordDir = recordDir.substr(0, colon);
         }
         MakeDirs(recordDir);
@@ -815,9 +824,8 @@ int main(int argc, char** argv) {
     PortRecordSetMarker(gOpt.latencyMarker ? 1 : 0);
     static std::string configPath;
     if (gOpt.config == nullptr) {
-        configPath = UserDir("XDG_CONFIG_HOME", "/.config") + "/input.cfg";
-        struct stat st;
-        if (stat(configPath.c_str(), &st) == 0) {
+        configPath = UserDir(PORT_USER_CONFIG) + "/input.cfg";
+        if (PortPathExists(configPath.c_str())) {
             gOpt.config = configPath.c_str();
         }
     }

@@ -16,6 +16,7 @@
  */
 
 #include <port/arena.h>
+#include <port/platform.h>
 #include <revolution/OS/OSAddress.h>
 
 #include <cstdio>
@@ -23,7 +24,6 @@
 #include <cstring>
 #include <mutex>
 #include <thread>
-#include <sys/mman.h>
 
 u8* port_arena_base = NULL;
 
@@ -147,16 +147,15 @@ void PortArenaInit(void) {
     }
     sOwner = std::this_thread::get_id();
 
-    void* p = mmap(NULL, PORT_ARENA_SIZE, PROT_NONE,
-                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    if (p == MAP_FAILED) {
+    // Address space for the whole block; only MEM1 and MEM2 become memory
+    // (mmap / mprotect, VirtualAlloc reserve / commit: port/platform.h).
+    void* p = PortMemReserve(PORT_ARENA_SIZE);
+    if (p == NULL) {
         Fail("cannot reserve the MEM1/MEM2 block");
     }
     u8* base = static_cast<u8*>(p);
-    if (mprotect(base + PORT_MEM1_OFFSET, PORT_MEM1_SIZE,
-                 PROT_READ | PROT_WRITE) != 0 ||
-        mprotect(base + PORT_MEM2_OFFSET, PORT_MEM2_SIZE,
-                 PROT_READ | PROT_WRITE) != 0) {
+    if (PortMemCommit(base + PORT_MEM1_OFFSET, PORT_MEM1_SIZE) != 0 ||
+        PortMemCommit(base + PORT_MEM2_OFFSET, PORT_MEM2_SIZE) != 0) {
         Fail("cannot commit MEM1/MEM2");
     }
 

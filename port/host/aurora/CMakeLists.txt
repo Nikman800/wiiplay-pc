@@ -43,7 +43,13 @@ set(AURORA_ENABLE_TESTS ${WIIPLAY_AURORA_TESTS} CACHE BOOL "" FORCE)
 # (the configure step then fails with a hash mismatch, never silently).
 include(FetchContent)
 set(AURORA_DAWN_PROVIDER package CACHE STRING "" FORCE)
-set(AURORA_DAWN_LINKAGE static CACHE STRING "" FORCE)
+if (WIN32)
+  # Windows (HOST_BUILD.md §41): the prebuilt package is webgpu_dawn.dll (built with
+  # MSVC; its C API links from MinGW) plus its import library and dxcompiler / dxil.
+  set(AURORA_DAWN_LINKAGE shared CACHE STRING "" FORCE)
+else ()
+  set(AURORA_DAWN_LINKAGE static CACHE STRING "" FORCE)
+endif ()
 set(AURORA_DAWN_VERSION "v20260807.225922" CACHE STRING "" FORCE)
 set(AURORA_SDL3_PROVIDER vendor CACHE STRING "" FORCE)
 set(AURORA_SDL3_LINKAGE static CACHE STRING "" FORCE)
@@ -53,6 +59,12 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86
   FetchContent_Declare(dawn_prebuilt
     URL "https://github.com/encounter/dawn/releases/download/${AURORA_DAWN_VERSION}/dawn-linux-x86_64.tar.gz"
     URL_HASH SHA256=2a4523426ab9b3a8970b4e151c3b005304ad37c2c01bcff80c78fffe486fc768
+    DOWNLOAD_EXTRACT_TIMESTAMP FALSE
+  )
+elseif (WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+  FetchContent_Declare(dawn_prebuilt
+    URL "https://github.com/encounter/dawn/releases/download/${AURORA_DAWN_VERSION}/dawn-windows-amd64.tar.gz"
+    URL_HASH SHA256=42a7a295c87b2e8a36312e2f84a5823aac63325e8e1d271bc7ced6f83bfb075f
     DOWNLOAD_EXTRACT_TIMESTAMP FALSE
   )
 else ()
@@ -104,6 +116,34 @@ set_target_properties(wiiplay_gx PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIB
 # define their own operator new/delete (the game's heaps, a single-threaded
 # arena), and Aurora's allocations, made from its worker threads, must not
 # be routed there.
-target_link_options(wiiplay_gx PRIVATE -static-libstdc++ -static-libgcc "LINKER:--exclude-libs,ALL"
-  "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/wpgx.map" "LINKER:--no-undefined")
-set_property(TARGET wiiplay_gx APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/wpgx.map")
+if (WIN32)
+  # Windows (HOST_BUILD.md §41): wiiplay_gx.dll exports the wpgx_* functions named in
+  # wpgx.h (a .def file made from it; without one GNU ld would export every symbol).
+  # The C++ runtime and winpthreads are linked in statically, so the DLL needs only
+  # the system's DLLs and webgpu_dawn.dll; it is not "lib"-prefixed.
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/wpgx.h" _wpgx_lines REGEX "wpgx_[a-z0-9_]+\\(")
+  set(_wpgx_exports "")
+  foreach (_line IN LISTS _wpgx_lines)
+    string(REGEX MATCHALL "wpgx_[a-z0-9_]+\\(" _names "${_line}")
+    foreach (_name IN LISTS _names)
+      string(REPLACE "(" "" _name "${_name}")
+      list(APPEND _wpgx_exports "${_name}")
+    endforeach ()
+  endforeach ()
+  list(REMOVE_DUPLICATES _wpgx_exports)
+  list(JOIN _wpgx_exports "\n  " _wpgx_exports)
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/wpgx.def" "LIBRARY wiiplay_gx.dll\nEXPORTS\n  ${_wpgx_exports}\n")
+  target_sources(wiiplay_gx PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/wpgx.def")
+  set_target_properties(wiiplay_gx PROPERTIES PREFIX "")
+  target_link_options(wiiplay_gx PRIVATE -static-libstdc++ -static-libgcc -static "LINKER:--no-undefined")
+  set_property(TARGET wiiplay_gx APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/wpgx.h")
+  # Next to the DLL: what it loads at run time (the tests and `make dist` take them from here)
+  add_custom_command(TARGET wiiplay_gx POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:dawn::webgpu_dawn>
+      $<TARGET_FILE_DIR:dawn::webgpu_dawn>/dxcompiler.dll $<TARGET_FILE_DIR:dawn::webgpu_dawn>/dxil.dll
+      $<TARGET_FILE_DIR:wiiplay_gx>)
+else ()
+  target_link_options(wiiplay_gx PRIVATE -static-libstdc++ -static-libgcc "LINKER:--exclude-libs,ALL"
+    "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/wpgx.map" "LINKER:--no-undefined")
+  set_property(TARGET wiiplay_gx APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/wpgx.map")
+endif ()

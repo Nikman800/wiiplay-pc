@@ -14,6 +14,7 @@
 #include <port/input.h>
 #include <port/live.h>
 #include <port/perf.h>
+#include <port/platform.h>
 #include <port/record.h>
 #include <port/speaker.h>
 
@@ -278,7 +279,9 @@ void Pace(long long units, void*) {
     }
     if (target > now) {
         u64 start = PortPerfNow();
-        std::this_thread::sleep_until(target);
+        // port/platform.h: the OS sleep, then a short spin (Windows' sleeps are coarse)
+        PortSleepUntilNs(static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(target.time_since_epoch()).count()));
         PortPerfAdd(PORT_PERF_SLEEP, PortPerfNow() - start);
     }
 }

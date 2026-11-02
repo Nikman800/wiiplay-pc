@@ -95,6 +95,14 @@ template <typename T> u8 IBinary<T>::GetVersion() const {
     return 0;
 }
 
+#if defined(PORT_HOST)
+// Declared here so that no other unit instantiates the generic form for
+// LightTexture: ELF linkers let eggLightTexture.cpp's specialization win over
+// such a copy, PE/COFF's report two definitions (port/docs/HOST_BUILD.md §41).
+class LightTexture;
+template <> u8 IBinary<LightTexture>::GetVersion() const;
+#endif
+
 } // namespace EGG
 
 #endif

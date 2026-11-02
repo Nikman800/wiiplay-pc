@@ -23,7 +23,14 @@
 // Paired-single helpers for the ASM_PS host forms below.
 #include <port/ps_forms.h>
 #define DECLTYPE(x) decltype(x)
+#ifdef _WIN32
+// PE/COFF: GCC names each weak definition's default after the unit's first global
+// symbol, so the same variable defined weak in two units can collide; a COMDAT
+// "select any" definition merges them as weak does on ELF (HOST_BUILD.md §41).
+#define DECL_ADDRESS(...) __attribute__((selectany)) = {0}
+#else
 #define DECL_ADDRESS(...) __attribute__((weak))
+#endif
 #define FLEXIBLE_ARRAY(NAME) NAME[]
 
 #define __alloca __builtin_alloca
@@ -31,6 +38,22 @@
 
 // CodeWarrior's __declspec(x): each x the host build meets gets its own
 // PORT_DECLSPEC_x, so an unhandled one (e.g. section ".ctors") is a compile error.
+#ifdef _WIN32
+// MinGW predefines __declspec as __attribute__; its own headers (included after this
+// one) use these forms.
+#undef __declspec
+#define PORT_DECLSPEC_dllimport __attribute__((__dllimport__))
+#define PORT_DECLSPEC_dllexport __attribute__((__dllexport__))
+#define PORT_DECLSPEC_noreturn __attribute__((__noreturn__))
+#define PORT_DECLSPEC_nothrow __attribute__((__nothrow__))
+#define PORT_DECLSPEC_noinline __attribute__((__noinline__))
+#define PORT_DECLSPEC_selectany __attribute__((__selectany__))
+#define PORT_DECLSPEC_deprecated __attribute__((__deprecated__))
+#define PORT_DECLSPEC_align(n) __attribute__((__aligned__(n)))
+#define PORT_DECLSPEC_thread __thread
+#define PORT_DECLSPEC_restrict
+#define PORT_DECLSPEC_uuid(x)
+#endif
 #define __declspec(x) PORT_DECLSPEC_##x
 #define PORT_DECLSPEC_novtable
 

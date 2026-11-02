@@ -1,0 +1,2 @@
+// Resources linked into every Windows executable (port/host/Makefile, WIN64=1)
+1 24 "wiiplay.manifest"
