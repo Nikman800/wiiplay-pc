@@ -4937,3 +4937,86 @@ twist / tilt speeds, Charge!'s steering direction on a real pad's stick, the gyr
 (not mapped: the pad's accelerometer still gives only the tilt), how loud the speaker sound
 should be against the main mix, the latency marker on a real display, and any of it outside a
 remote desktop session.
+
+## 38. Tanks! against the original (Dolphin)
+
+A play-test found Tanks! easier on the port than in Dolphin. The question: does the port's
+Tanks! behave differently from the original (enemy parameters, AI, random numbers, hits read
+or used wrongly on a little-endian 64-bit host), or is the difference in the input? Answer: the
+game logic is the original's, frame for frame; the difference is the pointer. Nothing changed
+in the code.
+
+### Method
+
+Dolphin 2609a (a headless `dolphin-emu-nogui` build, `-p headless -v Null`, the disc image,
+its own user directory) ran the original game next to the port's `boot` (headless, lavapipe).
+Both were driven to the same states and read at the same point of every frame:
+
+- **Input.** Dolphin's emulated remote reads a named pipe (Dolphin's pipe input device); the
+  menus are `tests/boot/menus_saved.txt` and the start of `tests/boot/tanks.txt`, timed from each
+  scene's first frame, with the all-games save of `test_boot.party_save` in Dolphin's NAND. The
+  port runs the same script.
+- **Reading.** Dolphin through its GDB stub (`General.GDBPort`, `Interface.DebugModeEnabled`):
+  breakpoints at `RPTnkScene::Calculate`, `RPTnkGameManager::Start` and
+  `RPSysSceneMgr::calcCurrentScene`, memory read at the addresses of `config/RHAE01/symbols.txt`
+  and the offsets in the headers' `// at 0x..` comments. The port through gdb at the same two
+  functions, by member name.
+- **The same random numbers.** `RP_randSeedX` / `RP_randSeedY` are written (0x12345678,
+  0xBEEF) in both: at `RPTnkGameManager::Start` for mission 1 (before its `PickStageVariant` and
+  the enemies' random timers), and for a later mission in every frame of the fade before its
+  `PickStageVariant`.
+- **A later mission.** In mission 1's play state both write `mStage = N - 1` and
+  `RPTnkTankManager::mEnemyAliveNum = 0`: the game clears the mission and loads mission N+1
+  through its own code.
+- **Per frame** (from the mission's start state to its end, a game over or the frame limit):
+  the game state, mission, map variant, both seeds, enemies alive, the player's position and
+  alive flag; for each enemy slot its age, alive flag, type, position, fire interval and aim
+  direction. At the first frame the parameters each tank was given: the player controller's
+  (speeds, shells, bounces, shell speed, cooldowns, mines) and each enemy's attack and move
+  parameters (`RPTnkAiAttack`: shells, bounces, shell speed and its `Params`;
+  `RPTnkAiMove::Params`).
+- **Two player policies.** Idle (the enemies hunt a still player); and active: every frame the
+  cursor's world position is set to the first live enemy and every 60 frames B is set in the
+  remote's trigger bits (the shells go out, ricochet, are dodged or shot down, and kill).
+
+### Results
+
+| Mission | Screen | Player | Frames compared | Seeds | Enemy state | Enemy positions (max difference) | Lives lost, kills |
+|---|---|---|---|---|---|---|---|
+| 1 | 4:3 | idle | 1500 | identical | identical | 0 | same frames |
+| 3 | 4:3 | idle / active | 2500 / 2115 | identical | identical | 0.005 / 0.001 | same frames |
+| 6 | 4:3 | idle | 1324 | identical | identical | 0.001 | same (game over) |
+| 6 | 16:9 | idle | 1412 | identical | identical | 0.001 | same (game over) |
+| 10 | 4:3 | idle / active | 1565 / 1950 | identical | identical | 0.001 / 0.001 | same; active: both enemies killed, mission cleared on the same frame |
+| 13 | 16:9 | active | 972 | identical | identical | 0.001 | same frames |
+| 15 | 4:3 | idle / active | 1878 / 1879 | identical | identical | 0.004 / 0.004 | same frames |
+| 20 | 4:3 | idle / active | 1885 / 1970 | identical | identical | 0.001 / 0.001 | same frames |
+
+"Enemy state": age, alive, type, fire interval, the map variant, the game state; the aim
+directions agree within 0.0001 (the last digit printed). The random number sequence is
+identical in every frame of every run, so every random draw (fire and mine intervals, aim
+deviations, wander directions) happened at the same frame with the same value, and every AI
+decision that consumes one was taken the same way. The positions differ by at most 0.005
+units (a tank's hit radius is 15): print rounding and single-precision rounding differences
+(the Wii fuses multiply-adds; the host does not), which never changed a decision. The
+parameters given to the player and to each enemy type met (types 1-6 and 8 across these
+missions) are identical, and `TnkGameParam.bin`'s 42 fields per tank agree with the `be_s32` /
+`be_f32` views in `RPTnkTank.cpp`, `RPTnkAi_2.cpp`, `RPTnkAi_4.cpp` and
+`RPTnkPlayerController.cpp` (integers where the data are integers, floats where floats).
+
+### Why it plays easier
+
+- **The pointer.** The game sets KPAD's pointer play radius to 0.06 every frame (§35). In
+  Dolphin, as on a Wii, KPAD's stabilisation runs on the emulated remote's pointer: the cursor,
+  and with it the turret, trails a moving pointer by up to 12 frames and creeps over the last
+  few pixels. The port gives the mouse radius 0 (§35): the turret follows the mouse within a
+  frame, to half a pixel. In Tanks! that is a large advantage: leading a moving tank, and
+  shooting incoming shells and tanks down at once. `pointer_stabilise 1` in the input config
+  keeps the game's stabilisation for a play like the original's (the delay of the remote
+  itself, its jitter and Dolphin's own latency are not modelled).
+- **Screen shape.** Dolphin's default console setting is 16:9; the port's is 4:3 (`--sc`,
+  `aspect = 16:9`). Tanks! has a map per screen shape (22 columns wide on 16:9, 16 on 4:3; the
+  same enemies, a different arena), so the same mission is a different layout. Both shapes are
+  covered above and play identically on the port and in Dolphin.
+- **Speed.** The game ran at full speed on the port in the play-test's recording
+  (`--perf`: 45544 Tanks! frames, 16.70 ms per frame on average); the game was not slowed down.
