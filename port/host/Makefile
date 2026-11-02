@@ -919,7 +919,9 @@ $(MANIFEST_O): $(HOST)/windows/wiiplay.rc $(HOST)/windows/wiiplay.manifest
 	$(WINDRES) -I$(HOST)/windows $< -O coff -o $@
 
 # $(OUT)/NAME runs NAME.exe under Wine, headless: no display (Wine then opens no
-# window), its own prefix (WINEPREFIX, default $TMPDIR/wiiplay-wine when it runs).
+# window), its own prefix (WINEPREFIX, default $TMPDIR/wiiplay-wine when it runs). Make
+# the prefix with one program first (`make WIN64=1 unit`): several Wine processes
+# starting together in a new prefix can hang in its set-up.
 # WINEPATH: the MinGW runtime DLLs (libstdc++-6, libgcc_s_seh-1, libwinpthread-1).
 WINE ?= wine
 MINGW_DLL_DIRS := $(sort $(foreach d,libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll,\
