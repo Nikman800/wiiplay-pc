@@ -168,6 +168,10 @@ TOUCHED = [
     "include/Pack/types_pack.h",
     "include/Pack/RPAudio/RPSndObject.h",
     "include/Pack/RPParty/RPPartyCommon/RPActorList.h",
+    # Windows (HOST_BUILD.md §41): one definition of each inline / out-of-line pair
+    "include/Pack/RPParty/RPPartyCommon/RPActor.h",
+    "src/Pack/RPParty/RPBilScene/RPBilCamera_2.cpp",
+    "src/Pack/RPParty/RPWlyScene/RPWlySound_3.cpp",
     "src/egg/gfxe/eggAnalizeDL.cpp",
     "src/Pack/RPParty/RPPartyCommon/RPPathFollower_2.cpp",
     "src/Pack/RPParty/RPBilScene/RPBilResult.cpp",
@@ -300,6 +304,8 @@ TOUCHED = [
     # Milestone 7 (HOST_BUILD.md §32): the other minigames
     "include/Pack/RPAudio/RPSndObject.h",
     "include/Pack/RPParty/RPPartyCommon/RPActorList.h",
+    # Windows (HOST_BUILD.md §41): one definition of each inline / out-of-line pair
+    "src/Pack/RPParty/RPBilScene/RPBilCamera_2.cpp",
     "src/egg/gfxe/eggAnalizeDL.cpp",
     "src/Pack/RPParty/RPPartyCommon/RPPathFollower_2.cpp",
     "src/Pack/RPParty/RPBilScene/RPBilResult.cpp",

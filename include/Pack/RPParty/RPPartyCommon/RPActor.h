@@ -43,10 +43,12 @@ public:
  */
 class IRPActorEnable {
 public:
-#ifdef RP_ACTOR_DEFINE_VF
+#if defined(RP_ACTOR_DEFINE_VF) && !defined(PORT_HOST)
     // RPActor_2.cpp emits this vtable; the out-of-line copy is in RPActor.cpp
     virtual bool IsEnabled(IRPActorPriority* pOther) { return true; } // at 0x8
 #else
+    // On the host always this declaration (RPActor_2.cpp's inline copy would be a second
+    // definition beside RPActor.cpp's for PE/COFF linkers; port/docs/HOST_BUILD.md §41)
     virtual bool IsEnabled(IRPActorPriority* pOther); // at 0x8 returns true
 #endif
 };
@@ -120,7 +122,9 @@ public:
 
     // Defined out of line in RPActor_2.cpp (global there). Other units keep the inline form so
     // that their weak copies stay as they are.
-#ifdef RP_ACTOR_DEFINE_VF
+#if defined(RP_ACTOR_DEFINE_VF) || defined(PORT_HOST)
+    // The host has only the out-of-line copies (RPActor_2.cpp): ELF linkers let them win over
+    // the inline ones, PE/COFF's report two definitions (port/docs/HOST_BUILD.md §41).
     virtual void VF_0x3C(); // at 0x3C
     virtual void VF_0x40(); // at 0x40
 #else

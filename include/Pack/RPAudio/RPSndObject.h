@@ -1134,6 +1134,16 @@ public:
     }
 };
 
+#if defined(PORT_HOST)
+// RPBilPlayer.cpp specializes these for its eight actors. Declared here so that no other unit
+// instantiates the generic forms for N = 8: ELF linkers let the strong copy win over
+// such a copy, PE/COFF's report two definitions (port/docs/HOST_BUILD.md §41).
+template <> void TRPSndObject<8>::set3DPosition(const nw4r::math::VEC3& rPos);
+template <> nw4r::snd::SoundHandle* TRPSndObject<8>::startSound(u32 id, u32 handle);
+template <>
+void TRPSndObject<8>::detailStartSound(nw4r::snd::SoundHandle* pHandle, u32 id, u32 handle);
+#endif
+
 //! @}
 
 #endif

@@ -3,8 +3,12 @@
 // BGM per field (RPWlySoundActor::sFieldIndex)
 const u32 RPWlySoundObj::sBgmIds[10] = {0x32, 0x38, 0x3A, 0x3C, 0x42, 0x33, 0x39, 0x3B, 0x3D, 0x43};
 
-// The binary inlines RPSndObject2D's (empty) destructor into the derived one.
+// The binary inlines RPSndObject2D's (empty) destructor into the derived one. The host uses
+// RPWlySound_2.cpp's out-of-line one: ELF linkers let the strong copy win over
+// such a copy, PE/COFF's report two definitions (port/docs/HOST_BUILD.md §41).
+#if !defined(PORT_HOST)
 inline RPSndObject2D::~RPSndObject2D() {}
+#endif
 
 RPWlySoundObj::~RPWlySoundObj() {}
 

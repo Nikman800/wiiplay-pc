@@ -924,7 +924,7 @@ $(MANIFEST_O): $(HOST)/windows/wiiplay.rc $(HOST)/windows/wiiplay.manifest
 WINE ?= wine
 MINGW_DLL_DIRS := $(sort $(foreach d,libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll,\
     $(dir $(abspath $(shell $(MINGW)gcc-posix -print-file-name=$(d))))))
-WINE_DLL_PATH := $(subst $(eval) ,;,$(patsubst %/,Z:%,$(MINGW_DLL_DIRS)))
+WINE_DLL_PATH := $(subst $(eval) ,;,$(patsubst %/,Z:%,$(MINGW_DLL_DIRS)) $(if $(AURORA_BUILD),Z:$(AURORA_BUILD)))
 $(OUT)/%: $(OUT)/%$(X)
 	@printf '%s\n' '#!/bin/sh' '# Runs $*.exe under Wine without a display (port/host/Makefile, WIN64=1)' \
 	    'export WINEPREFIX="$${WINEPREFIX:-$${TMPDIR:-/tmp}/wiiplay-wine}" WINEDEBUG="$${WINEDEBUG:--all}"' \

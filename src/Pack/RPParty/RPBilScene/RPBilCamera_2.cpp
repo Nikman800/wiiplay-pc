@@ -47,8 +47,12 @@ struct BilVec3 : EGG::Vector3f {
 
 } // namespace
 
-// The binary inlines RPSndObject2D's (empty) destructor into the derived one.
+// The binary inlines RPSndObject2D's (empty) destructor into the derived one. The host uses
+// RPWlySound_2.cpp's out-of-line one: ELF linkers let the strong copy win over
+// such a copy, PE/COFF's report two definitions (port/docs/HOST_BUILD.md §41).
+#if !defined(PORT_HOST)
 inline RPSndObject2D::~RPSndObject2D() {}
+#endif
 
 RPBilSoundActor::~RPBilSoundActor() {}
 

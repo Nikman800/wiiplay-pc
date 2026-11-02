@@ -23,6 +23,8 @@
 #include <sys/stat.h>
 
 #ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
 #include <windows.h>
 #include <shlobj.h>
 #else
@@ -102,6 +104,19 @@ std::string KnownFolder(int csidl) {
     }
     return Slashes(Utf8(buf));
 }
+#endif
+
+#ifdef _WIN32
+// The standard streams in binary mode, as on Linux: no CR before each LF in what the
+// tests read (binmode.o, Makefile, only changes files opened later). Every executable
+// links this file (the arena uses it).
+struct BinaryStdio {
+    BinaryStdio() {
+        _setmode(_fileno(stdin), _O_BINARY);
+        _setmode(_fileno(stdout), _O_BINARY);
+        _setmode(_fileno(stderr), _O_BINARY);
+    }
+} sBinaryStdio;
 #endif
 
 int Copy(const std::string& s, char* out, size_t size) {
