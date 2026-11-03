@@ -47,9 +47,9 @@ PLAY_FRAMES = 16200
 SHOOT_SHOTS = [(5100, "explanation"), (5480, "round_start"), (5904, "hit"), (7500, "targets"),
                (14950, "finished"), (15300, "medal"), (15740, "results_menu"), (16190, "back_to_menu")]
 SHOOT_SCENES = {"explanation": "ESceneID_RPPartyMainScene", "back_to_menu": "ESceneID_RPPartyMainScene"}
-HOCKEY_FRAMES = 14600
-HOCKEY_SHOTS = [(3950, "start"), (4400, "rally"), (5250, "goal"), (13500, "game_over"), (14000, "results"),
-                (14200, "results_menu"), (14590, "back_to_menu")]
+HOCKEY_FRAMES = 15000
+HOCKEY_SHOTS = [(3950, "start"), (4400, "rally"), (5250, "goal"), (13850, "game_over"), (14350, "results"),
+                (14550, "results_menu"), (14990, "back_to_menu")]
 HOCKEY_SCENES = {"back_to_menu": "ESceneID_RPPartyMainScene"}
 
 

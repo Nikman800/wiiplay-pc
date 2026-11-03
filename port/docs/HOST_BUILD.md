@@ -5689,8 +5689,13 @@ the FRAME lines' `game=` state compared):
 | Tanks! | from frame 7877, mission 3: the player's shot kills its fifth tank a little earlier; the same 5 kills and the same game over | the game-side player aims at moving tanks |
 
 Picture hashes differ from frame 656 (the menus: layout animations, `FInv` and the float
-`M_PI` in the projection), as they should. Every changed game still finishes its script
-(`make playtest`: OK). None of this makes a game play differently in kind: the changes are
+`M_PI` in the projection), as they should. Two scripts needed new timings, because the
+game-side player's game is a different one: Laser Hockey's 14-0 has two more goals, each
+a 170-frame pause, so time is up at frame 13747 (was 13407) and the results menu presses
+moved 350 frames later (`hockey.txt`; `HOCKEY_FRAMES` 15000); in Billiards the player now
+needs 21 shots and 7 fouls to clear the table (the result at frame 16239, was about 9950),
+so the run is 17200 frames (`play_games.py`). The two-player Billiards of `make playtest2`
+(§36) has not been rerun. None of this makes a game play differently in kind: the changes are
 last-bit roundings that a chaotic game (billiards, hockey, a bot reacting each frame)
 amplifies into a different but equally valid game; Dolphin comparisons above say the new
 roundings are the Wii's.
@@ -5699,7 +5704,10 @@ roundings are the Wii's.
 
 Both builds compile the same MSL objects and host forms; `make WIN64=1 libm` compares every
 function above bit for bit: 33 functions, 2^24 inputs each, and the software fma forms
-against the instructions: 0 differences.
+against the instructions: 0 differences. A whole Tanks! run of `make playtest` (menus,
+three missions, the results; 9900 frames, the game-side player) under Wine and on Linux:
+the game state, every frame's picture hash and the sound identical. So did a whole Billiards run
+(17200 frames, the game-side player clearing the table in 21 shots): every frame identical.
 
 ### Verified
 
@@ -5711,8 +5719,10 @@ against the instructions: 0 differences.
   `MtxGetScale`), 279 steps.
 - Under Wine: `unit`, `archives`, `resources`, `layouts`, `models`, `anims`, `effects`,
   `efcurves`, `sound`, `collision`, `data`, `bti`, `rfl`, `hbm`, `platform`, `audio`, `input`,
-  `gx`, `scene`, `particles` (identical to `build/host64`), `boot`, `libm`: OK.
+  `gx`, `scene`, `particles` (identical to `build/host64`), `boot`, `gestures`, `libm`: OK.
 - `make libm` (Linux): the software fma forms against the instructions: OK.
+- `make playtest`: OK (the nine games twice each, with the new Laser Hockey and Billiards
+  timings).
 - `check_matching.py`: 1001 units identical (the 974 and the MSL math units, which now
   depend on `fdlibm.h`).
 - `make WIN64=1 dist`: the package has no `LICENSE-math.txt` any more.
