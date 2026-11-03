@@ -235,7 +235,10 @@ void TestNw4rMath() {
     VEC2Normalize(&v, &v);  // in place
     CHECK_NEAR(v.x, 0.6, kEst, 1.0);
     CHECK_NEAR(v.y, 0.8, kEst, 1.0);
-    CHECK(FrSqrt(4.0f) == 0.5f);
+    // Broadway's frsqrte and one Newton-Raphson step (HOST_BUILD.md §42): the game's own
+    // FrSqrt, called in Dolphin, returns 0.49999997 (0x3EFFFFFF) for 4 and 0.99999994 for 1.
+    CHECK(FrSqrt(4.0f) == 0.49999997f);
+    CHECK(FrSqrt(1.0f) == 0.99999994f);
     (void)n;
 
     // ut::Abs<f32>: fabs (sign bit cleared, -0 and NaN included).

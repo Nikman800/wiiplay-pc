@@ -8,7 +8,7 @@ decompiled readers (src/nw4r/g3d/res/g3d_resanm*.cpp, g3d_resanm.h), every opera
 f32 as the host build computes it (SSE, no fused multiply-add):
 
 * keyframe tracks (ResKeyFrameAnmData): estimate-then-walk search and Hermite interpolation
-  with FInv = 1 / x;
+  with FInv as Broadway computes it (fres's table, one Newton-Raphson step; §42);
 * CHR0 frame values FVS32 / FVS48 / FVS96 (quantised frames, 12-bit and 16-bit values, S10.5 /
   S7.8 slopes) and CV8 / CV16 / CV32 tracks; the rotation matrix of MTX34RotXYZDeg with
   SinCosFIdx's table (read from src/nw4r/math/math_triangular.cpp);
@@ -16,9 +16,9 @@ f32 as the host build computes it (SSE, no fused multiply-add):
   search, SRT0 matrices, SCN0 lights, ambient lights and cameras.
 
 The fast-cast stores (psq_st: F32ToU16, F32ToU8_0, F32ToS10_5) clamp and truncate.
-Every result must match bit for bit. On the Wii, FInv is fres plus one Newton step and
-g3d_resanmchr.cpp is built with fp_contract (fmadds), so the console's floats can differ from
-these in the last bit or so; the host build does not try to reproduce that.
+Every result must match bit for bit. On the Wii g3d_resanmchr.cpp is built with fp_contract
+(fmadds), so the console's floats can differ from these in the last bit or so; the host build
+does not try to reproduce that (§42).
 
     test_anims.py --harness build/host64/anm_harness --disc ~/wii-play/extracted/files
 """
@@ -77,9 +77,54 @@ def div(a, b):
     return f32(a / b)
 
 
+def fmaf(a, b, c):
+    """Single-precision fused multiply-add, rounded once (port_fmaf): a*b is exact in double;
+    the sum is rounded to odd in double, which then rounds correctly to single."""
+    p = a * b
+    s = p + c
+    if math.isinf(s) or math.isnan(s) or p == 0 or c == 0:
+        return f32(s)
+    bb = s - p
+    err = (p - (s - bb)) + (c - bb)
+    if err != 0.0:
+        m = struct.unpack("<Q", struct.pack("<d", s))[0]
+        if m & 1 == 0:
+            s = math.nextafter(s, math.inf if err > 0 else -math.inf)  # toward the exact sum
+    return f32(s)
+
+
+FRES_BASE = [0x7ff800, 0x783800, 0x70ea00, 0x6a0800, 0x638800, 0x5d6200, 0x579000, 0x520800,
+             0x4cc800, 0x47ca00, 0x430800, 0x3e8000, 0x3a2c00, 0x360800, 0x321400, 0x2e4a00,
+             0x2aa800, 0x272c00, 0x23d600, 0x209e00, 0x1d8800, 0x1a9000, 0x17ae00, 0x14f800,
+             0x124400, 0x0fbe00, 0x0d3800, 0x0ade00, 0x088400, 0x065000, 0x041c00, 0x020c00]
+FRES_DEC = [0x3e1, 0x3a7, 0x371, 0x340, 0x313, 0x2ea, 0x2c4, 0x2a0, 0x27f, 0x261, 0x245, 0x22a,
+            0x212, 0x1fb, 0x1e5, 0x1d1, 0x1be, 0x1ac, 0x19b, 0x18b, 0x17c, 0x16e, 0x15b, 0x15b,
+            0x143, 0x143, 0x12d, 0x12d, 0x11a, 0x11a, 0x108, 0x106]
+
+
+def fres(x):
+    """Broadway's fres (Dolphin's table; port/ps.h port_fres)."""
+    u = struct.unpack("<Q", struct.pack("<d", x))[0]
+    mant, sign, exp = u & ((1 << 52) - 1), u & (1 << 63), u & (0x7FF << 52)
+    if mant == 0 and exp == 0:
+        return math.copysign(math.inf, x)
+    if exp == 0x7FF << 52:
+        return math.copysign(0.0, x) if mant == 0 else math.nan
+    if exp < 895 << 52:
+        return math.copysign(3.4028234663852886e38, x)
+    if exp >= 1149 << 52:
+        return math.copysign(0.0, x)
+    exp = (0x7FD << 52) - exp
+    i = mant >> 37
+    m = FRES_BASE[i // 1024] - (FRES_DEC[i // 1024] * (i % 1024) + 1) // 2
+    return f32(struct.unpack("<d", struct.pack("<Q", sign | exp | (m << 29)))[0])
+
+
 def finv(x):
-    """math::FInv on the host (port/host/include/decomp/compat.h)."""
-    return div(1.0, x)
+    """math::FInv: fres refined by one Newton-Raphson step (compat.h, port_fres_nr):
+    e = fres(x); -(x * (e * e) - (e + e)), fused."""
+    e = fres(x)
+    return -fmaf(x, mul(e, e), -add(e, e))
 
 
 def quantize(v, scale, lo, hi):

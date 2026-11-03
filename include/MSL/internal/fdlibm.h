@@ -19,6 +19,17 @@
 #define __LITTLE_ENDIAN
 #endif
 
+#if defined(PORT_HOST)
+/* The PC port (port/docs/HOST_BUILD.md §42): x86-64 is little-endian. glibc's
+ * <endian.h> may define __LITTLE_ENDIAN already (as 1234); MinGW-w64 does not. */
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ && !defined(__LITTLE_ENDIAN)
+#define __LITTLE_ENDIAN
+#endif
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error "fdlibm on the host: only little-endian hosts are handled"
+#endif
+#endif
+
 #ifdef __LITTLE_ENDIAN
 #define __HI(x) *(1+(int*)&x)
 #define __LO(x) *(int*)&x

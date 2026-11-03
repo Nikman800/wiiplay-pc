@@ -339,6 +339,8 @@ TOUCHED = [
     "include/Pack/RPParty/RPPartyCommon/RPMedalResult.h",
     "src/Pack/RPParty/RPPartyCommon/RPMedalResult_2.cpp",
     "include/Pack/RPParty/RPBomScene/RPBomPanel_3.h",
+    # §42 (the game's own math): fdlibm's word order on a little-endian host
+    "include/MSL/internal/fdlibm.h",
 ]
 
 

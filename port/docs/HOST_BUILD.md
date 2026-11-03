@@ -1500,7 +1500,8 @@ The console can differ from the host in the last bit or so of a float result, fo
 reasons the port does not reproduce:
 
 - `FInv` on the Wii (Rev 1) is `fres` refined by one Newton-Raphson step, within about an
-  ulp of `1 / x`; the host divides exactly.
+  ulp of `1 / x`; the host divided exactly until §42, which gives it Broadway's `fres` (the
+  model in `test_anims.py` too).
 - `g3d_resanmchr.cpp` is compiled with `#pragma fp_contract on`, so CodeWarrior fuses
   multiply-adds (the FVS value `scale * v + offset`, the Hermite polynomial) into `fmadds`,
   rounding once where the host rounds twice.
@@ -1652,10 +1653,10 @@ declare the pair as a local in the first block's host form (`port_skin[12]`,
 Precision: the host forms do in single precision (SSE; `ANIM_FP` on `-m32`) what the
 instructions do, fused where the Wii fuses, so they are bit-exact except where the Wii starts
 from an estimate. `fres` and `frsqrte` are about 12-bit estimates on the Wii, which the code
-then refines (one or two Newton-Raphson steps); the host starts from the exact `1 / x` and
-`1 / sqrt(x)` and runs the same steps. The refined results agree with a double-precision
-reference to 2^-21 relative (`test_math`), which also bounds the Wii's; pinning the last bit
-would need Dolphin's estimate tables.
+then refines (one or two Newton-Raphson steps); the host started from the exact `1 / x` and
+`1 / sqrt(x)` and ran the same steps (since §42: Broadway's estimates, bit for bit, checked against the game's own functions in
+Dolphin). The refined results agree with a double-precision reference to 2^-21 relative
+(`test_math`).
 
 `tests/test_math.cpp` (`make unit`) calls the built functions and runs the macros of the
 units that are not built yet in a scope with their variables. Exact: copies, identities,
@@ -5341,8 +5342,8 @@ unchanged.
   unreachable references).
 - `windows/wiiplay.manifest`, `windows/wiiplay.rc`: linked into every executable.
 - `windows/README-WINDOWS.txt`, `windows/play.bat`: the package's.
-- `windows/libm/`: the math functions as glibc computes them (below, "Floats"), with
-  `tests/libm_compare.c` and `make WIN64=1 libm` to compare them.
+- `tests/libm_compare.c`, `make WIN64=1 libm`: the game's math (§42) on both builds, compared
+  through a pipe (below, "Floats").
 - `aurora/mingw-w64.cmake`: the CMake toolchain for Aurora; `aurora/CMakeLists.txt` takes
   Dawn's Windows package and builds `wiiplay_gx.dll`.
 
@@ -5397,7 +5398,7 @@ definition before a shared library's).
 - **`__declspec`**: MinGW predefines it; `decomp/compat.h` keeps its own mapping and adds the
   forms MinGW's headers use.
 - **GCC 13's libstdc++** has no `std::sinf` and the other float math names (GCC 14 added them);
-  `types.h` adds them for older libstdc++.
+  `port/msl_math.h` (§42) declares them, as the game's own math.
 - **LLP64** (`long` is 32-bit on Windows): no host or decomp code converts pointers through
   `long` (`-Werror=pointer-to-int-cast`, and C++ rejects narrowing pointer casts, so the build
   would fail); `%ld` is used only with `long`; file offsets through `ftell` / `fseek` are
@@ -5465,63 +5466,32 @@ struct return was fixed in §32).
 MinGW-w64's math functions (and msvcrt's, which some of them call, and whose results
 differ again between Windows and Wine) are not glibc's: `make WIN64=1 scene` and
 `particles` reported differences against `build/host64`, and some frames of animated
-layouts (the title, the HOME Menu) hashed differently. The Windows build now links
-`windows/libm/` (its `README.md`), the implementations glibc 2.43 uses, ahead of
-MinGW's: one relocatable object, `build/win64/libm/wp_libm_all.o`, linked whole into
-every executable (`EXE_LDFLAGS`), so its definitions are the ones used and MinGW's
-are never pulled from the archives. Linux builds do not use it.
+layouts (the title, the HOME Menu) hashed differently. The first fix (commit 283dabf)
+vendored glibc's implementations (ARM optimized-routines' `sinf`, `cosf`, `sincosf`,
+`powf`, `pow`; CORE-MATH's `tanf`, `asinf`, `acosf`, `atan2f`, `sincos`; exact `fmaf` /
+`fma`, `hypotf`, `modff`, `sqrtf`, `sqrt`, `fminf`, `fmaxf`) into `windows/libm/`, so the
+Windows build computed what the Linux build computed.
 
-- `sinf`, `cosf`, `sincosf`, `powf`, `pow`: ARM optimized-routines (commit 2ee4b0d).
-  glibc builds them twice, plain x86-64 and `-mfma -mavx2`, and picks one per CPU (an
-  IFUNC: FMA and AVX2 usable); the two builds differ in the last bit for some inputs
-  (`sinf(0x1.ab6152p+5)`). The Makefile builds both too, renames each entry point with
-  `objcopy --redefine-sym`, and `wp_libm.c` picks one from cpuid on the first call.
-- `tanf`, `asinf`, `acosf`, `atan2f`: CORE-MATH (commit 660067d), correctly rounded, as
-  glibc's.
-- `sincos` (double, the host's input code): MinGW defines it in one object with
-  `sincosf`, so it has to be replaced too. CORE-MATH's is correctly rounded, glibc's
-  (IBM's) is not: they differ in the last bit of the double for about 0.1% of inputs;
-  none changed the value rounded to float in 10^8 inputs, and `host_input.cpp` rounds
-  them to integer counts.
-- `wp_libm.c`: `fmaf` and `fma` (the game's paired-single code calls `fmaf` everywhere,
-  through `__builtin_fmaf`): `vfmadd` when the CPU has FMA, else exact software forms
-  (MinGW's were wrong for 17% of random float inputs); `hypotf` as glibc computes it;
-  `modff` (MinGW's gives +0 as the fraction of a negative integer); `sqrtf` and `sqrt`
-  as the instructions (MinGW's `sqrt` misrounds about 1 in 10^4 doubles); `fminf` and
-  `fmaxf` with glibc's signaling-NaN results; a `roundeven` for CORE-MATH's `tanf`.
-- Flags as glibc's libm: `-O2 -frounding-math -fno-math-errno`, and `HAVE_FAST_FMA` in
-  the FMA build (glibc's `math.h` defines `FP_FAST_FMA` there, MinGW's does not; without
-  it `pow` takes its other path, and 36 of 2^28 inputs differed).
+§42 replaced that: neither build uses the C library's math for the game any more. The
+game's math is the Wii's own (the decomp's MSL math, compiled for the host), the fused
+operations go to the port's exact `port_fmaf` / `port_fma` (`src/host_fma.c`: the vfmadd
+instructions, or `windows/libm`'s exact software forms, moved there), and the estimate
+instructions to Broadway's tables; all of it is the same code on Linux and Windows.
+`windows/libm/` is gone (and with it `LICENSE-math.txt` in the package). The C library's
+math is left only to host code that does not touch the game: `hypotf` (the `--perf`
+summary), `fminf` / `fmaxf` (the HOME Menu probe's bounds), `lround` (exact in both) and
+Aurora.
 
-`fmodf`, `fmod`, `ldexp` and `lround` give the same results in both (but for NaN
-payloads, and `lround` of NaN or infinity, `LONG_MIN` of another width) and stay
-MinGW's. Inputs are compared in `tests/libm_compare.c`: `make WIN64=1 libm`
-runs it under Wine and pipes the results to the Linux build of it (glibc), 2^24 inputs
-per function by default (`LIBM_N=4294967296`: every float). Before and after, on this
-machine (FMA; Wine 10), differing results out of 2^32 float inputs or 2^28 random
-ones (not counting NaNs that differ only in their payload):
-
-| Function | MinGW-w64 | `windows/libm` |
-|---|---|---|
-| `sinf`, `cosf`, `sincosf` | 1414975594, 1413825404, 1414975596 / 1413825404 (all floats) | 0 |
-| `tanf`, `asinf`, `acosf` | 0 (all floats: Wine's msvcrt; Windows' own differs) | 0 |
-| `atan2f` | 0 (Wine's msvcrt) | 0 |
-| `powf` | 23218 | 0 |
-| `pow` | 197831 | 0 |
-| `fmaf`, `fma` | 45942599, 36828854 | 0 |
-| `modff` (fraction) | 889192449 (all floats) | 0 |
-| `sqrt` | 32863 | 0 |
-| `fminf`, `fmaxf` | 262856 each (signaling NaNs) | 0 |
-| `hypotf`, `sqrtf` | 0 (NaN payloads only) | 0 |
-| `sincos` (double) | 104367414 (sine), 104358971 (cosine) | 206156, 191728 (CORE-MATH against IBM, above) |
-
-On Linux the vendored sources (built with the system GCC, names prefixed) match glibc
-2.43 in one process for every float input of the one-argument functions and 2^30
-random inputs of the others, in both builds (`GLIBC_TUNABLES=glibc.cpu.hwcaps=-AVX2,-FMA`
-makes glibc take its non-FMA builds); so does the Windows build with the plain builds
-forced, against glibc with that setting (2^28 inputs each). A CPU with FMA4 but no FMA
-(AMD, 2011-2013) gets the plain builds here and glibc's FMA4 builds of `pow`: those may
-differ.
+`make WIN64=1 libm` now compares the game's math between the builds: `tests/libm_compare.c`
+under Wine writes each function's results (raw bits) to a pipe, the Linux build of it
+(linked with `build/host64`'s library) reads and compares them; 2^24 inputs per function
+by default (`LIBM_N=4294967296`: every float for the one-argument ones). The functions:
+MSL's `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `fmod`,
+`floor`, `ceil`, `ldexp` and their float forms (`sinf` = `(float)sin((double)x)`, ...,
+`modff`), `port_fmaf`, `port_fma`, Broadway's `fres` and `frsqrte` (and the double
+estimate's low bits) and the refined `FInv` / `FrSqrt` forms; then, in one process, the
+software fma forms against the dispatched ones (`libm_compare self`; the instructions
+on a CPU with FMA). On Linux, `make libm` runs the latter.
 
 ### Verified under Wine (Wine 10, headless, lavapipe through winevulkan)
 
@@ -5534,7 +5504,8 @@ differ.
 - `boot` (`test_boot`): boot, title, menus, save, a short Shooting Range and Laser Hockey, the
   HOME Menu (Close, Reset, Wii Menu), the real-time live run (dummy audio, synthetic SDL
   events, the pacer's sleeps) and the latency runs: OK. `gestures`: OK after the fix above.
-- `scene` and `particles`: identical to `build/host64` (with `windows/libm`). `libm`: OK.
+- `scene` and `particles`: identical to `build/host64` (with `windows/libm`; since §42 with
+  the game's own math, see §42 "Verified"). `libm`: OK.
 - Frame hashes and the game state of every frame, Linux against Wine: the HOME Menu from
   the title (`home_title.txt`, 1800 frames) and the menus with a Shooting Range
   (`menus.txt`, 6450 frames): identical.
@@ -5556,3 +5527,192 @@ whether the Visual C++ runtime is present. Run, from the unpacked zip:
 
 and play the nine games, the HOME Menu and a save; the `--perf` summary (in
 `%LOCALAPPDATA%\wiiplay`) shows the pacing.
+
+## 42. The game's own math: MSL's functions, Broadway's estimates
+
+Until now the game's math functions were the host C library's: glibc on Linux, a vendored copy
+of glibc's implementations on Windows (§41, "Floats"). The Wii's are not glibc's. The game
+calls MSL's (CodeWarrior's C library, fdlibm underneath; `src/MSL/`), and its paired-single
+code starts from Broadway's estimate instructions. Both builds now compute the Wii's bits.
+
+### Which functions the game calls, and where they come from now
+
+On the Wii, `include/MSL/internal/math_double.h` makes every float function an inline over the
+double one: `sinf(x)` is `(float)sin((double)x)`, and so are `cosf`, `tanf`, `asinf`,
+`acosf`, `atan2f`, `sqrtf`, `floorf`, `ceilf`, `fmodf`, `ldexpf`, `modff` (via `modf`).
+MSL's `<cmath>` has only the double overloads in `std::` (`std::sin(float)` returns a double),
+but for `std::sqrt(float)` (`sqrtf`) and `std::fabs(float)`; there is no `powf` (the game calls
+`pow`). `fabs` is the instruction. The DOL (`config/RHAE01/symbols.txt`, `splits.txt`) has
+these MSL units: `e_acos`, `e_asin`, `e_atan2`, `e_fmod`, `e_pow`, `e_rem_pio2`, `e_sqrt`
+(Broadway has no `fsqrt`: `sqrt` is fdlibm's bit-by-bit loop), `k_cos`, `k_rem_pio2`, `k_sin`,
+`k_tan`, `s_atan`, `s_ceil`, `s_copysign`, `s_cos`, `s_floor`, `s_frexp`, `s_ldexp`,
+`s_modf`, `s_sin`, `s_tan`, the `w_` wrappers (`acos`, `asin`, `atan2`, `fmod`, `pow`,
+`sqrt`: 4-byte branches, `_IEEE_LIBM`) and `math_sun` (`scalbn`). Their objects have no
+`fmadd` (the MSL library is built with `-fp_contract off`), so the host computes the same
+double operations in the same order.
+
+The host now:
+
+| Before (game code on the host) | Now |
+|---|---|
+| glibc's (Linux) / `windows/libm`'s (Windows) `sinf`, `cosf`, `sincosf` (GCC merged sine and cosine), `tanf`, `asinf`, `acosf`, `atan2f`, `sqrtf`, `powf`, `fmodf`, `ldexpf`, `modff`, `atan2`, `pow`, `fmod`, `sqrt` | MSL's, compiled for the host: `port_msl_sin` ... (`src/MSL/*.c` under `-DPORT_MSL_MATH_IMPL`), the float forms as MSL's inlines |
+| `std::sin(float)`, `std::pow(float, float)`, ... the float overloads | the double function, as MSL's `<cmath>` (Laser Hockey's, Charge!'s and the 3D sound's `std::atan2` / `std::pow` on floats) |
+| `M_PI` a double (glibc) | MSL's float `3.141592653589793f`: `NW4R_MATH_PI`, `NW4R_MATH_DEG_TO_RAD` / `RAD_TO_FIDX`, `GXInitLightSpot`, `C_MTXPerspective`, `GXDraw`, `AXGetLpfCoefs` compute in single precision as on the Wii |
+| `fres`, `frsqrte` (`FInv`, `FrSqrt`, `PSVECNormalize`, `PSVECMag`, `PSQUATNormalize`, `VEC2Normalize`, `MTX34InvTranspose`, `GetModelLocalAxisY2/3`): the exact `1 / x`, `1 / sqrt(x)`; `FInv` divided | Broadway's estimate (below), refined by the same Newton-Raphson steps |
+| `fmaf` / `fma` (the fused host forms): the C library's | `port_fmaf` / `port_fma` (`src/host_fma.c`): `vfmadd` with FMA, else exact software forms; the same bits |
+
+How (`port/host/include/port/msl_math.h`, force-included in every host compile after the C
+library's `<math.h>` / `<cmath>`):
+
+- **MSL units** (`MSL_MATH_SRCS` in the Makefile, `build/*/mslmath/`): the decomp's files
+  unchanged, compiled with `-DPORT_MSL_MATH_IMPL -D_IEEE_LIBM` (the matching build's
+  `cflags_runtime`), SSE double arithmetic also on `-m32`, `-ffp-contract=off`, `-fwrapv`.
+  The header renames their definitions to `port_msl_*` (and `__ieee754_*`, `__kernel_*`), so
+  they never interpose on the C library (Aurora and the GPU drivers keep theirs). One edit in
+  the decomp, under `PORT_HOST`: `include/MSL/internal/fdlibm.h` declares the word order
+  (`__LITTLE_ENDIAN`) on a little-endian host (its own test knows `i386`, not `x86_64`, and
+  glibc's `<endian.h>` may define the macro anyway). `check_matching.py` lists it.
+- **Decomp units** (`-DPORT_MSL_GAME_MATH`, the `decomp/` rules): `sin`, `sinf`, `sqrt`, ...
+  are object-like macros naming the `port_msl_*` functions, with MSL's `<cmath>` overloads
+  and MSL's `M_PI`.
+- **Host code** (`src/host_*.cpp`, the tests): the same functions with the usual C++
+  overloads (`std::sin(float)` is MSL's `sinf`), so the host's own stand-ins for SDK code
+  (`PSMTXRotRad`, `C_MTXLookAt`, `GXInitLightSpot`) and the input code (`host_input.cpp`'s
+  motions) compute the same on both systems. Functions MSL does not have (`hypot`, `fmin`,
+  `fmax`, `lround`) stay the C library's; only host code calls them, none of it game state.
+- Every host compile has `-ffp-contract=off`: the host fuses only where a host form says so.
+- `types.h`'s `std::sinf` names for GCC 13's libstdc++ went (the header declares them).
+
+Afterwards `nm` of `boot` lists no C library math function but `fminf`, `fmaxf`, `hypotf`
+(host diagnostics) and `lround` (exact); `boot.exe` imports only MinGW's own `ceil` (its
+runtime's).
+
+### Broadway's rounding
+
+- **Estimates.** `fres` and `frsqrte` (`port_fres`, `port_frsqrte` in `port/ps.h`) are
+  Dolphin's lookup tables and interpolation (`Common::ApproximateReciprocal` /
+  `ApproximateReciprocalSquareRoot`, which Dolphin took from a console). Checked against
+  Dolphin's own code (compiled on the host) for every float: 0 differences (fres: all
+  4278190082 non-NaN floats; frsqrte: every positive finite float). `frsqrte`'s result is a
+  double with up to 26 fraction bits, not always a single.
+- **The C operand of a single-precision multiply** (`fmuls`, `fmadds`, `ps_mul`,
+  `ps_muls0`, ...) is rounded to 25 fraction bits first (Dolphin's `Force25Bit`). That is a
+  no-op on a single, so compiled code (whose floats are always singles in their registers;
+  CodeWarrior converts with `frsp`) never sees it; in the game's asm it matters where the
+  C operand is a double: `frsqrte`'s estimate squared in `FrSqrt`, `VEC2Normalize`,
+  `PSVECNormalize`, `PSVECMag` (`fmuls work, r, r`), and `PSQUATNormalize`'s
+  double-precision scale in `ps_muls0`. `port_force25` / `port_fmuls_d` do it there; the
+  product of the rounded operands is exact in double and is rounded once.
+- **Fused single-precision operations** round once when their operands are singles
+  (Dolphin's `NI_madd_msub` comment, with its Mario Strikers Charged example): the host forms'
+  `port_fmaf` is that. Unchanged, but no longer the C library's `fmaf`.
+- **Not modelled:** out-of-range float-to-integer conversions (PowerPC saturates, x86
+  returns `0x80000000`; undefined in C, not met in the traces) and the `NI` (non-IEEE)
+  FPSCR bit (the SDK leaves it clear).
+
+### CodeWarrior's contraction: the difference that is left
+
+The game's own units (`cflags_game`) and EGG are compiled with `-fp_contract on`:
+CodeWarrior fuses `a * b + c` into `fmadds` (1819 fused instructions in the 572 RP and EGG
+units' asm; nw4r, the SDK, RFL, HBM and MSL are built with it off). The host does not fuse
+(no FMA without `-mfma`, and now `-ffp-contract=off`), so those sites round twice where the
+Wii rounds once: a last-bit difference in some results, every frame.
+
+An experiment (not committed): the RP and EGG units built with `-mfma -ffp-contract=fast`.
+GCC then fuses 2012 multiply-adds in those units (CodeWarrior: 1819); per function the counts
+agree in 167 functions and differ in 224 (inlining and GCC fusing across statements; the
+`#pragma fp_contract off` regions of `RPFshFish.cpp` and `RPBilCamera_4.cpp` are ignored by
+GCC). Even so, Tanks! missions 1 and 3 (below) matched Dolphin in every frame (mission 1 bit for bit). Making
+it the default would need an FMA CPU (x86-64 since 2013: Haswell, Piledriver; the build would
+not start on older ones without a second, non-fused build) and a site-by-site check; that is
+the user's decision, not made here.
+
+### Against the original (Dolphin)
+
+**The functions themselves.** `dolphin_oracle.py` (job scratch) boots the disc in headless
+Dolphin, stops in a frame, and calls the game's own functions through the GDB stub
+(arguments in `f1`/`f2`/`r3`/`r4`, the return address a breakpoint on `nan()`, which the game
+never calls): 20000 inputs each, then the port's old forms (the C library's float function,
+the exact estimates) and the new ones on the same inputs:
+
+| Function (address) | Inputs | Old port ≠ Wii (as float) | New port ≠ Wii |
+|---|---|---|---|
+| `sin` (800C1230), range ±70 | 20000 | 286 (1 ulp) | 0 (the double result, bit for bit) |
+| `cos` (800C0D28) | 20000 | 233 (1 ulp) | 0 |
+| `pow` (800C1390), [0,10]^[-8,8] | 20000 | 13 (1 ulp) | 0 |
+| `tan`, `atan`, `atan2`, `asin`, `acos`, `sqrt`, `fmod`, `floor`, `ceil` | 20000 each | 0 | 0 |
+| `nw4r::math::FrSqrt` (8002F9AC) | 20000 | 7662 (up to 2 ulp) | 0 |
+| `PSVECMag` (800E8290) | 20000 | 6607 (up to 4 ulp) | 0 |
+| `PSVECNormalize` (800E824C) | 20000 | 7591 (up to 4 ulp) | 0 |
+| `nw4r::math::VEC2Normalize` (8002FCC4) | 20000 | 7613 (up to 4 ulp) | 0 |
+| `nw4r::math::MTX34InvTranspose` (8002FDAC) | 20000 | 3820 (up to 2 ulp) | 0 |
+
+(10 of the 340000 calls first came back wrong through the stub, a stop out of step; called
+again one by one, all 10 equal the new port's.) Over 10^8 random game-range inputs, glibc's
+`sinf` / `cosf` / `powf` differ from MSL's float forms in 0.16%, 0.12% and 0.008% of inputs;
+`tanf`, `asinf`, `acosf`, `atan2f`, `sqrtf` (correctly rounded in glibc) agree with them.
+
+**A game, frame by frame** (§38's method, the traces now with every position and aim
+direction as float bits): Tanks! mission 1, idle player, seeds written at
+`RPTnkGameManager::Start`, 1500 frames; mission 3 likewise, 2500 frames:
+
+| Build | Mission 1: frames whose positions / aim bits differ from Dolphin | first | Mission 3 |
+|---|---|---|---|
+| before (C library math, exact estimates) | 1481 of 1500 | frame 0 (the enemy's aim -1.0 where the Wii has -0.99999994, `0xbf7fffff`: `PSVECNormalize`'s estimate) | 2497 of 2500, from frame 0 |
+| now | 843 | frame 206 (1 ulp in an aim direction; CodeWarrior's contraction) | 1891, from frame 174 |
+| now + contraction (the experiment above) | 0 | - | none numerically; 508 frames from frame 658 have +0 where the Wii has -0 (an aim direction's unused y: a fused negation's sign of zero) |
+
+The game state (seeds, ages, alive flags, types, fire intervals) is identical to Dolphin's
+in every frame of every run, before and after.
+
+An idle Laser Hockey run was also traced (scene-relative inputs from the port's own
+scripts, `RPHkyGame`'s state, timer, scores, the puck's position and velocity, both
+paddles' positions and angles every frame, 4008 frames): seeds, state, timer and scores
+equal Dolphin's throughout, but the player's paddle differs from frame 1 in both builds,
+before and after (it follows the pointer: Dolphin's emulated IR pointer and the port's mouse
+put it a fraction of a unit apart), so the floats there say nothing about the math. Games
+driven by the playtest's game-side player (`host_probe_games.cpp`) cannot be replayed in
+Dolphin, which has no such player.
+
+### Before and after on the host
+
+`make playtest`'s nine scripts, once each with the old and the new `boot` (`--trace --hash`,
+the FRAME lines' `game=` state compared):
+
+| Game | Game state | Why |
+|---|---|---|
+| Shooting Range, Find Mii, Fishing, Pose Mii | identical in every frame | their state does not reach the changed functions' last bits, or never feeds a decision |
+| Laser Hockey | first differs at frame 4265 (the puck one unit off at the first rally); the game-side player wins 14-0 instead of 12-0 | physics in 16 sub-steps a frame (`atan2`, normalizations) under a player that reacts to every position: a last-bit difference grows into another rally |
+| Billiards | from frame 4863 (the cue ball one unit off during the first shot); after that another game: 13 shots and 6 fouls, lowest ball 3 at the end, against 10 shots, 3 fouls, the rack cleared to ball 9 | the break and every collision amplify any last-bit difference |
+| Table Tennis | from frame 4235 (the ball one unit off); the same 30 rallies and 61 hits | ball physics with the game-side player |
+| Charge! | from frame 4832 (speed 0.72 against 0.73); 194 points against 193 | the cow's motion (sines, normalizations) |
+| Tanks! | from frame 7877, mission 3: the player's shot kills its fifth tank a little earlier; the same 5 kills and the same game over | the game-side player aims at moving tanks |
+
+Picture hashes differ from frame 656 (the menus: layout animations, `FInv` and the float
+`M_PI` in the projection), as they should. Every changed game still finishes its script
+(`make playtest`: OK). None of this makes a game play differently in kind: the changes are
+last-bit roundings that a chaotic game (billiards, hockey, a bot reacting each frame)
+amplifies into a different but equally valid game; Dolphin comparisons above say the new
+roundings are the Wii's.
+
+### Linux and Windows
+
+Both builds compile the same MSL objects and host forms; `make WIN64=1 libm` compares every
+function above bit for bit: 33 functions, 2^24 inputs each, and the software fma forms
+against the instructions: 0 differences.
+
+### Verified
+
+- `make test` (64-bit) and `make M32=1 test` (from a fresh `build/host32`: the Makefile now
+  creates `$(OUT)` itself): OK. `test_math` checks `FrSqrt(4) == 0.49999997` and
+  `FrSqrt(1) == 0.99999994`, the values the game's own `FrSqrt` returns in Dolphin;
+  `test_anims.py` models `FInv` as Broadway's; `test_particles.py` allows 2^-20 where a
+  gravity field went through the emitter's matrices (they carry `FrSqrt`'s estimate:
+  `MtxGetScale`), 279 steps.
+- Under Wine: `unit`, `archives`, `resources`, `layouts`, `models`, `anims`, `effects`,
+  `efcurves`, `sound`, `collision`, `data`, `bti`, `rfl`, `hbm`, `platform`, `audio`, `input`,
+  `gx`, `scene`, `particles` (identical to `build/host64`), `boot`, `libm`: OK.
+- `make libm` (Linux): the software fma forms against the instructions: OK.
+- `check_matching.py`: 1001 units identical (the 974 and the MSL math units, which now
+  depend on `fdlibm.h`).
+- `make WIN64=1 dist`: the package has no `LICENSE-math.txt` any more.

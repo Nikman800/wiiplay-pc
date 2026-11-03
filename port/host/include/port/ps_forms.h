@@ -24,13 +24,17 @@ extern "C" {
  * nw4r::math (src/nw4r/math/math_types.cpp, math_arithmetic.cpp)
  ******************************************************************************/
 
-/* 1/__builtin_sqrt(x): frsqrte and one Newton-Raphson step in single precision
- * (FrSqrt, VEC2Normalize, PSVECNormalize, PSVECMag). */
+/* 1/sqrt(x): frsqrte and one Newton-Raphson step in single precision (FrSqrt,
+ * VEC2Normalize, PSVECNormalize, PSVECMag):
+ *   fmuls   sq, r, r        r * force25(r), rounded to single
+ *   fmuls   half, r, 0.5
+ *   fnmsubs t, sq, x, 3     -(sq * x - 3), fused
+ *   fmuls   y, t, half */
 static inline float port_frsqrt_nr(float x) {
-    float r = port_frsqrte(x);
-    float sq = r * r;
-    float half = r * 0.5f;
-    float t = -__builtin_fmaf(sq, x, -3.0f); /* fnmsubs: -(sq * x - 3) */
+    double r = port_frsqrte(x);
+    float sq = port_fmuls_d(r, r);
+    float half = (float)(r * 0.5);
+    float t = -port_fmaf(sq, x, -3.0f);
     return t * half;
 }
 
@@ -99,10 +103,10 @@ static inline unsigned int port_mtx34_inv_transpose(float* out, const float* in)
     inv = port_fres(f7.p0);
     {
         float twice = inv + inv, sq = inv * inv;
-        inv = -__builtin_fmaf(f7.p0, sq, -twice);
+        inv = -port_fmaf(f7.p0, sq, -twice);
         twice = inv + inv;
         sq = inv * inv;
-        inv = -__builtin_fmaf(f7.p0, sq, -twice);
+        inv = -port_fmaf(f7.p0, sq, -twice);
     }
     {
         port_ps s = port_ps_splat(inv);
@@ -229,7 +233,7 @@ static inline void port_g3d_local_axis_y(float* v, const float* m, const float* 
             r = port_ps_madds1(c1, f11, r);
             row2 = port_ps_sum0(row2, row2, row2);
             r = port_ps_madds0(c2, f9, r);
-            z = __builtin_fmaf(m22.p0, f9.p0, row2.p0);
+            z = port_fmaf(m22.p0, f9.p0, row2.p0);
             port_psq_st(v, r, 0);
             v[2] = z;
         } else {
@@ -325,7 +329,7 @@ static inline void port_g3d_clr_key(float* acc, const void* clr, float w) {
     const unsigned char* c = (const unsigned char*)clr;
     int i;
     for (i = 0; i < 4; i++) {
-        acc[i] = __builtin_fmaf((float)c[i], w, acc[i]);
+        acc[i] = port_fmaf((float)c[i], w, acc[i]);
     }
 }
 
@@ -454,7 +458,8 @@ static inline void port_quat_multiply(const float* a, const float* b, float* p) 
     port_psq_st(p + 2, w3, 0);
 }
 
-/* PSQUATNormalize: the refinement is in double precision (fmul / fnmsub). */
+/* PSQUATNormalize: the refinement is in double precision (fmul / fnmsub), and
+ * the double scale is ps_muls0's C operand (rounded to 25 fraction bits). */
 static inline void port_quat_normalize(const float* in, float* out) {
     port_ps xy = port_psq_l(in, 0), zw = port_psq_l(in + 2, 0);
     port_ps xy2 = port_ps_mul(xy, xy);
@@ -462,13 +467,14 @@ static inline void port_quat_normalize(const float* in, float* out) {
     float dot = dot2.p0 + dot2.p1;
     double r = port_frsqrte(dot);
     double sq = r * r, half = r * 0.5;
-    double t = -__builtin_fma(sq, (double)dot, -3.0);
-    float scale = (float)(t * half);
+    double t = -port_fma(sq, (double)dot, -3.0);
+    double scale = t * half;
     float w1 = dot - 1e-5f;
-    float sel = w1 >= 0.0f ? scale : (1e-5f - 1e-5f);
-    port_ps s = port_ps_splat(sel);
-    port_psq_st(out, port_ps_muls0(xy, s), 0);
-    port_psq_st(out + 2, port_ps_muls0(zw, s), 0);
+    double sel = w1 >= 0.0f ? scale : (double)(1e-5f - 1e-5f);
+    out[0] = port_fmuls_d(xy.p0, sel);
+    out[1] = port_fmuls_d(xy.p1, sel);
+    out[2] = port_fmuls_d(zw.p0, sel);
+    out[3] = port_fmuls_d(zw.p1, sel);
 }
 
 #ifdef __cplusplus

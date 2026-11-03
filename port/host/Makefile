@@ -58,6 +58,12 @@ DISC ?= $(HOME)/wii-play/extracted/files
 # The other build whose harness output the --compare tests check against: the 32-bit
 # and 64-bit Linux builds check each other; Windows checks against 64-bit Linux.
 OTHER_BUILD := $(if $(filter 1,$(M32))$(filter 1,$(WIN64)),host64,host32)
+# The output directory exists before any rule runs: several rules link straight into
+# $(OUT) (test_be, test_layout, ...) and a fresh tree has none (a -j build could start
+# with one of them).
+ifeq ($(filter clean distclean,$(MAKECMDGOALS)),)
+$(shell mkdir -p $(OUT))
+endif
 
 # port/host/include must come first: it shadows include/types.h,
 # include/decomp/compat.h and include/port/be.h for the host build.
@@ -85,12 +91,18 @@ WARN += -Werror=int-to-pointer-cast
 # 16-bit wchar_t as on the Wii; port/wide.h checks it and routes the wide
 # string calls to the decomp's MSL_C versions (port/docs/POINTERS.md §6).
 WIDE := -fshort-wchar -include $(HOST)/include/port/wide.h
+# The game's own math (§42): port/msl_math.h redirects sin, sinf, sqrt, pow, ... to the
+# decomp's MSL math (MSL_MATH_SRCS below), as the Wii computes them, on every host. The
+# decomp's units compile it in MSL's <cmath> form (-DPORT_MSL_GAME_MATH, the decomp
+# rules); host code gets the usual C++ overloads. No contraction: the host forms fuse
+# exactly where they say so (fmaf), as CodeWarrior with -fp_contract off.
+MSLMATH := -include $(HOST)/include/port/msl_math.h -ffp-contract=off
 
 # -fno-aggressive-loop-optimizations: some units index one past an array into the member after
 # it, as the original does (RPWlyStartCountLyt::Reset's four animations in a three-entry array);
 # GCC would otherwise treat that iteration as unreachable.
 COMMON := $(ARCH) -O2 -g -fno-strict-aliasing -fno-aggressive-loop-optimizations -ffunction-sections \
-          -fdata-sections $(WIDE) $(INCLUDES) $(DEFINES) $(WARN)
+          -fdata-sections $(WIDE) $(MSLMATH) $(INCLUDES) $(DEFINES) $(WARN)
 CFLAGS := -std=gnu11 $(COMMON) -Werror=pointer-to-int-cast
 # Decompiled class layouts: offsetof on classes with vtables (nw4r lists),
 # member init order and anonymous-namespace bases are as in the original.
@@ -112,10 +124,8 @@ else
 # The manifest (windows/wiiplay.manifest): UTF-8 as the process code page (paths in
 # fopen / stat / argv / getenv), long paths. 8 MiB main stack, as Linux's default.
 MANIFEST_O := $(OUT)/wiiplay_manifest.o
-# WPLIBM_O (windows/libm): sinf, cosf, tanf, powf, fmaf, ... as glibc computes them, linked
-# ahead of MinGW's (§41, "Floats: the C library's math functions").
-WPLIBM_O := $(OUT)/libm/wp_libm_all.o
-EXE_LDFLAGS := -Wl,$(shell $(MINGW)gcc-posix -print-file-name=binmode.o) -Wl,$(MANIFEST_O) -Wl,$(WPLIBM_O) \
+# The game's math is the decomp's MSL math (§42), not MinGW-w64's or msvcrt's.
+EXE_LDFLAGS := -Wl,$(shell $(MINGW)gcc-posix -print-file-name=binmode.o) -Wl,$(MANIFEST_O) \
     -Wl,--stack,8388608
 endif
 CFLAGS += $(EXE_LDFLAGS)
@@ -176,7 +186,7 @@ MSL_SRCS := \
     src/MSL_C/wmem.c
 
 HOST_SRCS := src/host_platform.cpp src/host_sdk.cpp src/host_arena.cpp src/host_text.cpp src/host_tpl.cpp src/host_gx.cpp src/host_mtx.cpp \
-    src/host_gxtexobj.cpp src/host_wgpipe.cpp src/host_wprintf.cpp
+    src/host_gxtexobj.cpp src/host_wgpipe.cpp src/host_wprintf.cpp src/host_fma.c
 
 # POINTERS.md step 4 sites (§5.1): compiled (not linked; most of RPKernel and
 # RPParty does not build on the host yet) so the host forms keep building.
@@ -188,6 +198,18 @@ STEP4_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(STEP4_SRCS))
 
 DECOMP_OBJS := $(patsubst %,$(OUT)/decomp/%.o,$(DECOMP_SRCS))
 MSL_OBJS := $(patsubst %,$(OUT)/msl/%.o,$(MSL_SRCS))
+# MSL's math functions (fdlibm; the Wii's sin, cos, tan, atan, atan2, asin, acos, sqrt,
+# pow, fmod, floor, ceil, modf, frexp, ldexp, copysign, scalbn), compiled under
+# port_msl_* names (port/msl_math.h; HOST_BUILD.md §42), with the matching build's
+# _IEEE_LIBM (configure.py cflags_runtime: the wrappers return the __ieee754_ results).
+# SSE double arithmetic on both builds (no x87 extended precision on -m32), no
+# contraction (the Wii's objects have no fmadd), wrapping integer arithmetic (fdlibm's
+# word manipulations).
+MSL_MATH_SRCS := $(addprefix src/MSL/,e_acos.c e_asin.c e_atan2.c e_fmod.c e_pow.c e_rem_pio2.c \
+    e_sqrt.c k_cos.c k_rem_pio2.c k_sin.c k_tan.c s_atan.c s_ceil.c s_copysign.c s_cos.c \
+    s_floor.c s_frexp.c s_ldexp.c s_modf.c s_sin.c s_tan.c w_acos.c w_asin.c w_atan2.c \
+    w_fmod.c w_pow.c w_sqrt.c math_sun.c)
+MSL_MATH_OBJS := $(patsubst %,$(OUT)/mslmath/%.o,$(MSL_MATH_SRCS))
 HOST_OBJS := $(patsubst %,$(OUT)/host/%.o,$(HOST_SRCS))
 LIB := $(OUT)/libwiiplay_loader.a
 
@@ -199,15 +221,20 @@ all: $(OUT)/arc_harness $(OUT)/res_harness $(OUT)/lyt_harness $(OUT)/g3d_harness
 
 $(OUT)/decomp/%.c.o: $(REPO)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -c $< -o $@
+	$(CC) $(CFLAGS) -DPORT_MSL_GAME_MATH -MMD -c $< -o $@
 
 $(OUT)/decomp/%.cpp.o: $(REPO)/%.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -MMD -c $< -o $@
+	$(CXX) $(CXXFLAGS) -DPORT_MSL_GAME_MATH -MMD -c $< -o $@
 
 $(OUT)/msl/%.c.o: $(REPO)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -DPORT_WIDE_IMPL -idirafter $(REPO)/include/MSL -MMD -c $< -o $@
+
+$(OUT)/mslmath/%.c.o: $(REPO)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -DPORT_MSL_MATH_IMPL -D_IEEE_LIBM -msse2 -mfpmath=sse -fwrapv -w \
+	    -idirafter $(REPO)/include/MSL -MMD -c $< -o $@
 
 $(OUT)/host/%.cpp.o: $(HOST)/%.cpp
 	@mkdir -p $(dir $@)
@@ -217,7 +244,7 @@ $(OUT)/host/%.c.o: $(HOST)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -c $< -o $@
 
-$(LIB): $(DECOMP_OBJS) $(MSL_OBJS) $(HOST_OBJS)
+$(LIB): $(DECOMP_OBJS) $(MSL_OBJS) $(MSL_MATH_OBJS) $(HOST_OBJS)
 	@rm -f $@
 	ar rcs $@ $^
 
@@ -916,65 +943,35 @@ endif
 ifeq ($(WIN64),1)
 # Every executable (the rules above whose target is $(OUT)/NAME$(X))
 EXE_NAMES := $(shell sed -n 's/^\$$(OUT)\/\([a-z0-9_]*\)\$$(X):.*/\1/p' $(HOST)/Makefile)
-$(addprefix $(OUT)/,$(addsuffix $(X),$(EXE_NAMES))): $(MANIFEST_O) $(WPLIBM_O)
+$(addprefix $(OUT)/,$(addsuffix $(X),$(EXE_NAMES))): $(MANIFEST_O)
 
 $(MANIFEST_O): $(HOST)/windows/wiiplay.rc $(HOST)/windows/wiiplay.manifest
 	@mkdir -p $(dir $@)
 	$(WINDRES) -I$(HOST)/windows $< -O coff -o $@
 
-# The math library (windows/libm/README.md): ARM optimized-routines' sinf, cosf,
-# sincosf, powf and pow, each built twice (x86-64 and -mfma -mavx2; wp_libm.c picks one
-# from cpuid, as glibc's IFUNCs do) and renamed; CORE-MATH's tanf, asinf, acosf, atan2f
-# and sincos; wp_libm.c's dispatch, fmaf, fma, hypotf, modff, sqrtf and sqrt. Flags as
-# glibc's libm (-O2 -frounding-math -fno-math-errno; HAVE_FAST_FMA in the FMA build,
-# which glibc's math.h gives through FP_FAST_FMA and MinGW's does not). One relocatable
-# object, linked whole into every executable before MinGW's libraries, so its
-# definitions are the ones used.
-WPLIBM := $(HOST)/windows/libm
-WPLIBM_ARM := sinf cosf sincosf powf pow
-WPLIBM_ARM_DATA := sincosf_data powf_log2_data exp2f_data pow_log_data exp_data math_err math_errf
-WPLIBM_CORE_MATH := tanf asinf acosf atan2f sincos
-WPLIBM_CFLAGS := -O2 -std=gnu11 -frounding-math -fno-math-errno -fno-asynchronous-unwind-tables \
-    -ffunction-sections -fdata-sections -DUSE_GLIBC_ABI=0 -I$(WPLIBM)/arm
-WPLIBM_DEPS := $(wildcard $(WPLIBM)/arm/*.h)
-WPLIBM_OBJS := $(foreach v,sse2 fma,$(patsubst %,$(OUT)/libm/$(v)/%.o,$(WPLIBM_ARM))) \
-    $(patsubst %,$(OUT)/libm/data/%.o,$(WPLIBM_ARM_DATA)) \
-    $(patsubst %,$(OUT)/libm/core-math/%.o,$(WPLIBM_CORE_MATH)) $(OUT)/libm/wp_libm.o
-$(OUT)/libm/sse2/%.o: $(WPLIBM)/arm/%.c $(WPLIBM_DEPS)
-	@mkdir -p $(dir $@)
-	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -c $< -o $@
-	$(MINGW)objcopy --redefine-sym $*=wp_arm_$*_sse2 $@
-$(OUT)/libm/fma/%.o: $(WPLIBM)/arm/%.c $(WPLIBM_DEPS)
-	@mkdir -p $(dir $@)
-	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -mfma -mavx2 -DHAVE_FAST_FMA=1 -c $< -o $@
-	$(MINGW)objcopy --redefine-sym $*=wp_arm_$*_fma $@
-$(OUT)/libm/data/%.o: $(WPLIBM)/arm/%.c $(WPLIBM_DEPS)
-	@mkdir -p $(dir $@)
-	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -c $< -o $@
-$(OUT)/libm/core-math/%.o: $(WPLIBM)/core-math/%.c $(WPLIBM_DEPS)
-	@mkdir -p $(dir $@)
-	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -c $< -o $@
-$(OUT)/libm/wp_libm.o: $(WPLIBM)/wp_libm.c $(WPLIBM_DEPS)
-	@mkdir -p $(dir $@)
-	$(MINGW)gcc-posix $(WPLIBM_CFLAGS) -Wall -c $< -o $@
-$(WPLIBM_O): $(WPLIBM_OBJS)
-	$(MINGW)ld -r -o $@ $^
-
-# `make WIN64=1 libm`: the math functions of the Windows build against glibc's, through a
-# pipe (tests/libm_compare.c): LIBM_N inputs each (2^32: every float), the Windows side
-# under Wine. Not part of `test`.
-LIBM_FUNCS := sinf cosf sincosf_sin sincosf_cos tanf asinf acosf atan2f powf hypotf fmaf pow fma \
-    sincos_sin sincos_cos sqrtf modff_frac modff_int fmodf fminf fmaxf sqrt lround fmod ldexp
+# `make WIN64=1 libm`: the game's math (§42: the MSL functions, port_fmaf / port_fma,
+# Broadway's estimates) on the Windows build against the Linux build (build/host64's
+# library: build it first), through a pipe (tests/libm_compare.c): LIBM_N inputs each
+# (2^32: every float), the Windows side under Wine; and the software fma forms against
+# the dispatched ones. Not part of `test`.
+LIBM_FUNCS := sinf cosf tanf asinf acosf sqrtf floorf ceilf atan2f fmodf powf modff_frac modff_int \
+    sin cos tan asin acos atan sqrt floor ceil atan2 pow fmod ldexp fmaf fma fres frsqrte frsqrte_lo \
+    fres_nr frsqrt_nr
 LIBM_N ?= 16777216
-$(OUT)/libm_compare$(X): $(HOST)/tests/libm_compare.c
-	$(CC) -O2 -std=gnu11 -fno-builtin -Wall $(EXE_LDFLAGS) $< -o $@
-$(OUT)/libm_compare_linux: $(HOST)/tests/libm_compare.c
+LIBM_LINUX_LIB := $(HOST)/build/host64/libwiiplay_loader.a
+$(OUT)/libm_compare$(X): $(HOST)/tests/libm_compare.c $(LIB)
+	$(CC) $(CFLAGS) $< $(LIB) -lstdc++ -o $@
+$(OUT)/libm_compare_linux: $(HOST)/tests/libm_compare.c $(LIBM_LINUX_LIB)
 	@mkdir -p $(dir $@)
-	gcc -O2 -std=gnu11 -fno-builtin -Wall $< -lm -o $@
+	gcc -O2 -std=gnu11 -Wall -DPORT_HOST=1 -I$(HOST)/include -include $(HOST)/include/port/msl_math.h \
+	    -ffp-contract=off $< $(LIBM_LINUX_LIB) -o $@
+$(LIBM_LINUX_LIB):
+	@echo "libm: build the Linux side first (make -C port/host, build/host64)"; exit 1
 .PHONY: libm
 libm: $(OUT)/libm_compare $(OUT)/libm_compare_linux
 	@fail=0; for f in $(LIBM_FUNCS); do \
 	    $(OUT)/libm_compare gen $$f $(LIBM_N) | $(OUT)/libm_compare_linux cmp $$f $(LIBM_N) || fail=1; done; \
+	    for f in fmaf fma; do $(OUT)/libm_compare self $$f $(LIBM_N) || fail=1; done; \
 	    if [ $$fail = 0 ]; then echo "libm: OK"; else echo "libm: FAILED"; exit 1; fi
 
 # $(OUT)/NAME runs NAME.exe under Wine, headless: no display (Wine then opens no
@@ -997,14 +994,19 @@ $(OUT)/%: $(OUT)/%$(X)
 endif
 
 ifneq ($(WIN64),1)
+# Linux: the software fma forms against the dispatched ones (the instructions on a CPU
+# with FMA); WIN64=1 libm compares the two builds as well.
+$(OUT)/libm_compare$(X): $(HOST)/tests/libm_compare.c $(LIB)
+	$(CC) $(CFLAGS) $< $(LIB) -lstdc++ -o $@
 .PHONY: libm
-libm:
-	@echo "libm: skipped (compares the Windows build's math functions: WIN64=1)"
+libm: $(OUT)/libm_compare
+	@fail=0; for f in fmaf fma; do $(OUT)/libm_compare self $$f $(or $(LIBM_N),16777216) || fail=1; done; \
+	    if [ $$fail = 0 ]; then echo "libm: OK"; else echo "libm: FAILED"; exit 1; fi
 endif
 
 # The Windows package (WIN64=1 dist; §41): build/win64/wiiplay-windows-x64.zip with
-# wiiplay.exe (boot.exe), the DLLs it loads, play.bat, README-WINDOWS.txt and
-# LICENSE-math.txt (windows/libm's licenses). No Nintendo data.
+# wiiplay.exe (boot.exe), the DLLs it loads, play.bat and README-WINDOWS.txt. No
+# Nintendo data.
 ifeq ($(WIN64),1)
 DIST := $(OUT)/dist/wiiplay
 DIST_ZIP := $(OUT)/wiiplay-windows-x64.zip
@@ -1019,12 +1021,6 @@ dist: $(OUT)/boot$(X) $(WPGX_LIB)
 	    $(MINGW)strip --strip-unneeded -o $(DIST)/$$(basename $$d) $$d || exit 1; done
 	sed 's/$$/\r/' $(HOST)/windows/README-WINDOWS.txt > $(DIST)/README-WINDOWS.txt
 	sed 's/$$/\r/' $(HOST)/windows/play.bat > $(DIST)/play.bat
-	{ echo "wiiplay.exe contains math functions from ARM optimized-routines"; \
-	  echo "(https://github.com/ARM-software/optimized-routines) and CORE-MATH"; \
-	  echo "(https://gitlab.inria.fr/core-math/core-math). Their licenses follow."; echo; \
-	  echo "=== ARM optimized-routines ==="; echo; cat $(WPLIBM)/arm/LICENSE; echo; \
-	  echo "=== CORE-MATH ==="; echo; grep -h '^Copyright' $(WPLIBM)/core-math/*.c; echo; \
-	  cat $(WPLIBM)/core-math/LICENSE; } | sed 's/$$/\r/' > $(DIST)/LICENSE-math.txt
 	cd $(OUT)/dist && zip -q -r -X $(DIST_ZIP) wiiplay
 	@echo "dist: $(DIST_ZIP) ($$(du -h $(DIST_ZIP) | cut -f1))"
 endif

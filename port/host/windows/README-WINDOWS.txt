@@ -72,6 +72,4 @@ Files
 
 Licenses: Aurora (MIT), Dawn (BSD 3-clause), SDL3 (zlib), DirectX Shader Compiler
 (University of Illinois/NCSA), the GCC runtime (GPL with the GCC Runtime Library
-Exception), winpthreads (MIT/BSD); in wiiplay.exe, math functions from ARM
-optimized-routines (MIT OR Apache-2.0 WITH LLVM-exception) and CORE-MATH (MIT): their
-notices are in LICENSE-math.txt.
+Exception), winpthreads (MIT/BSD).

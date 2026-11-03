@@ -26,7 +26,9 @@ Modelled (independent of the C++):
     step from each selected frame to the next: the gravity power from the field's curve (the
     f32 curve model of test_efcurves.py) times the decoded direction into velocity or
     position, the speed field's (speed - 1) * velocity, then velocity and position integrated
-    with the particle's momentum, all in f32. Must match bit for bit;
+    with the particle's momentum, all in f32. Must match bit for bit, but where a gravity
+    field moved the particle: its vector goes through the emitter's matrices, which carry
+    FrSqrt's estimate (HOST_BUILD.md §42), so there within 2^-20 of the step's magnitudes;
   * seed independence: an emitter whose randomSeed is non-zero does not read the system
     random, so with a different system seed its effect (if it never spawns other emitters)
     must print exactly the same lines (particle object IDs aside: the pool slots depend on
@@ -350,7 +352,7 @@ def main():
                     e["path"], e["name"], b, new, e["F"][b][5]))
 
     # --- motion and fields ----------------------------------------------------------------------
-    moved = gravity = speed = 0
+    moved = gravity = speed = near = 0
     kinds_seen = collections.Counter()
     for e in effects:
         if "em" not in e or any(v[0] > 1 for v in e["F"].values()):
@@ -387,6 +389,7 @@ def main():
                 mom = fl(p[13])
                 add_vel, add_pos = [0.0] * 3, [0.0] * 3
                 skip = False
+                gravity_step = False
                 for t, c in fields:
                     kinds_seen[t["kindType"]] += 1
                     if t["kindType"] == KIND_GRAVITY:
@@ -400,6 +403,7 @@ def main():
                         elif prm["type"] == 1:
                             add_pos = [add(x, y) for x, y in zip(add_pos, v)]
                         gravity += 1
+                        gravity_step = True
                     else:
                         s = exec_f32(c, tick, seed, life)[0]
                         if s is None:
@@ -417,6 +421,17 @@ def main():
                 have_vel = [fl(x) for x in q[10:13]]
                 moved += 1
                 if have_pos != npos or have_vel != nvel:
+                    # The field vector goes through the emitter's matrices (VEC3Transform with
+                    # mtxGlbToLocNoTrans / mtxEmToLocNoTrans), which carry FrSqrt's estimate
+                    # from MtxGetScale on the Wii and, since §42, on the host: a unit scale is
+                    # 1 / FrSqrt(1) = 1.0000001 there, not 1. The model applies no matrix, so
+                    # it allows the gravity term's last bits: 2^-20 of the step's largest
+                    # magnitude, where a gravity field moved the particle.
+                    big = max(abs(x) for x in pos + vel + add_vel + add_pos + npos + nvel)
+                    if gravity_step and all(abs(x - y) <= big * 2.0 ** -20 for x, y in
+                                            zip(have_pos + have_vel, npos + nvel)):
+                        near += 1
+                        continue
                     fail("%s %s particle %s frame %d -> %d: pos %s vel %s, model pos %s vel %s"
                          % (e["path"], e["name"], p[2], a, b, have_pos, have_vel, npos, nvel))
 
@@ -445,6 +460,8 @@ def main():
           "(%d gravity, %d speed field evaluations); %d effects seed-independent, %d seed-"
           "dependent" % (emission_checked, emitted, FRAMES, life_checked, steps, moved, gravity,
                          speed, same_seed, changed))
+    print("  motion steps with a gravity field within 2^-20 of the model (the emitter "
+          "matrices' FrSqrt estimate, §42): %d" % near)
     print("  determinism: same seed twice identical; other build: %s" % compared)
     if errors:
         print("test_particles: %d errors" % errors)

@@ -60,16 +60,16 @@
 // Gekko fused multiply-add intrinsics (single precision, rounded once, as
 // fmadds etc. are).
 static inline float __fmadds(float a, float b, float c) {
-    return __builtin_fmaf(a, b, c);
+    return port_fmaf(a, b, c);
 }
 static inline float __fmsubs(float a, float b, float c) {
-    return __builtin_fmaf(a, b, -c);
+    return port_fmaf(a, b, -c);
 }
 static inline float __fnmadds(float a, float b, float c) {
-    return -__builtin_fmaf(a, b, c);
+    return -port_fmaf(a, b, c);
 }
 static inline float __fnmsubs(float a, float b, float c) {
-    return -__builtin_fmaf(a, b, -c);
+    return -port_fmaf(a, b, -c);
 }
 
 // nw4r::math's paired-single VEC3 inlines (include/nw4r/math/math_types.h):
@@ -124,9 +124,9 @@ static inline long port_psq_quantize(float v, int scale, long lo, long hi) {
 #define PORT_PS___OSf32tos16(...) (*(s16*)ptr = (s16)port_psq_quantize(arg, 0, -0x8000, 0x7FFF));
 
 // nw4r::math (math_arithmetic.h). FInv is fres plus one Newton-Raphson step
-// on the Wii (Rev 1), within an ulp or so of 1/x; the host divides.
+// on the Wii (Rev 1): ps_add e+e, ps_mul e*e, ps_nmsub -(x*e*e - 2e) (port/ps.h).
 #define PORT_PS_FAbs(...) (ax = __builtin_fabsf(x));
-#define PORT_PS_FInv(...) (work0 = 1.0f / (x));
+#define PORT_PS_FInv(...) (work0 = port_fres_nr(x));
 #define PORT_PS_FSelect(...) (ret = (value) >= 0.0f ? (ge_zero) : (lt_zero));
 // math_types.cpp FSEL_MAX / FSEL_MIN (VEC3Maximize / VEC3Minimize).
 #define PORT_PS_FSEL(...) (work = (dt) >= 0.0f ? (fx) : (fy));
@@ -137,9 +137,9 @@ static inline long port_psq_quantize(float v, int scale, long lo, long hi) {
 #define PORT_PS_F32ToS10_5(...) (*(pPtr) = (s16)port_psq_quantize(f, 5, -0x8000, 0x7FFF));
 
 // Other CodeWarrior PowerPC intrinsics the decomp calls (HOST_BUILD.md §18).
-// __frsqrte / __fres are estimates on the Wii; here they are exact (port/ps.h).
+// __frsqrte / __fres: Broadway's estimates (port/ps.h, HOST_BUILD.md §42).
 static inline double __frsqrte(double x) {
-    return (double)port_frsqrte((float)x);
+    return port_frsqrte(x);
 }
 static inline float __fres(float x) {
     return port_fres(x);
@@ -206,7 +206,7 @@ static inline unsigned int __rlwimi(unsigned int base, unsigned int value, unsig
 #define PORT_PS_CalcSkinZero(...) f32 port_skin[12] = {0};
 #define PORT_PS_CalcSkinAdd(...)                                               \
     for (int port_k = 0; port_k < 12; port_k++) {                              \
-        port_skin[port_k] = __builtin_fmaf(((const f32*)(pT))[port_k], (R), port_skin[port_k]); \
+        port_skin[port_k] = port_fmaf(((const f32*)(pT))[port_k], (R), port_skin[port_k]); \
     }
 #define PORT_PS_CalcSkinStore(...) __builtin_memcpy((pTargetMtx), port_skin, sizeof port_skin);
 // g3d_calcvtx.cpp CalcVtx: key-shape blends; the (xy, z_) / (rg, ba) pairs
@@ -234,7 +234,7 @@ static inline unsigned int __rlwimi(unsigned int base, unsigned int value, unsig
 #define PORT_PS_PSVECMagDot(...)                                               \
     {                                                                          \
         f32 port_xy2x = (v)->x * (v)->x, port_xy2y = (v)->y * (v)->y;          \
-        dot = __builtin_fmaf((v)->z, (v)->z, port_xy2x) + port_xy2y;           \
+        dot = port_fmaf((v)->z, (v)->z, port_xy2x) + port_xy2y;           \
         c_zero = c_half - c_half;                                              \
     }
 #define PORT_PS_PSVECMagScale(...) (dot = dot * port_frsqrt_nr(dot));
