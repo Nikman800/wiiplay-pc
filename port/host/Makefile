@@ -131,12 +131,40 @@ endif
 CFLAGS += $(EXE_LDFLAGS)
 CXXFLAGS += $(EXE_LDFLAGS)
 
+# CodeWarrior's contraction (§43). The matching build compiles the game's units (RP framework,
+# the minigames, main.cpp, g3d_scnrfl.cpp) and EGG with -fp_contract on: a * b + c is one
+# fused multiply-add there. tools/cwcontract (a GCC plugin) makes the same decisions in the
+# parsed source and writes each as port_cw_fmaf (port/cw_fma.h: vfmadd, or the exact software
+# form on a CPU without FMA); every other decomp unit gets it too, off, for its
+# `#pragma fp_contract` regions (g3d_resanmchr.cpp). The port's own headers (host forms) are
+# excluded. The plugin is built for the compiler that loads it: GCC's plugin headers
+# (Ubuntu / Debian: gcc-NN-plugin-dev, libgmp-dev; MinGW-w64's come with the cross compiler).
+ifeq ($(WIN64),1)
+CW_GCC := $(MINGW)gcc-posix
+else
+CW_GCC := $(CC)
+endif
+PLUGIN_HOSTCXX ?= g++
+GCC_PLUGIN_INC ?= $(shell $(CW_GCC) -print-file-name=plugin)/include
+CWCONTRACT := $(OUT)/cwcontract.so
+CW_CONTRACT_ON := src/Pack/% src/egg/% src/main src/nw4r/g3d/g3d_scnrfl
+CW_FLAGS = -fplugin=$(CWCONTRACT) -fplugin-arg-cwcontract-exclude=$(HOST)/ \
+           -include $(HOST)/include/port/cw_fma.h \
+           -fplugin-arg-cwcontract-default=$(if $(filter $(CW_CONTRACT_ON),$*),on,off)
+
+$(CWCONTRACT): $(HOST)/tools/cwcontract/cwcontract.cc
+	@mkdir -p $(dir $@)
+	@test -f $(GCC_PLUGIN_INC)/gcc-plugin.h || { echo "cwcontract: no GCC plugin headers in \
+	$(GCC_PLUGIN_INC) (install gcc-NN-plugin-dev and libgmp-dev, or set GCC_PLUGIN_INC); \
+	see port/docs/HOST_BUILD.md §43" >&2; exit 1; }
+	$(PLUGIN_HOSTCXX) -shared -fPIC -fno-rtti -O2 -Wall -I$(GCC_PLUGIN_INC) $(PLUGIN_CPPFLAGS) $< -o $@
+
 # Make tracks headers (-MMD) but not the flags: when the compilers or their flags change
 # (a new -include, -ffp-contract, -D...), an object whose sources did not change would
 # keep the old code. $(OUT)/flags.txt records the last flags; when they differ, every
 # object of this build is removed so that everything recompiles.
 FLAGS_STAMP := $(OUT)/flags.txt
-FLAGS_NOW := $(CC) | $(CXX) | $(CFLAGS) | $(CXXFLAGS)
+FLAGS_NOW := $(CC) | $(CXX) | $(CFLAGS) | $(CXXFLAGS) | $(value CW_FLAGS) | $(CW_CONTRACT_ON)
 ifneq ($(file < $(FLAGS_STAMP)),$(FLAGS_NOW))
 $(shell mkdir -p $(OUT) && find $(OUT) -name '*.o' -delete)
 $(file > $(FLAGS_STAMP),$(FLAGS_NOW))
@@ -225,18 +253,18 @@ HOST_OBJS := $(patsubst %,$(OUT)/host/%.o,$(HOST_SRCS))
 LIB := $(OUT)/libwiiplay_loader.a
 
 TESTS := $(OUT)/test_be $(OUT)/test_be_c $(OUT)/test_port $(OUT)/test_port_c \
-         $(OUT)/test_layout $(OUT)/test_math
+         $(OUT)/test_layout $(OUT)/test_math $(OUT)/test_cwcontract
 
 .PHONY: all test unit archives resources layouts models clean distclean
 all: $(OUT)/arc_harness $(OUT)/res_harness $(OUT)/lyt_harness $(OUT)/g3d_harness $(TESTS) $(STEP4_OBJS)
 
-$(OUT)/decomp/%.c.o: $(REPO)/%.c
+$(OUT)/decomp/%.c.o: $(REPO)/%.c $(CWCONTRACT)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -DPORT_MSL_GAME_MATH -MMD -c $< -o $@
+	$(CC) $(CFLAGS) $(CW_FLAGS) -DPORT_MSL_GAME_MATH -MMD -c $< -o $@
 
-$(OUT)/decomp/%.cpp.o: $(REPO)/%.cpp
+$(OUT)/decomp/%.cpp.o: $(REPO)/%.cpp $(CWCONTRACT)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -DPORT_MSL_GAME_MATH -MMD -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(CW_FLAGS) -DPORT_MSL_GAME_MATH -MMD -c $< -o $@
 
 $(OUT)/msl/%.c.o: $(REPO)/%.c
 	@mkdir -p $(dir $@)
@@ -291,6 +319,12 @@ $(OUT)/test_layout$(X): $(HOST)/tests/layout_asserts.cpp
 $(OUT)/test_math$(X): $(HOST)/tests/test_math.cpp $(LIB)
 	$(CXX) $(CXXFLAGS) $(ANIM_FP) -MMD $< $(LIB) -o $@
 
+# The contraction plugin's decisions and code (§43), compiled as a game unit is; both paths
+# of the fused operation (the CPU's FMA, the software forms).
+$(OUT)/test_cwcontract$(X): $(HOST)/tests/test_cwcontract.cpp $(CWCONTRACT) $(LIB)
+	$(CXX) $(CXXFLAGS) -fplugin=$(CWCONTRACT) -fplugin-arg-cwcontract-default=on \
+	    -fplugin-arg-cwcontract-exclude=$(HOST)/include/ -MMD $< $(LIB) -o $@
+
 unit: $(TESTS) $(STEP4_OBJS)
 	$(OUT)/test_be
 	$(OUT)/test_be_c
@@ -298,6 +332,8 @@ unit: $(TESTS) $(STEP4_OBJS)
 	$(OUT)/test_port_c
 	$(OUT)/test_layout
 	$(OUT)/test_math
+	$(OUT)/test_cwcontract
+	WIIPLAY_NO_FMA=1 $(OUT)/test_cwcontract
 
 archives: $(OUT)/arc_harness
 	python3 $(HOST)/tests/test_archives.py --harness $(OUT)/arc_harness --disc $(DISC)

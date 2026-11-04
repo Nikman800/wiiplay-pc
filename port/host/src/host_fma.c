@@ -17,6 +17,7 @@
  */
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <port/ps.h>
@@ -204,16 +205,25 @@ static double fma_sw(double x, double y, double z) {
 }
 #endif
 
-static int port_fma_hw = -1;
+/* 1 when the CPU has FMA, 0 without, -1 until known. port/cw_fma.h's inline forms (the
+ * game's contracted code, §43) test it; set before main (and by the first call). */
+int port_fma_hw = -1;
 
 static int fma_available(void) {
     int hw = __atomic_load_n(&port_fma_hw, __ATOMIC_RELAXED);
     if (__builtin_expect(hw < 0, 0)) {
-        /* Several threads may get here at once; they all store the same value. */
-        hw = cpu_has_fma();
+        /* Several threads may get here at once; they all store the same value.
+           WIIPLAY_NO_FMA=1 takes the software forms as a CPU without FMA does (tests,
+           timings; the same bits). */
+        const char* no = getenv("WIIPLAY_NO_FMA");
+        hw = no && *no && *no != '0' ? 0 : cpu_has_fma();
         __atomic_store_n(&port_fma_hw, hw, __ATOMIC_RELAXED);
     }
     return hw;
+}
+
+__attribute__((constructor(101))) static void port_fma_init(void) {
+    (void)fma_available();
 }
 
 double port_fma(double x, double y, double z) {
