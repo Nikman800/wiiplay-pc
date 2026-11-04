@@ -13,8 +13,9 @@ games open one at a time: finishing one opens the next. The HOME Menu works as o
 ## What you need
 
 - Your own Wii Play disc, extracted with Dolphin ("Extract Entire Disc") or `wit` / `nodtool`,
-  so that the directory has `files/` and `sys/main.dol`. The port reads it and never writes
-  to it.
+  so that the directory has `files/` and `sys/main.dol`. Dolphin puts them in a `DATA/`
+  folder (beside `UPDATE/`, a system update the port does not need); `--disc` may name the
+  folder above it. The port reads it and never writes to it.
 - Linux x86-64 with a Vulkan driver, GCC, CMake, Ninja (or make), Python 3. The first build
   downloads Dawn, SDL3 and a few libraries (pinned by hash).
 

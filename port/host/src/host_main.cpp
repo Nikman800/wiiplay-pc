@@ -771,11 +771,24 @@ int main(int argc, char** argv) {
         gOpt.gpu = env != nullptr && env[0] != '\0' ? env : nullptr;
     }
 
-    // The disc: the extracted root (files/, sys/) or its files/ directory
+    // The disc: the extracted root (files/, sys/) or its files/ directory. Dolphin's "Extract
+    // Entire Disc" puts each partition in its own folder (DATA/ holds the game, UPDATE/ a system
+    // update), so DATA/files is looked for too.
     static std::string discFiles, discRoot, nandDir, dataDir;
     discFiles = gOpt.disc;
     if (IsDir(discFiles + "/files")) {
         discFiles += "/files";
+    } else if (IsDir(discFiles + "/DATA/files")) {
+        discFiles += "/DATA/files";
+    } else if (IsDir(discFiles + "/data/files")) {
+        discFiles += "/data/files";
+    }
+    if (!PortPathExists((discFiles + "/../sys/main.dol").c_str())) {
+        static std::string why;
+        why = std::string(gOpt.disc) +
+              ": expected files/ and sys/main.dol there, or in its DATA/ folder (where "
+              "Dolphin's \"Extract Entire Disc\" writes them)";
+        Die("no extracted Wii Play disc at ", why.c_str());
     }
     discRoot = RealPath(discFiles + "/..");
     gOpt.disc = discFiles.c_str();

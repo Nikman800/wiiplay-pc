@@ -16,12 +16,15 @@ What you need
   ("vc_redist.x64.exe").
 - Your Wii Play disc, extracted: in Dolphin, right-click the game, Properties,
   Filesystem, right-click the disc, "Extract Entire Disc". The folder must contain
-  files\ and sys\main.dol. The port only reads it.
+  files\ and sys\main.dol, or DATA\files and DATA\sys\main.dol (Dolphin's layout).
+  The port only reads it.
 
 Run
 ---
-Easiest: put the extracted disc in a folder named "disc" next to wiiplay.exe (so that
-disc\files and disc\sys exist) and double-click play.bat.
+Easiest: extract the disc into a folder named "disc" next to wiiplay.exe and
+double-click play.bat. Dolphin writes the game into disc\DATA (files and sys) and a
+system update into disc\UPDATE, which is not needed; disc\files and disc\sys directly
+work too.
 
 From a command prompt:
 
