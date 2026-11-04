@@ -131,6 +131,17 @@ endif
 CFLAGS += $(EXE_LDFLAGS)
 CXXFLAGS += $(EXE_LDFLAGS)
 
+# Make tracks headers (-MMD) but not the flags: when the compilers or their flags change
+# (a new -include, -ffp-contract, -D...), an object whose sources did not change would
+# keep the old code. $(OUT)/flags.txt records the last flags; when they differ, every
+# object of this build is removed so that everything recompiles.
+FLAGS_STAMP := $(OUT)/flags.txt
+FLAGS_NOW := $(CC) | $(CXX) | $(CFLAGS) | $(CXXFLAGS)
+ifneq ($(file < $(FLAGS_STAMP)),$(FLAGS_NOW))
+$(shell mkdir -p $(OUT) && find $(OUT) -name '*.o' -delete)
+$(file > $(FLAGS_STAMP),$(FLAGS_NOW))
+endif
+
 # nw4r::lyt (layouts and layout animations), built and bound without drawing.
 LYT_SRCS := $(addprefix src/nw4r/lyt/,lyt_animation.cpp lyt_arcResourceAccessor.cpp \
     lyt_bounding.cpp lyt_common.cpp lyt_drawInfo.cpp lyt_group.cpp lyt_init.cpp \

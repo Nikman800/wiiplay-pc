@@ -449,8 +449,9 @@ GAMES2 = [
     ("table tennis (2P)", ["menus_saved2.txt", "tabletennis.txt", "play2.txt"], "pnp", "ESceneID_RPPnpScene", 12700,
      [(4300, "start"), (5000, "rally"), (8000, "swapped"), (12000, "results"), (12690, "back_to_menu")],
      check_tabletennis2, 2),
-    ("billiards (2P)", ["menus_saved2.txt", "billiards.txt", "play2.txt"], "bil", "ESceneID_RPBilScene", 12100,
-     [(4300, "start"), (5000, "rolling"), (8000, "player_2"), (11400, "results"), (12090, "back_to_menu")],
+    # the game ends at frame 11622 and the menu is back at 12121 since §42's rounding (before 12100)
+    ("billiards (2P)", ["menus_saved2.txt", "billiards.txt", "play2.txt"], "bil", "ESceneID_RPBilScene", 12400,
+     [(4300, "start"), (5000, "rolling"), (8000, "player_2"), (11900, "results"), (12390, "back_to_menu")],
      check_billiards2, 2),
     ("fishing (2P)", ["menus_saved2.txt", "fishing.txt", "play2.txt"], "fsh", "ESceneID_RPFshScene", 13500,
      [(4300, "start"), (5000, "fishing"), (8000, "catch"), (12500, "results"), (13490, "back_to_menu")],
