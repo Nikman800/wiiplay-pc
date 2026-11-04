@@ -304,10 +304,12 @@ def rot_xyz_deg(x, y, z):
 
 def hermite_chr(v0, t0, v1, t1, s, d):
     """g3d_resanmchr.cpp HermiteInterpolation (s already divided)."""
+    # The unit is compiled with #pragma fp_contract on (CodeWarrior's contraction, HOST_BUILD.md
+    # §43): v0 + s*(...) is fmadds, 2s - 3 fmsubs, s_1*t0 + s*t1 and the last add fmadds.
     s_1 = sub(s, 1.0)
-    a = mul(s, mul(s, mul(sub(mul(2.0, s), 3.0), sub(v0, v1))))
-    b = mul(mul(d, s_1), add(mul(s_1, t0), mul(s, t1)))
-    return add(add(v0, a), b)
+    inner = mul(s, mul(fmaf(2.0, s, -3.0), sub(v0, v1)))
+    left = fmaf(s, inner, v0)
+    return fmaf(mul(d, s_1), fmaf(s_1, t0, mul(s, t1)), left)
 
 
 class Fvs:
@@ -343,9 +345,9 @@ class Fvs:
         k = self.base + self.stride * i
         if self.fmt == "FVS32":
             raw = (self.r.u32(k) & 0x00FFF000) >> 12
-            return add(mul(self.scale, float(raw)), self.offset)
+            return fmaf(self.scale, float(raw), self.offset)
         if self.fmt == "FVS48":
-            return add(mul(self.scale, float(self.r.u16(k + 2))), self.offset)
+            return fmaf(self.scale, float(self.r.u16(k + 2)), self.offset)
         return self.r.f(k + 4)
 
     def slope(self, i):
@@ -398,9 +400,9 @@ def cv_calc(r, o, fmt, num_frame, frame):
     """CalcAnimationCV."""
     def at(i):
         if fmt == "CV8":
-            return add(mul(float(r.u8(o + 8 + i)), r.f(o)), r.f(o + 4))
+            return fmaf(float(r.u8(o + 8 + i)), r.f(o), r.f(o + 4))
         if fmt == "CV16":
-            return add(mul(float(r.u16(o + 8 + 2 * i)), r.f(o)), r.f(o + 4))
+            return fmaf(float(r.u16(o + 8 + 2 * i)), r.f(o), r.f(o + 4))
         return r.f(o + 4 * i)
 
     fi = f32_to_u16(frame)
@@ -413,7 +415,7 @@ def cv_calc(r, o, fmt, num_frame, frame):
     if rr == 0.0:
         return v0
     v1 = at(fi + 1)
-    return add(mul(rr, sub(v1, v0)), v0)
+    return fmaf(rr, sub(v1, v0), v0)
 
 
 CHR_FMT = {1: "FVS32", 2: "FVS48", 3: "FVS96", 4: "CV8", 5: "CV16", 6: "CV32"}

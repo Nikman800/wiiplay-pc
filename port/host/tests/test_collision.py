@@ -70,8 +70,24 @@ def trunc_s32(x):
     return int(x) & 0xFFFFFFFF
 
 
+def fmaf(a, b, c):
+    """a*b + c rounded once to f32 (Broadway's fmadds; port_fmaf): the product is exact in
+    double, the sum rounded to odd in double, which then rounds correctly to single."""
+    p = a * b
+    s = p + c
+    if math.isinf(s) or math.isnan(s) or p == 0 or c == 0:
+        return f(s)
+    bb = s - p
+    err = (p - (s - bb)) + (c - bb)
+    if err != 0.0 and struct.unpack("<Q", struct.pack("<d", s))[0] & 1 == 0:
+        s = math.nextafter(s, math.inf if err > 0 else -math.inf)
+    return f(s)
+
+
 def dot3(a, b):
-    return f(f(f(a[0] * b[0]) + f(a[1] * b[1])) + f(a[2] * b[2]))
+    """x*x' + y*y' + z*z' as CodeWarrior's contraction computes it (RPKcl is a game unit,
+    -fp_contract on; HOST_BUILD.md §43): fmadds(z, z', fmadds(x, x', y*y'))."""
+    return fmaf(a[2], b[2], fmaf(a[0], b[0], f(a[1] * b[1])))
 
 
 # --------------------------------------------------------------------------
@@ -147,7 +163,9 @@ class Kcl:
             if dot3(off, self.nrm[pr["normal3Idx"]]) > pr["height"]:
                 continue
             n = self.nrm[pr["normal0Idx"]]
-            distance = f(f(f(-off[0] * n[0]) - f(off[1] * n[1])) - f(off[2] * n[2]))
+            # -x*nx - y*ny - z*nz: fmsubs, then fnmsubs (-(z*nz - t))
+            t = fmaf(-off[0], n[0], -f(off[1] * n[1]))
+            distance = -fmaf(off[2], n[2], -t)
             if distance < 0.0 or distance > self.thickness:
                 continue
             hits.append(self.hit(pr, distance))
@@ -176,14 +194,16 @@ class Kcl:
 
         def corner(dot, da, db, na, nb):
             # a = (dot * db - da) / (dot * dot - 1); b = db - a * dot; offset = a na + b nb
-            a = f(f(f(dot * db) - da) / f(f(dot * dot) - 1.0)) if f(f(dot * dot) - 1.0) != 0.0 \
-                else (math.nan if f(f(dot * db) - da) == 0.0
-                      else math.copysign(math.inf, f(f(dot * db) - da)) * math.copysign(1.0, f(f(dot * dot) - 1.0)))
-            b = f(db - f(a * dot))
-            return tuple(f(f(a * na[i]) + f(b * nb[i])) for i in range(3))
+            # (fmsubs, fmsubs; fnmsubs; fmadds)
+            num, den = fmaf(dot, db, -da), fmaf(dot, dot, -1.0)
+            a = f(num / den) if den != 0.0 \
+                else (math.nan if num == 0.0
+                      else math.copysign(math.inf, num) * math.copysign(1.0, den))
+            b = -fmaf(a, dot, -db)
+            return tuple(fmaf(a, na[i], f(b * nb[i])) for i in range(3))
 
         def length(o):
-            l_sq = f(f(f(o[0] * o[0]) + f(o[1] * o[1])) + f(o[2] * o[2]))
+            l_sq = dot3(o, o)
             ln = f(math.sqrt(l_sq)) if l_sq >= 0.0 else math.nan
             if ln > d0 or ln >= r:
                 return None
@@ -192,7 +212,7 @@ class Kcl:
         def face(d):
             if d > d0:
                 return None
-            return f(r_sq - f(d * d))
+            return -fmaf(d, d, -r_sq)  # fnmsubs
 
         def depth(sqrt_input):
             if sqrt_input is None:
