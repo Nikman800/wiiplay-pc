@@ -16,8 +16,13 @@ games open one at a time: finishing one opens the next. The HOME Menu works as o
   so that the directory has `files/` and `sys/main.dol`. Dolphin puts them in a `DATA/`
   folder (beside `UPDATE/`, a system update the port does not need); `--disc` may name the
   folder above it. The port reads it and never writes to it.
-- Linux x86-64 with a Vulkan driver, GCC, CMake, Ninja (or make), Python 3. The first build
-  downloads Dawn, SDL3 and a few libraries (pinned by hash).
+- Linux x86-64 with a Vulkan driver, GCC with its plugin headers (Debian / Ubuntu:
+  `gcc-NN-plugin-dev` for your GCC version and `libgmp-dev`; the build loads a small plugin
+  that fuses multiply-adds where the Wii's compiler did, HOST_BUILD.md §43), CMake, Ninja (or
+  make), Python 3. The first build downloads Dawn, SDL3 and a few libraries (pinned by hash).
+- Any x86-64 CPU. On CPUs with FMA (Intel since Haswell, AMD since Piledriver, 2013) the
+  Wii's fused multiply-adds use the instruction; older CPUs compute them in software with the
+  same results (the games play identically).
 
 ## Build
 
@@ -89,7 +94,7 @@ make -C port/host -j$(nproc) WIN64=1 dist
 
 This writes `port/host/build/win64/wiiplay-windows-x64.zip` (the first build downloads Dawn's
 Windows package, SDL3 and a few libraries). It holds `wiiplay.exe`, the DLLs it loads,
-`play.bat`, `README-WINDOWS.txt` and `LICENSE-math.txt`; no Nintendo data.
+`play.bat` and `README-WINDOWS.txt`; no Nintendo data.
 
 On Windows (10 version 1903 or later, 64-bit; a GPU with Direct3D 12 or Vulkan drivers; the
 Microsoft Visual C++ Redistributable 2015-2022 x64, which Dawn's DLLs use): unzip it anywhere,
