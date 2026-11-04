@@ -5624,22 +5624,17 @@ runtime's).
   returns `0x80000000`; undefined in C, not met in the traces) and the `NI` (non-IEEE)
   FPSCR bit (the SDK leaves it clear).
 
-### CodeWarrior's contraction: the difference that is left
+### CodeWarrior's contraction: the difference that was left
 
 The game's own units (`cflags_game`) and EGG are compiled with `-fp_contract on`:
 CodeWarrior fuses `a * b + c` into `fmadds` (1819 fused instructions in the 572 RP and EGG
-units' asm; nw4r, the SDK, RFL, HBM and MSL are built with it off). The host does not fuse
-(no FMA without `-mfma`, and now `-ffp-contract=off`), so those sites round twice where the
-Wii rounds once: a last-bit difference in some results, every frame.
-
-An experiment (not committed): the RP and EGG units built with `-mfma -ffp-contract=fast`.
-GCC then fuses 2012 multiply-adds in those units (CodeWarrior: 1819); per function the counts
-agree in 167 functions and differ in 224 (inlining and GCC fusing across statements; the
-`#pragma fp_contract off` regions of `RPFshFish.cpp` and `RPBilCamera_4.cpp` are ignored by
-GCC). Even so, Tanks! missions 1 and 3 (below) matched Dolphin in every frame (mission 1 bit for bit). Making
-it the default would need an FMA CPU (x86-64 since 2013: Haswell, Piledriver; the build would
-not start on older ones without a second, non-fused build) and a site-by-site check; that is
-the user's decision, not made here.
+units' asm; nw4r, the SDK, RFL, HBM and MSL are built with it off). Until §43 the host did not
+fuse (`-ffp-contract=off`), so those sites rounded twice where the Wii rounds once: a last-bit
+difference in some results, every frame. An experiment with GCC's own contraction
+(`-mfma -ffp-contract=fast` for the RP and EGG units) matched Dolphin in Tanks! (below), but
+GCC fuses in other places (2012 multiply-adds against 1819; the per-function counts agreed in
+167 functions and differed in 224) and needs an FMA CPU. §43 replaces it: CodeWarrior's own
+decisions, on every CPU.
 
 ### Against the original (Dolphin)
 
@@ -5740,6 +5735,86 @@ the game state, every frame's picture hash and the sound identical. So did a who
 - `check_matching.py`: 1001 units identical (the 974 and the MSL math units, which now
   depend on `fdlibm.h`).
 - `make WIN64=1 dist`: the package has no `LICENSE-math.txt` any more.
+
+## 43. CodeWarrior's contraction: the Wii's fused multiply-adds
+
+The matching build compiles the game's units (the RP framework and the minigames, `main.cpp`,
+`g3d_scnrfl.cpp`) and EGG with `-fp_contract on` (`configure.py`: `cflags_game`, `cflags_egg`;
+`g3d_resanmchr.cpp` turns it on with a pragma at its first line; nw4r, the SDK, RFL, HBM and
+MSL are off). CodeWarrior then fuses a multiply into the add or subtract that takes it
+(`fmadds`, `fmsubs`, `fnmsubs`, `fnmadds`; `fmadd` ... in double): one rounding where C
+rounds twice. The host now fuses at the same places, with the same rounding, on every x86-64
+CPU, Linux and Windows alike.
+
+### CodeWarrior's rule
+
+From CodeWarrior's own output (GC/3.0a5.2, the game's flags, small test files disassembled):
+the rule is per expression, as written.
+
+| Source | CodeWarrior | |
+|---|---|---|
+| `a*b + c`, `c + a*b` | `fmadds` | fused |
+| `a*b - c` | `fmsubs` | fused |
+| `c - a*b` | `fnmsubs`: -(a*b - c) | fused; an exact zero is -0 |
+| `-(a*b + c)`, `-(a*b - c)` | `fnmadds`, `fnmsubs` | fused |
+| `a*b + c*d`, `a*b - c*d` | `fmuls c*d`, then the left product fused | the left one |
+| `x += a*b`, `x -= a*b` | `fmadds`, `fnmsubs` | fused |
+| `(-a)*b + c`, `a*-b + c` | `fneg`, `fmadds` | fused, the negation stays |
+| `x / 2.0f + c` (any 2^k, k >= 1) | `x * 0.5f`, `fmadds` | fused |
+| `x / 3.0f + c`, `x / 0.5f + c`, `x / -2.0f + c` | `fdivs`, `fadds` | not fused |
+| `t = a*b; t + c` | `fmuls`, `fadds` | not fused (a variable) |
+| `mul(a, b) + c` (an inline function) | `fmuls`, `fadds` | not fused |
+| `(f32)(a*b) + c` | not fused | (a cast) |
+| `-(a*b) + c`, `c + -(a*b)`, `-(a*b) - c` | not fused | (a negated product) |
+| `a*b + 1.0` (double), `a*b + c` (c double) | `fmuls`, `fadd`, `frsp` | not fused (a conversion) |
+| `a*1.0f + c`, `a*b + 0.0f` | folded first | not fused |
+| `a*b + f(c)`, `a*b + (k ? c : d)`, `(a*b + c)*d + e` | fused | |
+
+CodeWarrior then optimizes the function as usual: it computes a repeated expression once (a
+fused one too) and unrolls loops; that changes how many instructions there are, not their
+results. GCC's `-ffp-contract=fast` decides differently (after inlining, across statements,
+after its CSE; and it rewrites `-(a*b) + c` as `c - a*b` before), needs `-mfma` (no x86-64
+CPU before 2013 has the instruction), and its decisions differ between GCC 13 (MinGW) and 15.
+
+### The plugin (`port/host/tools/cwcontract`)
+
+A GCC plugin applies that rule to each function's tree as parsed (`PLUGIN_PRE_GENERICIZE`,
+before GCC folds anything) and writes each fused operation as a call to `port_cw_fmaf` /
+`port_cw_fma` (`port/cw_fma.h`, force-included): `fmsub` is `fma(a, b, -c)`, `fnmsub`
+`-fma(a, b, -c)`, `fnmadd` the negation of an `fmadd`. Those are inline: a branch on
+`port_fma_hw` (set before `main` from CPUID and XGETBV, `src/host_fma.c`) and the
+`vfmadd213ss` instruction as inline asm, so the unit itself is not compiled with `-mfma` and
+the code around it runs on any x86-64 CPU; a CPU without FMA calls `port_fmaf` / `port_fma`,
+whose exact software forms give the same bits (§41, §42). `WIIPLAY_NO_FMA=1` takes that path
+on any CPU (tests, timings).
+
+- `#pragma fp_contract on|off`: the plugin registers it (GCC ignores it otherwise). An
+  expression takes the state at its position in the translation unit's token stream, headers
+  included, as in CodeWarrior: `g3d_resanmchr.cpp`'s pragma before its includes turns on the
+  nw4r header inlines it uses; `RPFshFish.cpp`'s inline `FishRandomRange` in an off region
+  stays off where it is inlined; `RPBilCamera_4.cpp`'s region likewise.
+- Operand order: with side effects, the operands are saved and evaluated as written. A C++17
+  compound assignment with a call (`x += f() * y`: GCC puts the right side in a temporary
+  first) is fused as written, `x` read after the calls.
+- The port's own headers (`port/host/include`: the host forms of the asm, which fuse exactly
+  where they say so, `decomp/compat.h`'s `__fmadds` ...) and system headers are excluded.
+- Units: `-fplugin-arg-cwcontract-default=on` for `src/Pack/`, `src/egg/`, `src/main.cpp`,
+  `src/nw4r/g3d/g3d_scnrfl.cpp`; every other decomp unit loads it with `off` (for its pragma
+  regions). Host code (`src/host_*`) does not load it. `-ffp-contract=off` stays everywhere,
+  so GCC itself fuses nothing. No decomp source changed.
+- Not modelled, none of them in the game's source: a cast to the same type on a product
+  (`(f32)(a*b) + c`), and in a declaration's initializer (which GCC folds before the plugin
+  sees it) `-(a*b) + c` and `x / 0.5f` or `x / -2.0f` next to an add. The folder also turns
+  `-K + a*b` in an initializer into `a*b - K`: `fmsub` for CodeWarrior's `fmadd` with `-K`,
+  the same bits.
+- Building it needs GCC's plugin headers for the compiler that loads it: the Linux build
+  `gcc-NN-plugin-dev` and `libgmp-dev` (Debian / Ubuntu), the Windows build the MinGW-w64 cross
+  compiler's own (they come with it). `GCC_PLUGIN_INC=` and `PLUGIN_CPPFLAGS=` point elsewhere.
+  Without them the build stops (no build without the Wii's rounding). The plugin is built per
+  build directory (`$(OUT)/cwcontract.so`), and the flags stamp includes its flags.
+- `tests/test_cwcontract.cpp` (`make unit`, run with and without `WIIPLAY_NO_FMA`): the rule's
+  cases above against the values CodeWarrior's instructions give, the order of a compound
+  assignment's calls, the pragma, the sign of an exact zero.
 
 ## 44. Per-game input bindings
 
