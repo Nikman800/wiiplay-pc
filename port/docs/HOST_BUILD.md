@@ -5726,3 +5726,69 @@ the game state, every frame's picture hash and the sound identical. So did a who
 - `check_matching.py`: 1001 units identical (the 974 and the MSL math units, which now
   depend on `fdlibm.h`).
 - `make WIN64=1 dist`: the package has no `LICENSE-math.txt` any more.
+
+## 44. Per-game input bindings
+
+The config file (RUNNING.md, "The config file") may give bindings and settings for one game:
+`[NAME]` starts a section for that game (`shooting findmii tabletennis posemii hockey
+billiards fishing charge tanks`, or `menu` for every other scene), `[global]` goes back to
+the lines for all. The use that asked for it: WASD to drive the tank in Tanks! while
+W / A / S / D stay the tilt keys of Charge! (§37):
+
+```
+[tanks]
+key W UP
+key A LEFT
+key S DOWN
+key D RIGHT
+```
+
+### Where it lives
+
+| File | What |
+|---|---|
+| `port/host/src/host_binds.cpp`, `host_binds.h` | **New.** The parser (out of `host_live.cpp`), the global set, the sections, the active set, and the keys and gamepad buttons held. No window system: `tests/test_binds.cpp` runs it alone. |
+| `port/host/src/host_live.cpp` | Each poll selects the running game's set first (`PortBinds::Select`), then applies the events; key and button state goes through `PortBinds`; every setting is read from the active set. Logs `boot: input: the [tanks] bindings` / `the global bindings` when a section starts or ends. |
+| `port/host/include/port/input.h`, `src/host_probe_games.cpp` | `PortInputGameHook` (weak, like `PortInputHoldHook`): the scene ID (`RPSysSceneMgr::getCurrentSceneID`) -> `PORT_GAME_*`. Without it (no boot) the global set only. |
+| `port/host/src/host_main.cpp` | The config error buffer 512 bytes (the file, line, section and the list of names). |
+
+### The rules
+
+- A game's set is built when its scene starts: the final global set (the whole file's
+  global lines, wherever they are), or nothing after a `clear` in the section, then the
+  section's `key` / `pad` lines in order (a key bound in it replaces that key's global
+  binding; `none` unbinds it for that game), then its settings over the global ones.
+- Per game: `pointer_speed gyro_sensitivity tilt stick_deadzone pointer_stabilise left_stick
+  twist_speed wheel_twist tilt_angle tilt_speed shake_strength shake_frames pull_distance
+  push_distance`. `volume mute_unfocused rumble nunchuk speaker_volume` are global (the audio
+  device, a Nunchuk the game would see plugged in and out, the motor): in a section they are
+  an error, as unknown names are (the parser already stopped at any bad line).
+- Errors: `FILE:LINE: [SECTION] what` (global lines: `FILE:LINE: what`); an unknown section
+  lists the names. Section names ignore case, spaces, `_`, `-` and `!`; aliases `menus`,
+  `shootingrange`, `laserhockey`, `pingpong`.
+- Held across a switch: the bindings are looked up by key name every poll, so nothing can
+  stay pressed. A key (or gamepad button, or trigger) held while the set changes and whose
+  binding differs in the new set is marked stale: it gives nothing until it is released, and
+  pressed again it gives the new binding. A key whose binding is the same in both sets (Space
+  = A) keeps working. So W held from Charge! into the menus neither keeps tilting nor
+  presses anything, and W held into Tanks! does not start the tank until pressed again.
+
+### Tests
+
+- `tests/test_binds.cpp` (`make unit` and `make input`, every build): the defaults and an
+  old global-only config in every game; `[tanks]` WASD only in Tanks! (not in Charge!, the
+  menus, or without the hook); global lines after `[global]`; `none`, `pad`, triggers and
+  `clear` in a section; every name and alias; per-game settings and the global-only ones as
+  errors; the error messages (file, line, section, the list of names); keys, a click within
+  one poll, and gamepad buttons held across a switch.
+- `tests/test_gestures.py` (`make gestures`, part of `make boot`): every run has a config with
+  the `[tanks]` section. A new Tanks! run (no game-side player; `tests/boot/gestures_tanks.txt`)
+  holds D from the party menu into the game (the tank stays put), presses it again (the tank
+  drives right) and W (up the screen), and checks the one `boot: input: the [tanks] bindings`
+  line; Charge! still runs, turns and jumps with W / A / D, and no other run switches.
+- Merge mode (`--input` with `--live-input`): a script's state persists between its
+  commands, so the buttons the live layer added were never taken off again (the motions,
+  which the earlier gesture tests used, are not buttons). The live layer now takes off the
+  buttons it added at the last poll before adding this poll's.
+
+The default bindings and the input timing are unchanged.

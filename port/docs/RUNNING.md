@@ -308,6 +308,48 @@ TWIST_RIGHT TWIST_RESET TILT_FORWARD TILT_BACK TILT_LEFT TILT_RIGHT SHAKE PULL P
 Mouse buttons are `Mouse1` (left), `Mouse2` (middle), `Mouse3` (right), `Mouse4` / `Mouse5`
 (side); the wheel always twists (`wheel_twist 0` turns it off).
 
+### Per-game sections
+
+A line `[NAME]` starts a section: the lines after it, up to the next section, apply only
+while that game runs. The lines before the first section (or after `[global]`) apply
+everywhere, as above. For example, WASD drives the tank in Tanks! and still tilts the
+remote in Charge! and everywhere else:
+
+```
+[tanks]
+key W UP
+key A LEFT
+key S DOWN
+key D RIGHT
+```
+
+Names (case, spaces, `_`, `-` and `!` do not matter): `shooting` (`Shooting Range`),
+`findmii`, `tabletennis`, `posemii`, `hockey` (`Laser Hockey`), `billiards`, `fishing`,
+`charge`, `tanks`, and `menu` for everything else: the logos, the title, the menus and
+the screens between games. `[global]` goes back to the lines for every game. The HOME
+Menu uses the bindings of the game it opens over.
+
+- A section is layered on the global bindings: a key or gamepad button bound in it
+  replaces that key's or button's global binding for that game; everything else stays.
+  The order in the file does not matter (a section always sits on the whole global set).
+- `key X none` / `pad X none` in a section unbinds X for that game only.
+- `clear` in a section drops every binding for that game, the global ones included, then
+  the section's own lines after it apply (its lines before the `clear` are dropped too).
+- These settings may be changed per game: `pointer_speed gyro_sensitivity tilt
+  stick_deadzone pointer_stabilise left_stick twist_speed wheel_twist tilt_angle
+  tilt_speed shake_strength shake_frames pull_distance push_distance`. The others
+  (`volume mute_unfocused rumble nunchuk speaker_volume`) are global: in a section they
+  are an error.
+- A section may appear more than once; its lines add up.
+- When the game changes, a key or button held across the change whose binding changed
+  does nothing until you let go of it (press it again for the new binding); one whose
+  binding is the same keeps working. `boot: input: the [tanks] bindings` on the console
+  says when a section starts.
+
+A bad line stops the game with the file, the line number and the section, for example
+`config: input.cfg:12: [tanks] unknown remote button or motion (...)`, or `unknown section
+[tank]` with the list of names.
+
 ## Known limits
 
 - Minigames: every motion has a key and a gamepad button (above); a real swing or shake of a

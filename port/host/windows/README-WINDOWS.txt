@@ -65,6 +65,17 @@ Mouse = the Wii Remote's pointer, left button = A, right button = B, Escape = HO
 1 / 2, = / - for + / -; gamepads work as remotes (south = A, east = B, Guide = HOME).
 The full tables (motions, every minigame) are in port/docs/RUNNING.md in the source.
 
+Bindings for one game: in %APPDATA%\wiiplay\input.cfg (a text file you create), lines
+after [NAME] apply only in that game (shooting findmii tabletennis posemii hockey
+billiards fishing charge tanks, or menu). For WASD to drive the tank in Tanks! while
+W / A / S / D still tilt the remote in Charge!:
+
+    [tanks]
+    key W UP
+    key A LEFT
+    key S DOWN
+    key D RIGHT
+
 Files
 -----
     wiiplay.exe              the game (console program: messages appear in the console)
