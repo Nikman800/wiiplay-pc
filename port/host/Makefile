@@ -322,7 +322,7 @@ $(OUT)/test_math$(X): $(HOST)/tests/test_math.cpp $(LIB)
 # The contraction plugin's decisions and code (§43), compiled as a game unit is; both paths
 # of the fused operation (the CPU's FMA, the software forms).
 $(OUT)/test_cwcontract$(X): $(HOST)/tests/test_cwcontract.cpp $(CWCONTRACT) $(LIB)
-	$(CXX) $(CXXFLAGS) -fplugin=$(CWCONTRACT) -fplugin-arg-cwcontract-default=on \
+	$(CXX) $(CXXFLAGS) $(ANIM_FP) -fplugin=$(CWCONTRACT) -fplugin-arg-cwcontract-default=on \
 	    -fplugin-arg-cwcontract-exclude=$(HOST)/include/ -MMD $< $(LIB) -o $@
 
 unit: $(TESTS) $(STEP4_OBJS)
