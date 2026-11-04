@@ -192,6 +192,24 @@ int PortInputPlayMode(int chan);
 #define PORT_HOLD_TILT_STICK 2 /* the game reads tilt or twist: the left stick tilts the remote */
 int PortInputHoldHook(int chan) __attribute__((weak));
 
+/* The game running (weak; the boot's host_probe_games.cpp): one of PORT_GAME_*; the live
+ * input layer switches to that game's section of the config file (§44). Absent: the
+ * global bindings only. */
+enum {
+    PORT_GAME_MENU,     /* every scene but the nine games: the logos, title, menus */
+    PORT_GAME_SHOOTING, /* Shooting Range */
+    PORT_GAME_FINDMII,
+    PORT_GAME_TABLETENNIS,
+    PORT_GAME_POSEMII,
+    PORT_GAME_HOCKEY,   /* Laser Hockey */
+    PORT_GAME_BILLIARDS,
+    PORT_GAME_FISHING,
+    PORT_GAME_CHARGE,
+    PORT_GAME_TANKS,
+    PORT_GAME_COUNT
+};
+int PortInputGameHook(void) __attribute__((weak));
+
 /* "FRAME hbm PANE" ("hbm none" stops): while set, each retrace (after `aim`,
  * before `play`) this hook (weak; the boot's host_probe_hbm.cpp) gives where
  * remote CHAN must point to be on the centre of the HOME Menu's pane PANE

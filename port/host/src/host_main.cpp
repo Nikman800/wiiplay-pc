@@ -848,7 +848,7 @@ int main(int argc, char** argv) {
         }
     }
     {
-        char err[256];
+        char err[512]; // FILE:LINE: [SECTION] and the message
         if (PortLiveLoadConfig(gOpt.config, err, sizeof err) != 0) {
             Die("config: ", err);
         }

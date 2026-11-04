@@ -1438,6 +1438,32 @@ extern "C" int PortInputHoldHook(int chan) {
     }
 }
 
+/* The game running, for the config file's per-game sections (input.h, §44) */
+extern "C" int PortInputGameHook(void) {
+    switch (CurrentScene()) {
+    case RPSysSceneCreator::ESceneID_RPDucScene:
+        return PORT_GAME_SHOOTING;
+    case RPSysSceneCreator::ESceneID_RPWlyScene:
+        return PORT_GAME_FINDMII;
+    case RPSysSceneCreator::ESceneID_RPPnpScene:
+        return PORT_GAME_TABLETENNIS;
+    case RPSysSceneCreator::ESceneID_RPBomScene:
+        return PORT_GAME_POSEMII;
+    case RPSysSceneCreator::ESceneID_RPHkyScene:
+        return PORT_GAME_HOCKEY;
+    case RPSysSceneCreator::ESceneID_RPBilScene:
+        return PORT_GAME_BILLIARDS;
+    case RPSysSceneCreator::ESceneID_RPFshScene:
+        return PORT_GAME_FISHING;
+    case RPSysSceneCreator::ESceneID_RPCowScene:
+        return PORT_GAME_CHARGE;
+    case RPSysSceneCreator::ESceneID_RPTnkScene:
+        return PORT_GAME_TANKS;
+    default:
+        return PORT_GAME_MENU;
+    }
+}
+
 /* The FRAME line's `motion=` field (gesture tests, §37): what each game's motion detector
  * made of remote 0. hky: paddle 0's twist (KPAD roll it read, 0.1 degrees); bom: the cursor's
  * angle (0.1 degrees); cow: yaw (milliradians), speed (x100), jump height (x100); fsh: player

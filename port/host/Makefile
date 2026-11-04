@@ -751,6 +751,19 @@ input: $(OUT)/input_harness
 	    --scripts $(HOST)/tests/input --compare $(INPUT_OTHER)
 test: input
 
+# The live input layer's config file and per-game bindings (src/host_binds.cpp, §44),
+# without a window system: writes its config files into $(OUT)/binds_test
+$(OUT)/test_binds$(X): $(HOST)/tests/test_binds.cpp $(OUT)/host/src/host_binds.cpp.o $(INPUT_OBJS) $(LIB)
+	$(CXX) $(CXXFLAGS) -MMD $< $(OUT)/host/src/host_binds.cpp.o $(INPUT_OBJS) $(LIB) -Wl,--gc-sections -o $@
+
+.PHONY: binds-unit
+all: $(OUT)/test_binds
+unit: binds-unit
+input: binds-unit
+binds-unit: $(OUT)/test_binds
+	@mkdir -p $(OUT)/binds_test
+	$(OUT)/test_binds $(OUT)/binds_test
+
 # --- GX layer on Aurora (docs/HOST_BUILD.md §25) -------------------------------
 # 64-bit only (Dawn has no 32-bit builds): with M32=1 these targets are skipped.
 # CMake (port/host/aurora/CMakeLists.txt) builds Aurora and the glue library
@@ -861,7 +874,7 @@ BOOT_SRCS := $(sort $(BOOT_RP_SRCS) $(BOOT_LIB_SRCS) $(BOOT_SDK_SRCS) $(SND_SRCS
 BOOT_HOST_SRCS := src/host_os.cpp src/host_dvd.cpp src/host_nand.cpp src/host_sc.cpp \
     src/host_thread.cpp src/host_os_clock.c src/host_snd.cpp src/host_ax.cpp src/host_wpad.cpp \
     src/host_input.cpp src/host_reslist.cpp src/host_g3d.cpp src/host_gfx_stubs.c \
-    src/host_vi.cpp src/host_boot.cpp src/host_live.cpp src/host_probe.cpp src/host_probe_games.cpp \
+    src/host_vi.cpp src/host_boot.cpp src/host_live.cpp src/host_binds.cpp src/host_probe.cpp src/host_probe_games.cpp \
     src/host_probe_hbm.cpp src/host_perf.cpp src/host_record.cpp src/host_speaker.cpp src/host_main.cpp
 BOOT_OBJS := $(sort $(patsubst %,$(OUT)/decomp/%.o,$(filter-out $(GX_SDK_SRCS),$(BOOT_SRCS))) \
     $(patsubst %,$(OUT)/host/%.o,$(BOOT_HOST_SRCS))) $(OUT)/decomp/src/main.cpp.o
