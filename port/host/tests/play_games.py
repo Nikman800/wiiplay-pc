@@ -197,9 +197,10 @@ GAMES = [
     ("tanks", "tanks", "tnk", "ESceneID_RPTnkScene", 9900,
      [(4150, "start"), (4400, "shot"), (4650, "mission_cleared"), (9100, "results"), (9890, "back_to_menu")],
      check_tanks),
-    # the game-side player clears the table in 21 shots (7 fouls) since §42's rounding (10 before)
-    ("billiards", "billiards", "bil", "ESceneID_RPBilScene", 17200,
-     [(4150, "start"), (4900, "rolling"), (16100, "score"), (16500, "results"), (17190, "back_to_menu")],
+    # the game-side player clears the table in 15 shots (6 fouls) since §43's contraction (21 with
+    # §42's rounding, 10 before); the result at frame 13386, the menu again at 14222
+    ("billiards", "billiards", "bil", "ESceneID_RPBilScene", 14500,
+     [(4150, "start"), (4900, "rolling"), (13250, "score"), (13650, "results"), (14490, "back_to_menu")],
      check_billiards),
     ("fishing", "fishing", "fsh", "ESceneID_RPFshScene", 12900,
      [(4150, "start"), (5150, "catch"), (5400, "points"), (11900, "results"), (12890, "back_to_menu")],
