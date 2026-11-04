@@ -192,7 +192,8 @@ def check_tanks(vals, errs, switches):
         errs.append("tanks: D held from the menu moved the tank %s -> %s" % (start, held))
     if right[0] - held[0] < 50 or abs(right[1] - held[1]) > 5:
         errs.append("tanks: D (RIGHT in [tanks]) moved the tank %s -> %s" % (held, right))
-    if right[1] - up[1] < 50 or abs(up[0] - right[0]) > 5:
+    # a wall stops the tank 37 units up from where D left it
+    if right[1] - up[1] < 30 or abs(up[0] - right[0]) > 5:
         errs.append("tanks: W (UP in [tanks]) moved the tank %s -> %s" % (right, up))
     if switches != ["boot: input: the [tanks] bindings"]:
         errs.append("tanks: binding switches %s" % switches)
