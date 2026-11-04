@@ -122,6 +122,7 @@ struct PadState {
 PadState sPads[WPAD_MAX_CONTROLLERS];
 bool sInput = false;
 bool sMerge = false; // live input over a test script's remotes
+u16 sMergeAdded[WPAD_MAX_CONTROLLERS]; // the buttons merging added to them at the last poll
 u16 sKeyButtons = 0;   // keyboard + mouse, remote 0
 f32 sMouseX = 0.0f, sMouseY = 0.0f;
 f32 sMouseWinX = 0.0f, sMouseWinY = 0.0f; // the last position in window points
@@ -664,11 +665,16 @@ int PortLivePoll(PortInputState states[WPAD_MAX_CONTROLLERS]) {
         u32 keys = chan == 0 ? KeyButtons() : 0;
         u32 actions = keys & 0xFFFF0000u;
         if (sMerge) {
-            // Over a test script's remote (§37): add the buttons and motions only
-            st->buttons |= static_cast<u16>(keys);
+            // Over a test script's remote (§37): add the buttons and motions only. The
+            // script's state persists between its commands: the buttons added at the last
+            // poll come off first (a key released releases its button).
+            const u16 script = static_cast<u16>(st->buttons & ~sMergeAdded[chan]);
+            st->buttons = static_cast<u16>(keys);
             if (sPads[chan].present) {
                 ApplyPad(chan, st, dt, &actions);
             }
+            sMergeAdded[chan] = static_cast<u16>(st->buttons & ~script);
+            st->buttons = static_cast<u16>(st->buttons | script);
             if (chan == 0 && sMouseSeen) {
                 st->pointerValid = 1;
                 st->pointerX = sPointerX[0];

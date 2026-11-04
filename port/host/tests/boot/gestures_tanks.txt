@@ -1,0 +1,13 @@
+# Per-game bindings (port/docs/HOST_BUILD.md §44) over tests/boot/tanks.txt without its
+# player: test_gestures.py's config binds W / A / S / D to the D-pad in [tanks] only.
+# RETRACE EVENT. Tanks! starts at about 3890; the tank can move from about 4260.
+# D held on the party menu (the tilt key there) into Tanks!: its binding changes, so it
+# does nothing until it is pressed again
+3600 key D down
+4300 key D up
+# pressed again: RIGHT, the tank drives right for 58 frames
+4302 key D down
+4360 key D up
+# W: UP, the tank drives up the screen (-z)
+4400 key W down
+4460 key W up

@@ -5,11 +5,15 @@ game open) with the live input layer on top of the script (--live-input: merge m
 game-side players run in `play 2`: they navigate and aim as in the playtests but leave the
 motions to the live layer, pressing its default motion keys through SDL's queue (Q / E twist,
 W / A / D tilt, F shake, R pull and thrust, G push). Laser Hockey uses an events file
-(keys, the mouse wheel, the middle button, a virtual gamepad's left stick). The checks read
+(keys, the mouse wheel, the middle button, a virtual gamepad's left stick). Every run has a
+config file with a [tanks] section (§44: W / A / S / D drive the tank there); Tanks! runs
+without its player, driven by an events file's keys. The checks read
 the FRAME lines' `motion=` probe (host_probe_games.cpp: what each game's own detector made of
 remote 0) and `game=`: the twist turns Laser Hockey's paddle and Pose Mii's cursor, the
 tilt makes the bull run and turn, the shake makes it jump and hooks a fish, the pull and
-thrust shoots in Billiards, the push moves Find Mii's distance ratio.
+thrust shoots in Billiards, the push moves Find Mii's distance ratio; in Tanks! (`game=`)
+D and W move the tank, D held from the menu into the game only after it is pressed again,
+and Charge! still tilts with W / A / D.
 """
 
 import argparse
@@ -34,7 +38,19 @@ RUNS = {
     "fishing": ("fishing.txt", PLAY_AT + 3600, None),
     "billiards": ("billiards.txt", PLAY_AT + 2400, None),
     "findmii": ("findmii.txt", PLAY_AT + 1200, None),
+    "tanks": ("tanks.txt", 4500, "gestures_tanks.txt"),
 }
+# Runs without the game-side player (the events file plays)
+NO_PLAYER = {"tanks"}
+
+# Per-game bindings (§44): the tilt keys drive the tank in Tanks! only
+CONFIG = """# tests/test_gestures.py
+[tanks]
+key W UP
+key A LEFT
+key S DOWN
+key D RIGHT
+"""
 
 
 def make_script(scratch, game, part, frames):
@@ -47,6 +63,8 @@ def make_script(scratch, game, part, frames):
                         continue
                     w = line.split()
                     if len(w) == 3 and w[1] == "play" and w[2] == "1":
+                        if game in NO_PLAYER:
+                            continue
                         line = "%s play 2\n" % w[0]
                     out.write(line)
         out.write("end 100000\n")
@@ -61,23 +79,26 @@ def run(boot, disc, scratch, game, env):
     tb.party_save(os.path.join(d, "nand"))
     cmd = [boot, "--disc", disc, "--nand", os.path.join(d, "nand"), "--data-dir", os.path.join(d, "data"),
            "--frames", str(frames), "--input", make_script(scratch, game, part, frames), "--live-input",
-           "--log-level", "0"]
+           "--log-level", "0", "--config", os.path.join(scratch, "input.cfg")]
     if events:
         cmd += ["--events", os.path.join(HERE, "boot", events)]
     p = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=3600)
     if p.returncode != 0:
         sys.stderr.write(p.stderr[-3000:])
         return game, None
+    switches = [l for l in p.stderr.splitlines() if l.startswith("boot: input:")]
     vals = []
     for line in p.stdout.splitlines():
         f = line.split("\t")
         if f[0] != "FRAME":
             continue
         kv = dict(x.split("=", 1) for x in f[1:] if "=" in x)
+        if game == "tanks" and kv.get("game", "").startswith("tnk:"):
+            vals.append((int(f[1]), "tnk", [int(x) for x in kv["game"][4:].split(",")], kv["game"]))
         if "motion" in kv:
             tag, v = kv["motion"].split(":", 1)
             vals.append((int(f[1]), tag, [int(x) for x in v.split(",")], kv.get("game", "")))
-    return game, vals
+    return game, (vals, switches)
 
 
 def of(vals, tag):
@@ -160,8 +181,27 @@ def check_findmii(vals, errs):
                                                               max(ratios, default=0) / 1000)
 
 
+def check_tanks(vals, errs, switches):
+    v = of(vals, "tnk")  # state, stage, kills, lives, enemies, x, z, alive
+
+    def pos(frame):
+        x = at(v, frame)
+        return (x[5], x[6]) if x else (0, 0)
+    start, held, right, up = pos(4100), pos(4295), pos(4385), pos(4485)
+    if held != start:
+        errs.append("tanks: D held from the menu moved the tank %s -> %s" % (start, held))
+    if right[0] - held[0] < 50 or abs(right[1] - held[1]) > 5:
+        errs.append("tanks: D (RIGHT in [tanks]) moved the tank %s -> %s" % (held, right))
+    if right[1] - up[1] < 50 or abs(up[0] - right[0]) > 5:
+        errs.append("tanks: W (UP in [tanks]) moved the tank %s -> %s" % (right, up))
+    if switches != ["boot: input: the [tanks] bindings"]:
+        errs.append("tanks: binding switches %s" % switches)
+    return "[tanks] WASD: D held from the menu: still at %s; D: x %+d; W: z %+d" % (
+        held, right[0] - held[0], up[1] - right[1])
+
+
 CHECKS = {"hockey": check_hockey, "posemii": check_posemii, "charge": check_charge,
-          "fishing": check_fishing, "billiards": check_billiards, "findmii": check_findmii}
+          "fishing": check_fishing, "billiards": check_billiards, "findmii": check_findmii, "tanks": check_tanks}
 
 
 def main():
@@ -182,14 +222,22 @@ def main():
     scratch = os.path.join(args.scratch, "gestures")
     shutil.rmtree(scratch, ignore_errors=True)
     os.makedirs(scratch)
+    with open(os.path.join(scratch, "input.cfg"), "w") as f:
+        f.write(CONFIG)
     games = args.only.split(",") if args.only else list(RUNS)
     errs = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         results = list(pool.map(lambda g: run(args.boot, args.disc, scratch, g, env), games))
-    for game, vals in results:
-        if vals is None:
+    for game, res in results:
+        if res is None:
             errs.append("%s: the boot failed" % game)
             continue
+        vals, switches = res
+        if game == "tanks":
+            print("  %-10s %s" % (game, check_tanks(vals, errs, switches)))
+            continue
+        if switches:  # the [tanks] section never applies in the other games
+            errs.append("%s: binding switches %s" % (game, switches))
         print("  %-10s %s" % (game, CHECKS[game](vals, errs)))
     for e in errs:
         print("  ERROR: " + e)
