@@ -998,22 +998,19 @@ libm: $(OUT)/libm_compare $(OUT)/libm_compare_linux
 	    for f in fmaf fma; do $(OUT)/libm_compare self $$f $(LIBM_N) || fail=1; done; \
 	    if [ $$fail = 0 ]; then echo "libm: OK"; else echo "libm: FAILED"; exit 1; fi
 
-# $(OUT)/NAME runs NAME.exe under Wine, headless: no display (Wine then opens no
-# window), its own prefix (WINEPREFIX, default $TMPDIR/wiiplay-wine when it runs). Make
-# the prefix with one program first (`make WIN64=1 unit`): several Wine processes
-# starting together in a new prefix can hang in its set-up.
+# $(OUT)/NAME runs NAME.exe under Wine through windows/wine_run.sh: headless (no display:
+# Wine then opens no window), in one shared prefix (WINEPREFIX, default
+# ~/.cache/wiiplay/wine) that it makes once, under a lock, retrying if Wine's set-up
+# crashes; a run fails when its wineserver dies, or after WIIPLAY_WINE_TIMEOUT seconds.
 # WINEPATH: the MinGW runtime DLLs (libstdc++-6, libgcc_s_seh-1, libwinpthread-1).
 WINE ?= wine
 MINGW_DLL_DIRS := $(sort $(foreach d,libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll,\
     $(dir $(abspath $(shell $(MINGW)gcc-posix -print-file-name=$(d))))))
 WINE_DLL_PATH := $(subst $(eval) ,;,$(patsubst %/,Z:%,$(MINGW_DLL_DIRS)) $(if $(AURORA_BUILD),Z:$(AURORA_BUILD)))
-$(OUT)/%: $(OUT)/%$(X)
+$(OUT)/%: $(OUT)/%$(X) $(HOST)/windows/wine_run.sh $(HOST)/Makefile
 	@printf '%s\n' '#!/bin/sh' '# Runs $*.exe under Wine without a display (port/host/Makefile, WIN64=1)' \
-	    'export WINEPREFIX="$${WINEPREFIX:-$${TMPDIR:-/tmp}/wiiplay-wine}" WINEDEBUG="$${WINEDEBUG:--all}"' \
-	    'export WINEDLLOVERRIDES="mscoree,mshtml=" WINEPATH="$(WINE_DLL_PATH)"' 'unset DISPLAY WAYLAND_DISPLAY' \
-	    '# Wine offers no Direct3D 12 here: Vulkan (winevulkan on the host driver, lavapipe in the tests)' \
-	    'export WIIPLAY_BACKEND="$${WIIPLAY_BACKEND:-vulkan}"' \
-	    'exec $(WINE) "$$0.exe" "$$@"' > $@
+	    'export WINE="$${WINE:-$(WINE)}" WINEPATH="$(WINE_DLL_PATH)"' \
+	    'exec $(HOST)/windows/wine_run.sh "$$0.exe" "$$@"' > $@
 	@chmod +x $@
 endif
 

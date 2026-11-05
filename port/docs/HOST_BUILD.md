@@ -5440,10 +5440,24 @@ Aurora tries Direct3D 12 first on Windows, then Vulkan (then D3D11). `--backend 
 
 ### Running the tests under Wine
 
-`$(OUT)/NAME` is a script that runs `NAME.exe` under Wine without a display (`DISPLAY` unset:
-Wine opens no window), in its own prefix (`$TMPDIR/wiiplay-wine`), with the MinGW runtime and
-Aurora's DLLs on `WINEPATH` and `WIIPLAY_BACKEND=vulkan` (Wine offers no Direct3D 12 for this
-machine's GPU). So `make WIN64=1 unit`, `archives`, ... `boot` run the same test scripts on the
+`$(OUT)/NAME` is a script that runs `NAME.exe` under Wine through `windows/wine_run.sh`,
+without a display (`DISPLAY` unset: Wine opens no window), with the MinGW runtime and Aurora's
+DLLs on `WINEPATH` and `WIIPLAY_BACKEND=vulkan` (Wine offers no Direct3D 12 for this machine's
+GPU).
+
+All runs share one prefix, `WINEPREFIX` or else `~/.cache/wiiplay/wine` (on disk: `/tmp` can be
+RAM). Ubuntu's Wine 10.0 sometimes crashes in `wineserver` (an integer divide error, in the
+kernel log as `traps: wineserver ... divide error`) while it sets up a new prefix. The prefix
+is left half-made, and the Wine processes waiting on the dead server sleep forever. So
+`wine_run.sh` makes the prefix once, under a lock, in a scratch directory that it moves into
+place only when `system.reg` and `kernel32.dll` are there, and retries a failed set-up (3
+tries). A run has a limit too:
+- exit 125 when the prefix's `wineserver` is gone while the program runs (seen within ~5 s);
+- exit 124 after `WIIPLAY_WINE_TIMEOUT` seconds (default 7200, the longest test script's own
+  limit; 0 for none).
+
+Either way, it stops the program's process group, which includes the children Wine starts
+detached from it. So `make WIN64=1 unit`, `archives`, ... `boot` run the same test scripts on the
 Windows executables. Dawn's Vulkan backend under Wine goes through winevulkan to the host's
 Vulkan loader, so `VK_ICD_FILENAMES` selects lavapipe as on Linux, and the `--compare` tests
 check the Windows harnesses' output against `build/host64`'s.
