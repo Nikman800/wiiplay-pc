@@ -5816,6 +5816,90 @@ on any CPU (tests, timings).
   cases above against the values CodeWarrior's instructions give, the order of a compound
   assignment's calls, the pragma, the sign of an exact zero.
 
+### Against the original objects
+
+The matching build's objects say where CodeWarrior fused. To place each instruction on its
+source line, the same units were compiled again with CodeWarrior with `-sym on -schedule off`
+(the fused instructions of all 30816 functions of the 575 units are the original objects'),
+and once more with `-inline off` (each function on its own, every instruction with its line;
+the decisions are per expression, so inlining does not change them). Per source function,
+the scalar fused operations (575 units: the RP framework, the minigames, EGG,
+`g3d_scnrfl.cpp`, `g3d_resanmchr.cpp`):
+
+| Host | Functions with fused operations (CodeWarrior or host) | Same count | Same operations |
+|---|---|---|---|
+| before (no contraction) | 350 | 0 | 0 |
+| GCC `-mfma -ffp-contract=fast` | 388 | 249 | 230 |
+| the plugin | 350 | 341 | 339 |
+
+The other 9: CodeWarrior computed a repeated expression once (fused or not; the host
+computes it twice, the same value), unrolled a loop (more instructions, the same operations),
+or folded `x * 1.0` after inlining; and initializers that GCC's folder turned from `-K + a*b`
+into `a*b - K` (the same bits). Per emitted function after each compiler's own inlining (as
+§42's experiment counted): GCC fast 151 of 385 functions, the plugin 226 of 334, the rest
+being functions one compiler inlined and the other did not; fused instructions 1791 on the
+Wii, 1792 in the host objects. The plugin's decisions under GCC 15 (Linux) and MinGW-w64's
+GCC 13 (Windows) are the same in every unit (17901 reported sites, the function names'
+mangling of internal linkage aside), and the Linux binary built against the plugin headers
+of either installation is the same file.
+
+### Against the original (Dolphin)
+
+§42's Tanks! traces (idle player, seeds written at `RPTnkGameManager::Start`, every position
+and aim direction as float bits, the same Dolphin traces):
+
+| Build | Mission 1 (1500 frames): frames differing from Dolphin | Mission 3 (2500 frames) |
+|---|---|---|
+| §42 (no contraction) | 843, from frame 206 | 1891, from frame 174 |
+| §42's experiment (GCC fast) | 0 | none numerically; 508 frames with +0 for the Wii's -0 |
+| now | 0 | 0 (bit for bit, signs of zero included) |
+
+The sign: GCC's contraction wrote `c - a*b` as `vfnmadd` (-(a*b) + c, +0 for an exact zero)
+where Broadway's `fnmsubs` gives -(a*b - c), -0; the plugin computes the latter.
+
+### On the PC: FMA or not, Linux and Windows
+
+- Without FMA: `WIIPLAY_NO_FMA=1` (the software forms, as on a pre-2013 CPU): the Tanks!
+  script (9900 frames: menus, three missions, results) gives the same game state, picture
+  hash and sound in every frame as the FMA path. `test_cwcontract` runs both.
+- Speed (the Tanks! script headless, virtual time, `--perf` `calc_ms`: the game's code, the
+  mixer, the clock): before 3.00 ms a frame on average (p99 5.5), now 3.14 (5.6) with FMA and
+  2.56 (3.8) in software; the differences are within the run-to-run noise of this machine
+  (another job was running), and far below 16.7 ms.
+- Windows: Billiards (the game-side player, 14500 frames) under Wine against Linux: the game
+  state, every picture hash and the sound identical in every frame.
+
+### The games on the host, before and after
+
+`make playtest`'s nine scripts, the old and the new `boot` (`--trace --hash`):
+
+| Game | Game state | |
+|---|---|---|
+| Tanks!, Shooting Range, Find Mii, Fishing, Pose Mii | identical in every frame | |
+| Laser Hockey | from frame 4392 (the puck one unit off) | the same 14-0 |
+| Table Tennis | from frame 3956 | the same 30 rallies, 61 hits, the same final state |
+| Charge! | from frame 6371 | the same 194 points, the same final state |
+| Billiards | from frame 4816 (the break) | another game: the table cleared in 15 shots, 6 fouls (was 21, 7) |
+
+Picture hashes differ from frame 670 (the menus' layout animations, `g3d_resanmchr`'s and the
+RP code's interpolations). New timings: Billiards ends at frame 13386 and the menu is back at
+14222 (the run 14500 frames, was 17200; `play_games.py`); two-player Billiards (`make
+playtest2`) ends at 12035, the menu at 12558 (12850 frames, was 12400).
+
+### Verified
+
+- `make test` (64-bit) and `make M32=1 test` (build/host32 fresh; `test_cwcontract` on -m32
+  computes its own references in SSE): OK. `test_anims.py` and `test_collision.py` model the
+  fused sites (`HermiteInterpolation`, the CHR FVS / CV values and lerps; `RPKcl`'s dot
+  products, distances, corner solve and face depths) with a single rounding.
+- Under Wine: `unit` (`test_cwcontract` with and without FMA), `archives`, `resources`,
+  `layouts`, `models`, `anims`, `effects`, `efcurves`, `sound`, `collision`, `data`, `bti`,
+  `rfl`, `hbm`, `platform`, `audio`, `input`, `gx`, `boot`, `gestures`, `libm`, `scene`,
+  `particles`: OK.
+- `make playtest`, `make playtest2`: OK (the new Billiards timings).
+- `check_matching.py`: 1001 units identical (no decomp file changed).
+- `make WIN64=1 dist`.
+
 ## 44. Per-game input bindings
 
 The config file (RUNNING.md, "The config file") may give bindings and settings for one game:
