@@ -84,10 +84,13 @@ as on the Wii).
 The Windows build is cross-compiled on Linux with MinGW-w64 (HOST_BUILD.md §41) and packaged
 as a zip to copy to the Windows PC.
 
-Build (on Linux; Debian / Ubuntu packages `mingw-w64 g++-mingw-w64-x86-64-posix`, plus CMake,
-Ninja, Python 3, zip):
+Build on Linux, in a Linux shell: these commands do not run in PowerShell or the Windows
+command prompt. Debian / Ubuntu packages: MinGW-w64, `libgmp-dev` (the multiply-add plugin
+is built for the MinGW compiler, whose plugin headers come with it; HOST_BUILD.md §43), CMake,
+Ninja, Python 3, zip:
 
 ```
+sudo apt install mingw-w64 g++-mingw-w64-x86-64-posix libgmp-dev cmake ninja-build python3 zip
 git submodule update --init port/extern/aurora
 make -C port/host -j$(nproc) WIN64=1 dist
 ```
