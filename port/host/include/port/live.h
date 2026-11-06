@@ -44,6 +44,8 @@ typedef struct PortLiveConfig {
 /* Reads the config file (NULL: defaults only). Returns 0, or -1 with a
  * message in err. */
 int PortLiveLoadConfig(const char* path, char* err, int errLen);
+/* The per-game sections the loaded file has, "[tanks] [posemii]" ("" for none). */
+void PortLiveConfigSections(char* buf, int len);
 const PortLiveConfig* PortLiveGetConfig(void);
 
 /* Real-time pacing: installs the VI clock's pacer. With audio, AX frames go

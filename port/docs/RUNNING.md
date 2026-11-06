@@ -275,7 +275,10 @@ Shift, or the gamepad's south and east buttons.
 
 ## The config file
 
-Plain text, `#` starts a comment. Every line is optional.
+Plain text, `#` starts a comment. Every line is optional. At startup the console names the
+file and its per-game sections, `boot: config: .../input.cfg ([tanks])`, or says
+`boot: config: no .../input.cfg, the default controls` (and points out an `input.cfg.txt`,
+the name Notepad gives it).
 
 ```
 # keyboard and mouse: key NAME BUTTON (SDL key names; quote names with spaces)

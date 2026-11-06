@@ -76,6 +76,10 @@ W / A / S / D still tilt the remote in Charge!:
     key S DOWN
     key D RIGHT
 
+The console's first lines say whether it found the file: "boot: config: C:\...\input.cfg
+([tanks])", or "no ...\input.cfg, the default controls". Notepad saves "input.cfg.txt"
+(Explorer hides the .txt unless View > File name extensions is on): rename it.
+
 Files
 -----
     wiiplay.exe              the game (console program: messages appear in the console)

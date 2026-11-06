@@ -852,6 +852,30 @@ int main(int argc, char** argv) {
         if (PortLiveLoadConfig(gOpt.config, err, sizeof err) != 0) {
             Die("config: ", err);
         }
+        // Which file the controls came from: a misnamed one (input.cfg.txt) is otherwise
+        // silent until a game with a section starts.
+        std::string shown = gOpt.config != nullptr ? gOpt.config : configPath;
+#ifdef _WIN32
+        for (char& c : shown) {
+            if (c == '/') {
+                c = '\\';
+            }
+        }
+#endif
+        if (gOpt.config != nullptr) {
+            char sections[256];
+            PortLiveConfigSections(sections, sizeof sections);
+            std::fprintf(stderr, "boot: config: %s (%s)\n", shown.c_str(),
+                         sections[0] != '\0' ? sections : "no per-game sections");
+        } else {
+            std::fprintf(stderr, "boot: config: no %s, the default controls\n", shown.c_str());
+            if (PortPathExists((configPath + ".txt").c_str())) {
+                std::fprintf(stderr, "boot: config: there is an %s.txt: rename it to input.cfg "
+                                     "(Notepad adds .txt; Explorer hides it unless View > "
+                                     "File name extensions is on)\n",
+                             shown.c_str());
+            }
+        }
     }
 
     // What the IPL / apploader / OSInit leave behind, then the platform (§22)

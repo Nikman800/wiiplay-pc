@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace PortBinds {
 
@@ -655,4 +656,16 @@ u32 PadBinding(int slot) {
 
 extern "C" int PortLiveLoadConfig(const char* path, char* err, int errLen) {
     return PortBinds::Load(path, err, errLen);
+}
+
+extern "C" void PortLiveConfigSections(char* buf, int len) {
+    std::string out;
+    for (int g = 0; g < PORT_GAME_COUNT; g++) {
+        if (PortBinds::sSections[g].used) {
+            out += out.empty() ? "[" : " [";
+            out += PortBinds::kGameNames[g];
+            out += "]";
+        }
+    }
+    std::snprintf(buf, len, "%s", out.c_str());
 }
