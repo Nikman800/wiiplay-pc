@@ -97,7 +97,10 @@ make -C port/host -j$(nproc) WIN64=1 dist
 
 This writes `port/host/build/win64/wiiplay-windows-x64.zip` (the first build downloads Dawn's
 Windows package, SDL3 and a few libraries). It holds `wiiplay.exe`, the DLLs it loads,
-`play.bat` and `README-WINDOWS.txt`; no Nintendo data.
+`play.bat` and `README-WINDOWS.txt`; no Nintendo data. Beside it, `wiiplay-source.zip` (this
+repository and Aurora, the files git tracks as built, with `SOURCE.txt`) and
+`wiiplay-third-party-source.zip` (the libraries compiled into `wiiplay_gx.dll`): `wiiplay.exe` is
+GPL-2.0-or-later (README, Legal), so pass them on with the program if you share it.
 
 On Windows (10 version 1903 or later, 64-bit; a GPU with Direct3D 12 or Vulkan drivers; the
 Microsoft Visual C++ Redistributable 2015-2022 x64, which Dawn's DLLs use): unzip it anywhere,

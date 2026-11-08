@@ -91,6 +91,7 @@ Files
 Licenses: wiiplay.exe is GPL-2.0-or-later (LICENSE-GPL-2.0.txt): it includes code from
 the Dolphin emulator (Copyright 2008 Dolphin Emulator Project, GPL-2.0-or-later), the Wii
 CPU's estimate tables and audio resampling tables; the rest of its own source is CC0. Its
-source code is the wiiplay-pc repository. Aurora (MIT), Dawn (BSD 3-clause), SDL3 (zlib),
+source code: wiiplay-source.zip and wiiplay-third-party-source.zip, made with this package
+(give them along if you pass the program on). Aurora (MIT), Dawn (BSD 3-clause), SDL3 (zlib),
 DirectX Shader Compiler (University of Illinois/NCSA), the GCC runtime (GPL with the GCC
 Runtime Library Exception), winpthreads (MIT/BSD).
