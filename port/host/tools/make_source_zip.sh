@@ -54,7 +54,8 @@ state() { # $1: repository; "COMMIT" or "COMMIT plus local changes"
 dawn_version=$(sed -n 's/^AURORA_DAWN_VERSION:STRING=//p' "$aurora_build/CMakeCache.txt")
 dawn_ref=$(sed -n 's/^AURORA_DAWN_REF:STRING=//p' "$aurora_build/CMakeCache.txt")
 {
-    echo "Source code of the Wii Play PC port's Windows package (wiiplay-windows-x64.zip)."
+    echo "Source code of the Wii Play PC port (and of the Windows package, wiiplay-windows-x64.zip,"
+    echo "when one is made with it: make -C port/host WIN64=1 dist)."
     echo
     echo "wiiplay-pc   $(state "$repo")"
     for s in "${subs[@]}"; do
