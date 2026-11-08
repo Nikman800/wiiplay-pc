@@ -12,7 +12,8 @@ games open one at a time: finishing one opens the next. The HOME Menu works as o
 
 ## What you need
 
-- Your own Wii Play disc, extracted with Dolphin ("Extract Entire Disc") or `wit` / `nodtool`,
+- Your own Wii Play disc (USA, Rev 1), extracted with Dolphin ("Extract Entire Disc"; the README,
+  "Getting the game files"),
   so that the directory has `files/` and `sys/main.dol`. Dolphin puts them in a `DATA/`
   folder (beside `UPDATE/`, a system update the port does not need); `--disc` may name the
   folder above it. The port reads it and never writes to it.
