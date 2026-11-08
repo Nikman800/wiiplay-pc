@@ -7,7 +7,43 @@ emulator: the Wii's hardware and SDK are replaced by a platform layer (`port/hos
 through Aurora (WebGPU).
 
 **You need your own Wii Play disc.** This repository contains no Nintendo data, and no game files are
-downloaded. Extract the disc with Dolphin ("Extract Entire Disc") or `wit` / `nodtool`.
+downloaded: see [Getting the game files](#getting-the-game-files).
+
+## Getting the game files
+
+The port needs the files from your own Wii Play disc, **USA, Rev 1 (game ID `RHAE01`, revision 1)**.
+Other versions (Europe, Japan, the first USA printing) are not supported, and the port does not check:
+it may fail or misbehave with them.
+
+1. **Copy your disc to an image file.** A PC's disc drive cannot read Wii discs; use a Wii with the
+   Homebrew Channel and [CleanRip](https://github.com/emukidid/cleanrip), which copies the disc to a
+   USB drive or SD card. On a FAT32 drive it writes the image in parts (`RHAE01.part0.iso`,
+   `RHAE01.part1.iso`, ...); join them on the PC:
+
+   ```sh
+   cat RHAE01.part*.iso > RHAE01.iso                      # Linux
+   copy /b RHAE01.part0.iso+RHAE01.part1.iso RHAE01.iso   # Windows command prompt
+   ```
+
+   If you already have an image of your disc (`.iso`, `.rvz`, `.wbfs`, ...), use that.
+
+2. **Check the version.** In [Dolphin](https://dolphin-emu.org), add the image's folder to the game
+   list, right-click the game, Properties, Info: the game ID must be `RHAE01` and the revision `1`.
+
+3. **Extract it.** In Dolphin: right-click the game, Properties, Filesystem, right-click the disc at
+   the top, "Extract Entire Disc...", and choose an empty folder. Or with
+   [Wiimms ISO Tools](https://wit.wiimm.de) (not for `.rvz`; Dolphin's right-click "Convert File..."
+   turns one into an `.iso`):
+
+   ```sh
+   wit extract --psel data --pmode none RHAE01.iso wiiplay-disc   # only the game partition
+   ```
+
+   The folder must contain `files/` and `sys/main.dol`, or Dolphin's layout, `DATA/files/` and
+   `DATA/sys/main.dol` (beside an `UPDATE/` folder the port does not need). Either works.
+
+4. **Point the port at it:** `--disc /path/to/that-folder`, or on Windows put it in a folder named
+   `disc` beside `wiiplay.exe` (below). The port only reads the files; it never changes them.
 
 ## Faithful to the Wii
 
