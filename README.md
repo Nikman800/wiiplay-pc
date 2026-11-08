@@ -30,10 +30,34 @@ make -C port/host -j$(nproc) $PWD/port/host/build/host64/boot
 port/host/build/host64/boot --disc /path/to/extracted-disc --window
 ```
 
-## Windows
+## Build and run (Windows)
 
-The Windows build is cross-compiled on Linux with MinGW-w64 (`make -C port/host WIN64=1 dist`) and
-packaged as a zip with `play.bat`. Steps, requirements and where Windows keeps saves and settings:
+The Windows version is cross-compiled on Linux (or WSL, untested) with MinGW-w64, then copied to the
+Windows PC as a zip. The build commands run in a Linux shell, not PowerShell or the command prompt.
+
+1. On Linux (Debian / Ubuntu):
+
+   ```sh
+   sudo apt install mingw-w64 g++-mingw-w64-x86-64-posix libgmp-dev cmake ninja-build python3 zip
+   git clone https://github.com/Nikman800/wiiplay-pc && cd wiiplay-pc
+   git submodule update --init port/extern/aurora
+   make -C port/host -j$(nproc) WIN64=1 dist
+   ```
+
+   This writes `port/host/build/win64/wiiplay-windows-x64.zip` (`wiiplay.exe`, its DLLs, `play.bat`,
+   `README-WINDOWS.txt`; no Nintendo data), and beside it the source zips that go with it if you
+   share it (README, Legal).
+
+2. On Windows (10 version 1903 or later, 64-bit; a GPU with Direct3D 12 or Vulkan drivers; the
+   Microsoft Visual C++ Redistributable 2015-2022 x64): unzip it anywhere, put your extracted disc
+   in a folder named `disc` beside `wiiplay.exe` (Dolphin's `DATA` folder, or the folder holding
+   it, works too) and double-click `play.bat`. Or from a command prompt:
+
+   ```
+   wiiplay.exe --disc C:\path\to\extracted-disc --window
+   ```
+
+Saves go to `%APPDATA%\wiiplay\nand`, the config file to `%APPDATA%\wiiplay\input.cfg`. More:
 [port/docs/RUNNING.md](port/docs/RUNNING.md#windows).
 
 ## Controls
