@@ -106,7 +106,13 @@ To build, you need your own copy of Wii Play (USA, Rev 1); `tools/reproduce.sh` 
 build needs from your disc image. Wii Play is a trademark of Nintendo; this project is not affiliated
 with or endorsed by Nintendo.
 
-Licence: CC0-1.0 (see `LICENSE`), except `src/revolution/BTE`, which keeps its Apache-2.0 licence.
+Licence: CC0-1.0 (see `LICENSE`), except:
+- `src/revolution/BTE`, which keeps its Apache-2.0 licence;
+- three PC port files that come from the Dolphin emulator and are GPL-2.0-or-later
+  (`LICENSES/GPL-2.0-or-later.txt`): `port/host/include/port/broadway_fp.h` (the Wii CPU's `fres` /
+  `frsqrte` estimate tables), `port/host/tools/gen_ax_coefs.py` and the `port/host/src/host_ax_coefs.h`
+  it generates (audio resampling tables). A PC build includes them, so the built program is
+  GPL-2.0-or-later as a whole. The decompilation itself does not use them.
 
 ## How this was made
 
@@ -134,3 +140,9 @@ Petari's decompilation of Broadcom's BTE. Those files carry Broadcom's Apache-2.
 `src/revolution/BTE/LICENSE-APACHE-2.0` and `NOTICE`), with changes by Petari's contributors
 (muff1n1634) and small build adjustments here (compatibility headers, prototype casts).
 Thanks to their authors.
+
+The PC port reproduces the Wii CPU's floating-point estimate instructions with the tables and
+interpolation from the Dolphin emulator (https://github.com/dolphin-emu/dolphin, Copyright 2008 Dolphin
+Emulator Project, GPL-2.0-or-later), whose developers measured them on a console, and generates its
+audio resampling tables the way Dolphin's free DSP ROM does. Its documentation of the Wii's DSP, GPU and
+CPU behaviour guided much of the port. Thanks to the Dolphin team.

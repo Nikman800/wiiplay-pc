@@ -1078,6 +1078,7 @@ dist: $(OUT)/boot$(X) $(WPGX_LIB)
 	    $(MINGW)strip --strip-unneeded -o $(DIST)/$$(basename $$d) $$d || exit 1; done
 	sed 's/$$/\r/' $(HOST)/windows/README-WINDOWS.txt > $(DIST)/README-WINDOWS.txt
 	sed 's/$$/\r/' $(HOST)/windows/play.bat > $(DIST)/play.bat
+	sed 's/$$/\r/' $(REPO)/LICENSES/GPL-2.0-or-later.txt > $(DIST)/LICENSE-GPL-2.0.txt
 	cd $(OUT)/dist && zip -q -r -X $(DIST_ZIP) wiiplay
 	@echo "dist: $(DIST_ZIP) ($$(du -h $(DIST_ZIP) | cut -f1))"
 endif

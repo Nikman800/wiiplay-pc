@@ -5603,9 +5603,10 @@ runtime's).
 
 ### Broadway's rounding
 
-- **Estimates.** `fres` and `frsqrte` (`port_fres`, `port_frsqrte` in `port/ps.h`) are
-  Dolphin's lookup tables and interpolation (`Common::ApproximateReciprocal` /
-  `ApproximateReciprocalSquareRoot`, which Dolphin took from a console). Checked against
+- **Estimates.** `fres` and `frsqrte` (`port_fres`, `port_frsqrte` in `port/broadway_fp.h`)
+  are Dolphin's lookup tables and interpolation (`Common::ApproximateReciprocal` /
+  `ApproximateReciprocalSquareRoot`, which Dolphin took from a console). That header is
+  therefore GPL-2.0-or-later, not CC0, and so is a program built with it (README, Legal). Checked against
   Dolphin's own code (compiled on the host) for every float: 0 differences (fres: all
   4278190082 non-NaN floats; frsqrte: every positive finite float). `frsqrte`'s result is a
   double with up to 26 fraction bits, not always a single.
